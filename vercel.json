@@ -2,7 +2,8 @@
   "buildCommand": "npm run build",
   "framework": "vite",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/api/auth/:path", "destination": "/api/auth/:path" },
+    { "source": "/api/:path", "destination": "/api/:path" },
     { "source": "/(.*)", "destination": "/" }
   ]
 }
