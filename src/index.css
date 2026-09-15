@@ -1,0 +1,109 @@
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: business --default, night, dim;
+}
+
+:root {
+  --bg: #0a0a0a;
+  --ink: #fafafa;
+  --muted: #a1a1aa;
+  --faint: #3f3f46;
+  --rule: #18181b;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19);
+  --dur-fast: 180ms;
+  --dur-normal: 250ms;
+  --dur-slow: 650ms;
+  --dur-hero: 800ms;
+  --stagger-tight: 30ms;
+  --stagger-sm: 60ms;
+  --blur-sm: 3px;
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px); filter: blur(var(--blur-sm)); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes reveal-right {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes draw-line {
+  from { stroke-dashoffset: var(--path-len); }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes check {
+  0% { transform: scale(0.6); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes progress-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--muted);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* { scrollbar-width: thin; }
+
+.figure {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  font-family: 'Iowan Old Style', 'Palatino Linotype', 'Georgia', serif;
+}
+
+.label-s {
+  font-size: 9.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  color: #52525b;
+}
+
+.rule { height: 1px; width: 100%; background: #18181b; }
+
+.mono { font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace; }
+
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line { stroke: color-mix(in oklab, currentColor 10%, transparent); }
+
+.glass-card { background: color-mix(in oklab, var(--color-base-200) 86%, transparent); backdrop-filter: blur(18px); }
+
+.metric-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
