@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "start": "node server.mjs",
-    "sync": "node scripts/sync.mjs",
+    "sync": "node --env-file=.env.local scripts/sync.mjs",
     "generate-snapshot": "node scripts/generate-snapshot.mjs"
   },
   "dependencies": {
