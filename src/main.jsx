@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { Icon } from '@iconify/react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AreaChart } from './Charts'
-import { Projects, Activity, Code, Shipping } from './LegacyTabs'
+import { Projects, Activity, Code } from './LegacyTabs'
 import { CompareDelta } from './CompareDelta'
 import { ContributionField, buildHeatmap } from './Heatmap'
 import { LanguageBar, LanguageLegend } from './LanguageBar'
@@ -15,8 +15,8 @@ import { useReducedMotion, ease, dur } from './motion'
 import { Curtain, useCurtainTransition } from './CurtainTransition'
 import './index.css'
 
-const nav = ['overview', 'projects', 'activity', 'code', 'shipping']
-const navLabels = { overview: 'Overview', projects: 'Projects', activity: 'Activity', code: 'Code', shipping: 'Shipping' }
+const nav = ['overview', 'projects', 'activity', 'code']
+const navLabels = { overview: 'Overview', projects: 'Projects', activity: 'Activity', code: 'Code' }
 
 const fmt = new Intl.NumberFormat('en-US')
 const stringN = (v) => v == null ? '—' : fmt.format(Number(v))
@@ -111,16 +111,14 @@ function App() {
   const [vercel, setVercel] = useState({ connected: false, projects: 0, deployments: 0, projectList: [] })
   const [localCompare, setLocalCompare] = useState(null)
   const [githubCompare, setGithubCompare] = useState(null)
-  const [vercelCompare, setVercelCompare] = useState(null)
   const [compare, setCompare] = useState(false)
   const [status, setStatus] = useState({
     local: 'loading',
     github: 'loading',
-    vercel: 'loading',
-    wakatime: 'unavailable',
-    ai: 'unavailable',
+    sync: 'unavailable',
   })
   const [mode, setMode] = useState(null)
+  const [auth, setAuth] = useState(null)
   const [snapshotAt, setSnapshotAt] = useState(null)
   const {
     view,
@@ -194,9 +192,9 @@ function App() {
   }
 
   const loadPrimary = useCallback(async (force = false) => {
-    const setters = { local: setLocal, github: setGithub, vercel: setVercel }
+    const setters = { local: setLocal, github: setGithub }
     if (force) { setRefreshing(true); setRefreshOk(false) }
-    await Promise.allSettled(['local', 'github', 'vercel'].map((x) => fetchSource(x, rangeRef.current, setters[x], true, force)))
+    await Promise.allSettled(['local', 'github'].map((x) => fetchSource(x, rangeRef.current, setters[x], true, force)))
     setRefreshing(false)
     if (force) setRefreshOk(true)
   }, [])
@@ -204,10 +202,10 @@ function App() {
   const loadCompare = useCallback(async () => {
     const cr = makeCompareRange(rangeRef.current)
     if (cr && compare) {
-      const setters = { local: setLocalCompare, github: setGithubCompare, vercel: setVercelCompare }
-      await Promise.allSettled(['local', 'github', 'vercel'].map((x) => fetchSource(x, cr, setters[x], false)))
+      const setters = { local: setLocalCompare, github: setGithubCompare }
+      await Promise.allSettled(['local', 'github'].map((x) => fetchSource(x, cr, setters[x], false)))
     } else {
-      setLocalCompare(null); setGithubCompare(null); setVercelCompare(null)
+      setLocalCompare(null); setGithubCompare(null)
     }
   }, [compare])
 
@@ -230,7 +228,7 @@ function App() {
   useEffect(() => {
     fetch('/api/health')
       .then((r) => r.json())
-      .then((h) => { setMode(h.mode); setSnapshotAt(h.snapshotUpdatedAt) })
+      .then((h) => { setMode(h.mode); setAuth(h.authenticated); setSnapshotAt(h.snapshotUpdatedAt) })
       .catch(() => {})
   }, [])
 
@@ -242,8 +240,8 @@ function App() {
     persistRange(range)
   }, [])
 
-  const data = { ...local, github, vercel }
-  const compareData = useMemo(() => (localCompare ? { ...localCompare, github: githubCompare, vercel: vercelCompare } : null), [localCompare, githubCompare, vercelCompare])
+  const data = { ...local, github }
+  const compareData = useMemo(() => (localCompare ? { ...localCompare, github: githubCompare } : null), [localCompare, githubCompare])
   const daily = local.daily || []
   const monthly = useMemo(() => buildMonthly(daily), [daily])
   const cumulative = useMemo(() => {
@@ -266,17 +264,18 @@ function App() {
   const heatmapWeeks = useMemo(() => buildHeatmap(daily, heatmapCount, heatmapEnd), [daily, heatmapCount, heatmapEnd])
 
   const sourceMeta = useMemo(() => [
-    { key: 'local', label: 'LOCAL GIT', glossaryKey: mode === 'hosted' ? 'localSnapshot' : 'localGit' },
-    { key: 'github', label: 'GITHUB', glossaryKey: 'github' },
-    { key: 'vercel', label: 'VERCEL', glossaryKey: 'vercel' },
-    { key: 'wakatime', label: 'WAKATIME', glossaryKey: 'wakatime' },
-    { key: 'ai', label: 'AI TOOLS', glossaryKey: 'aiTools' },
-  ], [mode])
+    { key: 'local', label: 'GITHUB', glossaryKey: 'github' },
+    { key: 'sync', label: 'SYNC', glossaryKey: 'sync' },
+  ], [])
 
   const statusError = { local: local.error, github: github.error, vercel: vercel.error || vercel.warning }
   const sourceKeys = sourceMeta.map((s) => s.key)
   const loadingCount = sourceKeys.filter((k) => status[k] === 'loading').length
   const progress = loadingCount > 0 ? (sourceKeys.length - loadingCount) / sourceKeys.length : 0
+
+  if (auth === false) {
+    return <Landing onStart={() => (window.location.href = '/api/auth/login')} />
+  }
 
   return (
     <div className='min-h-screen bg-[#0a0a0a] text-zinc-400 antialiased selection:bg-zinc-100 selection:text-black'>
@@ -408,7 +407,6 @@ function App() {
           {view === 'projects' && <Projects data={data} compare={compare} compareData={compareData} status={status} range={range} />}
           {view === 'activity' && <Activity data={data} compare={compare} compareData={compareData} daily={daily} status={status} range={range} />}
           {view === 'code' && <Code data={data} compare={compare} compareData={compareData} status={status} range={range} />}
-          {view === 'shipping' && <Shipping data={data} compare={compare} compareData={compareData} status={status} range={range} />}
         </main>
       </div>
     </div>
@@ -676,6 +674,29 @@ function Overview({ data, compare, compareData, daily, monthly, cumulative, rang
           </div>
         </div>
       </section>
+    </div>
+  )
+}
+
+function Landing({ onStart }) {
+  return (
+    <div className='min-h-screen bg-[#0a0a0a] text-zinc-400 antialiased selection:bg-zinc-100 selection:text-black flex items-center justify-center px-6'>
+      <div className='max-w-md text-center'>
+        <div className='text-[12px] uppercase tracking-[0.3em] text-zinc-600 mb-6'>work</div>
+        <h1 className='text-[38px] lg:text-[48px] font-light leading-[0.95] tracking-[-0.03em] text-zinc-100 figure'>BODY OF WORK</h1>
+        <p className='mt-6 text-[13px] leading-relaxed tracking-[-0.01em] text-zinc-500'>
+          Your GitHub history, made legible.
+        </p>
+        <div className='mt-10'>
+          <button
+            onClick={onStart}
+            className='inline-flex items-center gap-2.5 px-5 py-3 text-[11px] uppercase tracking-[0.2em] text-zinc-900 bg-zinc-100 hover:bg-white transition-colors'
+          >
+            <Icon icon='octicon:mark-github-16' className='h-4 w-4' />
+            Continue with GitHub
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
