@@ -24,3 +24,4 @@ build/
 test-results/
 playwright-report/
 *.local
+dev-ledger-snapshot.json

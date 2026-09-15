@@ -140,6 +140,11 @@ export const glossary = {
     term: 'Local Git',
     definition: 'Repository discovery, commit history, and source-code metrics from the local scan root.',
   },
+  localSnapshot: {
+    term: 'Local Git (synced)',
+    definition: 'Local Git data is served from the latest synced snapshot.',
+    note: 'Snapshot freshness is reflected in the source status dot.',
+  },
   github: {
     term: 'GitHub',
     definition: 'Pull requests and contribution metadata from the GitHub CLI.',

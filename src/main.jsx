@@ -120,6 +120,8 @@ function App() {
     wakatime: 'unavailable',
     ai: 'unavailable',
   })
+  const [mode, setMode] = useState(null)
+  const [snapshotAt, setSnapshotAt] = useState(null)
   const {
     view,
     target,
@@ -184,7 +186,8 @@ function App() {
       if (!res.ok) throw new Error(`${name} failed`)
       const payload = await res.json()
       setter(payload)
-      if (withStatus) setStatus((x) => ({ ...x, [name]: payload.error ? 'error' : 'ready' }))
+      if (withStatus) setStatus((x) => ({ ...x, [name]: payload.error ? 'error' : (name === 'local' && payload.snapshotFresh === false) ? 'stale' : 'ready' }))
+      if (name === 'local' && payload.generatedAt) setSnapshotAt(payload.generatedAt)
     } catch {
       if (withStatus) setStatus((x) => ({ ...x, [name]: 'error' }))
     }
@@ -225,6 +228,13 @@ function App() {
   }, [range.from, range.to, loadPrimary, loadCompare])
 
   useEffect(() => {
+    fetch('/api/health')
+      .then((r) => r.json())
+      .then((h) => { setMode(h.mode); setSnapshotAt(h.snapshotUpdatedAt) })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
     loadCompare()
   }, [compare, loadCompare])
 
@@ -255,13 +265,13 @@ function App() {
   }, [range, daily, heatmapEnd])
   const heatmapWeeks = useMemo(() => buildHeatmap(daily, heatmapCount, heatmapEnd), [daily, heatmapCount, heatmapEnd])
 
-  const sourceMeta = [
-    { key: 'local', label: 'LOCAL GIT', glossaryKey: 'localGit' },
+  const sourceMeta = useMemo(() => [
+    { key: 'local', label: 'LOCAL GIT', glossaryKey: mode === 'hosted' ? 'localSnapshot' : 'localGit' },
     { key: 'github', label: 'GITHUB', glossaryKey: 'github' },
     { key: 'vercel', label: 'VERCEL', glossaryKey: 'vercel' },
     { key: 'wakatime', label: 'WAKATIME', glossaryKey: 'wakatime' },
     { key: 'ai', label: 'AI TOOLS', glossaryKey: 'aiTools' },
-  ]
+  ], [mode])
 
   const statusError = { local: local.error, github: github.error, vercel: vercel.error || vercel.warning }
   const sourceKeys = sourceMeta.map((s) => s.key)
