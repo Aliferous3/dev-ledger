@@ -7,6 +7,13 @@ const fmt = new Intl.NumberFormat('en-US')
 const stringN = (v) => (v == null ? '—' : fmt.format(Number(v)))
 const n = (v) => <AnimatedNumber value={v} />
 
+function fmtBytes(v) {
+  const b = Number(v) || 0
+  if (b >= 1048576) return `${(b / 1048576).toFixed(1)} MB`
+  if (b >= 1024) return `${(b / 1024).toFixed(1)} KB`
+  return `${b} B`
+}
+
 function labelVisible(pct, language) {
   const len = language.length
   const threshold = len > 8 ? 14 : len > 5 ? 9 : 6
@@ -45,7 +52,7 @@ export function LanguageBar({ languages, onHover, activeLang }) {
               filter: isActive ? 'brightness(1.25)' : isDimmed ? 'brightness(0.75)' : 'brightness(1)',
               boxShadow: isActive ? 'inset 0 0 0 1px rgba(0,0,0,0.35)' : undefined,
             }}
-            title={`${l.language}\n${stringN(l.code)} LOC · ${pct.toFixed(1)}%\n${l.files || 0} files`}
+            title={`${l.language}\n${pct.toFixed(1)}% · ${fmtBytes(l.code)}\nLanguage composition estimated from GitHub repository source bytes.`}
           >
             {show && (
               <span
@@ -81,10 +88,10 @@ export function LanguageLegend({ languages, onHover, activeLang }) {
             <div className={`absolute -left-2 top-0 bottom-0 w-px transition-opacity duration-150 ${isActive ? 'bg-zinc-500 opacity-100' : 'bg-zinc-700 opacity-0'}`} />
             <div className={`text-[9px] uppercase tracking-[0.22em] ${isActive ? 'text-zinc-100' : 'text-zinc-700'}`}>{l.language}</div>
             <div className='mt-1 text-[17px] font-light tabular-nums figure'>
-              {stringN(l.code)} <span className={`text-[10px] ${isActive ? 'text-zinc-400' : 'text-zinc-700'}`}>LOC</span>
+              {fmtBytes(l.code)}
             </div>
             <div className={`text-[10px] tabular-nums ${isActive ? 'text-zinc-400' : 'text-zinc-600'}`}>
-              {pct.toFixed(1)}% · {l.files || 0} files
+              {pct.toFixed(1)}%
             </div>
           </motion.div>
         )

@@ -1,8 +1,13 @@
 export const glossary = {
-  currentSourceLoc: {
-    term: 'Code Volume',
-    definition: 'Aggregate GitHub language-byte totals across authorized repositories. This is a present-state snapshot and does not change with the selected historical date range.',
-    note: 'GitHub estimates language composition from repository source bytes.',
+  languageBytes: {
+    term: 'Source Bytes',
+    definition: 'Aggregate size of repository source files as reported by GitHub’s language analysis, summed across authorized repositories.',
+    note: 'A present-state snapshot estimated from source bytes, not lines of code. Does not change with the selected date range.',
+  },
+  attribution: {
+    term: 'Commit Attribution',
+    definition: 'A commit counts toward your body of work only when GitHub links the commit’s author identity to your GitHub account.',
+    note: 'Commits from other authors, bots, and unlinked email addresses are excluded. Merge commits you authored are included.',
   },
   netSourceGrowth: {
     term: 'Net Source Growth',
@@ -33,6 +38,7 @@ export const glossary = {
   commits: {
     term: 'Commits',
     definition: 'GitHub commits attributed to the authenticated user within the selected period.',
+    note: 'Attribution follows GitHub’s author-to-account linking. See “Commit Attribution”.',
   },
   pullRequests: {
     term: 'Pull Requests',
@@ -85,7 +91,7 @@ export const glossary = {
   },
   loc: {
     term: 'LOC',
-    definition: 'Lines of code. In this dashboard, commit-based line changes are reported; absolute current LOC is not computed.',
+    definition: 'Lines of code. Dev Ledger reports line changes from GitHub-attributed commits; absolute current LOC is not computed because GitHub does not provide it.',
   },
   churn: {
     term: 'Churn',
@@ -142,7 +148,7 @@ export const glossary = {
   activityRhythm: {
     term: 'Activity Rhythm',
     definition: 'Weekday × hour-of-day commit distribution from the selected period.',
-    note: '168 buckets. Based on GitHub commit timestamps.',
+    note: '168 buckets. Based on GitHub commit timestamps; weekday and hour are computed in UTC.',
   },
   peakWeekday: { term: 'Peak Weekday', definition: 'Weekday with the most commits during the selected period.' },
   peakHour: { term: 'Peak Hour', definition: 'Hour window with the most commits during the selected period.' },
