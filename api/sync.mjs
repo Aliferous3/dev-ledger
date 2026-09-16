@@ -1,38 +1,38 @@
-import { getSession, getAppAuth } from '../lib/auth.mjs'
-import { supabase } from '../lib/db.mjs'
+import { requireUser } from '../lib/require-user.mjs'
+import { runSync, getUserSync } from '../lib/sync.mjs'
 
+const shape = (s) =>
+  s
+    ? {
+        status: s.status,
+        phase: s.phase,
+        progress: Number(s.progress || 0),
+        reposDone: s.repos_done || 0,
+        reposTotal: s.repos_total || 0,
+        resumeAt: s.resume_at,
+        lastSyncedAt: s.last_synced_at,
+        error: s.error,
+      }
+    : { status: 'idle', progress: 0 }
+
+// GET  — return the caller's sync status (progress, phase, errors).
+// POST — run one bounded sync pass (~20s). The frontend pumps this endpoint
+//        while status is 'syncing'; Vercel Cron continues it in the
+//        background via /api/cron/sync.
 export default async function handler(req, res) {
-  const session = await getSession(req, res)
-  if (!session?.userId || !supabase) {
-    res.status(401).json({ error: 'Unauthenticated or database unavailable' })
+  const userId = await requireUser(req, res)
+  if (!userId) return
+
+  if (req.method === 'GET') {
+    res.status(200).json(shape(await getUserSync(userId)))
     return
   }
 
-  // Fetch installations for the user and enqueue repository discovery
-  const { data: installs } = await supabase
-    .from('github_installations')
-    .select('*')
-    .eq('user_id', session.userId)
-
-  const auth = getAppAuth()
-  for (const inst of installs || []) {
-    const each = auth.getInstallationOctokit(inst.installation_id)
-    const { data: repos } = await each.rest.apps.listReposAccessibleToInstallation({ per_page: 100 })
-    for (const repo of repos.repositories) {
-      await supabase.from('repositories').upsert({
-        user_id: session.userId,
-        github_repo_id: repo.id,
-        owner_login: repo.owner.login,
-        name: repo.name,
-        full_name: repo.full_name,
-        private: repo.private,
-        default_branch: repo.default_branch,
-        primary_language: repo.language,
-        archived: repo.archived,
-        fork: repo.fork,
-      }, { onConflict: 'user_id,github_repo_id' })
-    }
+  if (req.method === 'POST') {
+    const force = req.query?.force === '1'
+    res.status(200).json(shape(await runSync(userId, { budgetMs: 20000, force })))
+    return
   }
 
-  res.status(200).json({ ok: true, started: true })
+  res.status(405).json({ error: 'Method not allowed' })
 }

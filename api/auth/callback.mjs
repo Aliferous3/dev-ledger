@@ -1,6 +1,7 @@
-import { getSession, getUserOctokit, getAppAuth } from '../../lib/auth.mjs'
-import { github } from '../../lib/config.mjs'
+import { getSession, getUserOctokit } from '../../lib/auth.mjs'
+import { github, appUrl } from '../../lib/config.mjs'
 import { supabase } from '../../lib/db.mjs'
+import { setUserSync } from '../../lib/sync.mjs'
 
 export default async function handler(req, res) {
   const { code, state, installation_id: installationId } = req.query || {}
@@ -11,7 +12,7 @@ export default async function handler(req, res) {
   }
   delete session.oauthState
 
-  const redirectUri = `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'}/api/auth/callback`
+  const redirectUri = `${appUrl}/api/auth/callback`
   const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -31,6 +32,7 @@ export default async function handler(req, res) {
   const userOctokit = getUserOctokit(tokenData.access_token)
   const { data: user } = await userOctokit.rest.users.getAuthenticated()
 
+  let installations = []
   if (supabase) {
     const { data: dbUser, error } = await supabase
       .from('users')
@@ -40,6 +42,7 @@ export default async function handler(req, res) {
         github_node_id: user.node_id,
         avatar_url: user.avatar_url,
         display_name: user.name,
+        updated_at: new Date().toISOString(),
       }, { onConflict: 'github_user_id' })
       .select()
       .single()
@@ -53,28 +56,49 @@ export default async function handler(req, res) {
     await session.save()
 
     if (installationId) {
+      const { data: inst } = await userOctokit.rest.apps.getInstallation({ installation_id: Number(installationId) }).catch(() => ({ data: null }))
       await supabase.from('github_installations').upsert({
         user_id: dbUser.id,
         installation_id: Number(installationId),
+        account_id: inst?.account?.id,
+        account_login: inst?.account?.login,
+        account_type: inst?.account?.type,
       }, { onConflict: 'user_id,installation_id' })
+    }
+
+    // Discover every installation of this app accessible to the user token.
+    const { data: discovered } = await userOctokit.rest.apps
+      .listInstallationsForAuthenticatedUser({ per_page: 100 })
+      .catch(() => ({ data: { installations: [] } }))
+    installations = discovered?.installations || []
+    for (const inst of installations) {
+      await supabase.from('github_installations').upsert({
+        user_id: dbUser.id,
+        installation_id: inst.id,
+        account_id: inst.account?.id,
+        account_login: inst.account?.login,
+        account_type: inst.account?.type,
+      }, { onConflict: 'user_id,installation_id' })
+    }
+
+    if (installations.length) {
+      await setUserSync(dbUser.id, { status: 'syncing', phase: 'discover' })
     } else {
-      // Discover installations accessible to the user token
-      const { data: installs } = await userOctokit.rest.apps.listInstallationsForAuthenticatedUser()
-      for (const inst of installs.installations) {
-        await supabase.from('github_installations').upsert({
-          user_id: dbUser.id,
-          installation_id: inst.id,
-          account_id: inst.account?.id,
-          account_login: inst.account?.login,
-          account_type: inst.account?.type,
-        }, { onConflict: 'user_id,installation_id' })
-      }
+      await setUserSync(dbUser.id, { status: 'needs_install', phase: 'discover' })
     }
   } else {
     session.userId = String(user.id)
     session.githubUserId = user.id
     session.githubLogin = user.login
     await session.save()
+  }
+
+  // No installation yet → send the user through the GitHub App install flow
+  // (all or selected repositories), which returns via the app Setup URL.
+  if (!installations.length && github.appSlug) {
+    res.writeHead(302, { Location: `https://github.com/apps/${github.appSlug}/installations/new` })
+    res.end()
+    return
   }
 
   res.writeHead(302, { Location: '/' })
