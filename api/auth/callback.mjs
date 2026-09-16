@@ -1,4 +1,4 @@
-import { getSession, getUserOctokit } from '../../lib/auth.mjs'
+import { getSession, getUserOctokit, getAppOctokit } from '../../lib/auth.mjs'
 import { github, appUrl } from '../../lib/config.mjs'
 import { supabase } from '../../lib/db.mjs'
 import { setUserSync } from '../../lib/sync.mjs'
@@ -56,7 +56,10 @@ export default async function handler(req, res) {
     await session.save()
 
     if (installationId) {
-      const { data: inst } = await userOctokit.rest.apps.getInstallation({ installation_id: Number(installationId) }).catch(() => ({ data: null }))
+      const appOctokit = await getAppOctokit().catch(() => null)
+      const { data: inst } = appOctokit
+        ? await appOctokit.rest.apps.getInstallation({ installation_id: Number(installationId) }).catch(() => ({ data: null }))
+        : { data: null }
       await supabase.from('github_installations').upsert({
         user_id: dbUser.id,
         installation_id: Number(installationId),
