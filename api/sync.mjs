@@ -13,16 +13,17 @@ const shape = (s) =>
         reposTotal: s.repos_total || 0,
         resumeAt: s.resume_at,
         lastSyncedAt: s.last_synced_at,
+        updatedAt: s.updated_at,
         error: s.error,
       }
     : { status: 'idle', progress: 0 }
 
 // GET  — return the caller's sync status (progress, phase, errors).
-// POST — kick off ingestion. The heavy work runs in a serverless background
-//        continuation (waitUntil) so the response returns immediately and the
-//        browser polls GET for progress; each pass has a ~45s budget inside
-//        the 60s function limit and persists cursors, so anything unfinished
-//        is picked up by the next POST or by /api/cron/sync.
+// POST — run a bounded ingestion slice inside this request (≤45s of the 60s
+//        function limit), then report status. Cursors persist between slices;
+//        the UI re-POSTs while status stays 'syncing', /api/cron/sync resumes
+//        anything abandoned, and a best-effort waitUntil continuation covers
+//        the gap when the runtime honors it.
 export default async function handler(req, res) {
   const userId = await requireUser(req, res)
   if (!userId) return
@@ -34,27 +35,13 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     const force = req.query?.force === '1'
-    const existing = await getUserSync(userId)
-    // Refuse to start a second pass while one is in flight — the lock also
-    // lives inside runSync, but checking here keeps the response honest.
-    const inFlight =
-      existing?.status === 'syncing' &&
-      Date.now() - new Date(existing.updated_at).getTime() < 60_000
-    const fresh =
-      existing?.status === 'complete' &&
-      existing.last_synced_at &&
-      Date.now() - new Date(existing.last_synced_at).getTime() < 60_000
-    if ((inFlight || fresh) && !force) {
-      res.status(200).json(shape(existing))
-      return
+    const result = await runSync(userId, { budgetMs: 45_000, force })
+    if (result?.status === 'syncing') {
+      // Best-effort: keep ingesting after the response on runtimes that
+      // support it; harmless when suspended — cursors make it resumable.
+      waitUntil(runSync(userId, { budgetMs: 45_000, resume: true }).catch(() => {}))
     }
-    waitUntil(
-      runSync(userId, { budgetMs: 45_000, force }).catch(async (err) => {
-        // runSync already persists error states; this is the last-resort log.
-        console.error('background sync failed:', String(err?.message || err).slice(0, 300))
-      })
-    )
-    res.status(202).json(shape({ ...(existing || {}), status: 'syncing' }))
+    res.status(200).json(shape(result))
     return
   }
 

@@ -6,10 +6,9 @@ import { validateRange } from '../lib/range.mjs'
 import { supabase } from '../lib/db.mjs'
 
 // POST /api/sync-range?from=YYYY-MM-DD&to=YYYY-MM-DD
-// Kicks off a targeted historical backfill in a background continuation and
-// returns immediately; repeat POSTs poll progress until the requested window
-// is covered by every authorized repository. When coverage is complete it
-// also reports commits found on GitHub in repositories outside the
+// Backfills exactly the requested window in-request (bounded slice, resumable
+// via coverage intervals — repeat POSTs continue until done). When coverage is
+// complete it also reports commits found on GitHub in repositories outside the
 // installation, so the UI can explain "zero" honestly.
 export default async function handler(req, res) {
   const userId = await requireUser(req, res)
@@ -31,6 +30,7 @@ export default async function handler(req, res) {
     return
   }
 
+  // Skip re-running while a slice for this exact range is still in flight.
   const prev = await getUserSync(userId)
   const rs = prev?.detail?.rangeSync
   const inFlight =
@@ -38,11 +38,11 @@ export default async function handler(req, res) {
     prev?.status === 'syncing' &&
     Date.now() - new Date(prev.updated_at).getTime() < 60_000
   if (!inFlight) {
-    waitUntil(
-      runRangeSync(userId, from, to, { budgetMs: 45_000 }).catch((err) => {
-        console.error('range sync failed:', String(err?.message || err).slice(0, 300))
-      })
-    )
+    const result = await runRangeSync(userId, from, to, { budgetMs: 45_000 })
+    if (!result.done && result.ok) {
+      // Best-effort post-response continuation; harmless if suspended.
+      waitUntil(runRangeSync(userId, from, to, { budgetMs: 45_000 }).catch(() => {}))
+    }
   }
 
   const [{ data: repos }, coverage] = await Promise.all([

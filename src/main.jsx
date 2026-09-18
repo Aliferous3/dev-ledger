@@ -165,34 +165,48 @@ function App() {
     } catch {}
   }, [compare])
 
-  // The POST kick returns immediately — the heavy work runs in a serverless
-  // background continuation. Poll GET for progress and refresh the dashboard
-  // so data appears incrementally as each phase lands. Cron continues the
-  // work even if the tab closes.
+  // Serial sync slices: each POST runs a bounded chunk of ingestion in-request
+  // and returns when it finishes or the slice expires. A parallel poll keeps
+  // the UI progressive and re-kicks a POST if progress stalls (e.g. a
+  // suspended continuation). Cron finishes anything abandoned.
   const pump = useCallback(async (force = false) => {
-    try {
-      const res = await fetch(`/api/sync${force ? '?force=1' : ''}`, { method: 'POST' })
-      if (!res.ok) return
-      const s = await res.json()
-      setSync(s)
-      if (!SYNCING.has(s.status) && s.status !== 'rate_limited') return
-      let phase = ''
-      for (;;) {
-        await new Promise((r) => setTimeout(r, 1500))
-        const poll = await fetch('/api/sync')
-        if (!poll.ok) return
-        const st = await poll.json()
-        setSync(st)
-        if (st.phase !== phase) { phase = st.phase; loadDashboard() }
-        if (st.status === 'rate_limited' && st.resumeAt) {
-          const wait = Math.min(new Date(st.resumeAt).getTime() - Date.now() + 2000, 5 * 60_000)
-          pumpTimer.current = setTimeout(() => pump(false), Math.max(5000, wait))
-          return
+    let lastSig = ''
+    let lastChange = Date.now()
+    const poll = setInterval(async () => {
+      try {
+        const r = await fetch('/api/sync')
+        if (!r.ok) return
+        const s = await r.json()
+        setSync(s)
+        const sig = `${s.status}|${s.phase}|${JSON.stringify(s.detail)}`
+        if (sig !== lastSig) { lastSig = sig; lastChange = Date.now(); loadDashboard() }
+        if (SYNCING.has(s.status) && Date.now() - lastChange > 75_000) {
+          lastChange = Date.now()
+          fetch('/api/sync', { method: 'POST' }).then((x) => x.json()).then(setSync).catch(() => {})
         }
-        if (!SYNCING.has(st.status)) break
+      } catch {}
+    }, 1500)
+    try {
+      for (;;) {
+        const res = await fetch(`/api/sync${force ? '?force=1' : ''}`, { method: 'POST' })
+        force = false
+        if (!res.ok) return
+        const s = await res.json()
+        setSync(s)
+        if (SYNCING.has(s.status)) {
+          await new Promise((r) => setTimeout(r, 1500))
+          continue
+        }
+        if (s.status === 'rate_limited' && s.resumeAt) {
+          const wait = Math.min(new Date(s.resumeAt).getTime() - Date.now() + 2000, 5 * 60_000)
+          pumpTimer.current = setTimeout(() => pump(false), Math.max(5000, wait))
+        }
+        break
       }
       loadDashboard()
-    } catch {}
+    } catch {} finally {
+      clearInterval(poll)
+    }
   }, [loadDashboard])
 
   useEffect(() => () => { if (pumpTimer.current) clearTimeout(pumpTimer.current) }, [])
