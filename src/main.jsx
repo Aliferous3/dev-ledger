@@ -165,22 +165,33 @@ function App() {
     } catch {}
   }, [compare])
 
-  // Bounded sync pump: each POST runs a ~20s slice of ingestion, persists
-  // cursors, and returns. While status is 'syncing' we keep pumping; Vercel
-  // Cron continues the work even if the tab closes.
+  // The POST kick returns immediately — the heavy work runs in a serverless
+  // background continuation. Poll GET for progress and refresh the dashboard
+  // so data appears incrementally as each phase lands. Cron continues the
+  // work even if the tab closes.
   const pump = useCallback(async (force = false) => {
     try {
       const res = await fetch(`/api/sync${force ? '?force=1' : ''}`, { method: 'POST' })
       if (!res.ok) return
       const s = await res.json()
       setSync(s)
-      if (SYNCING.has(s.status)) {
-        loadDashboard()
-        pumpTimer.current = setTimeout(() => pump(false), 2000)
-      } else if (s.status === 'rate_limited' && s.resumeAt) {
-        const wait = Math.min(new Date(s.resumeAt).getTime() - Date.now() + 2000, 5 * 60_000)
-        pumpTimer.current = setTimeout(() => pump(false), Math.max(5000, wait))
+      if (!SYNCING.has(s.status) && s.status !== 'rate_limited') return
+      let phase = ''
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1500))
+        const poll = await fetch('/api/sync')
+        if (!poll.ok) return
+        const st = await poll.json()
+        setSync(st)
+        if (st.phase !== phase) { phase = st.phase; loadDashboard() }
+        if (st.status === 'rate_limited' && st.resumeAt) {
+          const wait = Math.min(new Date(st.resumeAt).getTime() - Date.now() + 2000, 5 * 60_000)
+          pumpTimer.current = setTimeout(() => pump(false), Math.max(5000, wait))
+          return
+        }
+        if (!SYNCING.has(st.status)) break
       }
+      loadDashboard()
     } catch {}
   }, [loadDashboard])
 
@@ -195,6 +206,33 @@ function App() {
     await loadDashboard()
     setRefreshing(false)
     setRefreshOk(true)
+  }, [pump, loadDashboard])
+
+  // Targeted historical backfill for the selected custom range.
+  const [rangeSyncing, setRangeSyncing] = useState(false)
+  const [outsideInfo, setOutsideInfo] = useState(null)
+  useEffect(() => { setOutsideInfo(null) }, [range.from, range.to])
+  const syncThisRange = useCallback(async () => {
+    if (!rangeRef.current.from || !rangeRef.current.to) {
+      await pump(true) // open-ended range → resume the general sync
+      await loadDashboard()
+      return
+    }
+    const { from, to } = rangeRef.current
+    setRangeSyncing(true)
+    try {
+      for (;;) {
+        const res = await fetch(`/api/sync-range?from=${from}&to=${to}`, { method: 'POST' })
+        if (!res.ok) break
+        const r = await res.json()
+        if (r.outsideCommits != null) setOutsideInfo(r.outsideCommits)
+        if (r.done || r.ok === false) break
+        await new Promise((s) => setTimeout(s, 1500))
+      }
+    } finally {
+      setRangeSyncing(false)
+      await loadDashboard()
+    }
   }, [pump, loadDashboard])
 
   useEffect(() => {
@@ -260,6 +298,19 @@ function App() {
   const syncPct = Math.round((sync?.progress || 0) * 100)
   const building = (syncing || needsInstall) && !(dash?.repositories?.length)
 
+  const phaseLabel = { discover: 'Repos', metadata: 'Metadata', commits: 'History', pulls: 'PRs', range: 'Range' }
+  const syncDetail = sync?.detail
+  const syncTooltip = syncDetail
+    ? [
+        `Repository metadata   ${syncDetail.repos?.done ?? '—'} / ${syncDetail.repos?.total ?? '—'}`,
+        `Commit history        ${syncDetail.history?.done ?? '—'} / ${syncDetail.history?.total ?? '—'}${syncDetail.history?.commits ? ` · ${syncDetail.history.commits} commits` : ''}`,
+        `Pull requests         ${syncDetail.pulls?.done ? 'done' : 'pending'}${syncDetail.pulls?.count ? ` · ${syncDetail.pulls.count}` : ''}`,
+        sync?.lastSyncedAt ? `Last updated          ${timeAgo(sync.lastSyncedAt)}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n')
+    : undefined
+
   const statusPills = [
     {
       key: 'github',
@@ -273,13 +324,16 @@ function App() {
       label: 'SYNC',
       glossaryKey: 'sync',
       state: syncing ? 'loading' : sync?.status === 'error' ? 'error' : sync?.status === 'rate_limited' ? 'stale' : 'ready',
+      title: syncTooltip,
       text: syncing
-        ? `${syncPct}%`
+        ? `${phaseLabel[sync?.phase] || 'Working'} ${syncPct}%`
         : sync?.status === 'rate_limited'
           ? 'Paused'
-          : sync?.lastSyncedAt
-            ? timeAgo(sync.lastSyncedAt)
-            : 'Idle',
+          : sync?.status === 'complete'
+            ? 'Up to date'
+            : sync?.lastSyncedAt
+              ? timeAgo(sync.lastSyncedAt)
+              : 'Idle',
     },
   ]
   const statusColor = { ready: '#34d399', loading: '#60a5fa', error: '#f87171', stale: '#fbbf24' }
@@ -319,6 +373,7 @@ function App() {
                   className='group flex items-center gap-1.5 text-[9.5px] uppercase tracking-[0.2em] text-zinc-700 transition-colors hover:text-zinc-400'
                   as='span'
                   tabIndex={-1}
+                  title={s.title}
                 >
                   <motion.span
                     className='h-[3px] w-[3px] rounded-full'
@@ -408,6 +463,15 @@ function App() {
           {revoked && <RevokedBanner />}
           {needsInstall && !revoked && <InstallBanner appSlug={me.appSlug} />}
           {building && !needsInstall && !revoked && <BuildingNotice pct={syncPct} />}
+          {!building && !revoked && !needsInstall && !settingsOpen && (
+            <CoverageNotice
+              coverage={dash?.rangeCoverage}
+              empty={!dash?.summary?.commits}
+              onSync={syncThisRange}
+              syncing={rangeSyncing}
+              outside={outsideInfo}
+            />
+          )}
           {settingsOpen ? (
             <Settings me={me} dash={dash} onClose={() => setSettingsOpen(false)} />
           ) : (
@@ -524,6 +588,53 @@ function BuildingNotice({ pct }) {
     <div className='mt-10'>
       <div className='text-[10px] uppercase tracking-[0.24em] text-zinc-600'>Building your body of work</div>
       <div className='mt-2 text-[13px] text-zinc-500'>Importing your GitHub history — repositories, commits, pull requests, languages. {pct}%</div>
+    </div>
+  )
+}
+
+// Distinguishes "zero activity" from "history not yet synced" for the selected
+// range, and offers targeted backfill instead of a lifetime re-import. When a
+// synced range is genuinely empty it can still probe GitHub for commits in
+// repositories outside the installation.
+function CoverageNotice({ coverage, empty, onSync, syncing, outside }) {
+  if (!coverage) return null
+  const { status, availableFrom } = coverage
+  const fmtDay = (iso) => (iso ? String(iso).slice(0, 10) : null)
+
+  const showSyncButton = status === 'missing' || status === 'partial'
+  const showCheckButton = status === 'complete' && empty && outside === null // probe GitHub for out-of-installation commits
+  const showBox = showSyncButton || status === 'syncing' || (status === 'complete' && empty) || outside > 0
+  if (!showBox) return null
+
+  return (
+    <div className='mt-8 border border-zinc-900 px-5 py-4 flex flex-wrap items-center gap-x-6 gap-y-3'>
+      <div className='flex-1 min-w-48 text-[10px] uppercase tracking-[0.2em] leading-relaxed text-zinc-600'>
+        {status === 'missing' && <span className='text-zinc-400'>History not yet synced for this range</span>}
+        {status === 'partial' && (
+          <span className='text-zinc-400'>
+            Partial history{availableFrom ? ` — synced from ${fmtDay(availableFrom)} onward` : ''}
+          </span>
+        )}
+        {status === 'syncing' && <span className='text-zinc-400'>Syncing this period</span>}
+        {status === 'complete' && empty && (
+          <span className='text-zinc-400'>Range fully synced — no activity in connected repositories</span>
+        )}
+        {outside > 0 && (
+          <span className='block mt-1 text-zinc-500'>
+            {outside} commit{outside === 1 ? '' : 's'} found in repositories outside your installation — connect them on GitHub to include them
+          </span>
+        )}
+      </div>
+      {(showSyncButton || showCheckButton) && (
+        <button
+          onClick={onSync}
+          disabled={syncing}
+          className='inline-flex items-center gap-2 border border-zinc-800 px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-colors disabled:opacity-40'
+        >
+          <Icon icon={syncing ? 'ph:spinner' : 'ph:arrows-clockwise'} className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+          {syncing ? 'Syncing' : showCheckButton ? 'Check outside repositories' : 'Sync this range'}
+        </button>
+      )}
     </div>
   )
 }

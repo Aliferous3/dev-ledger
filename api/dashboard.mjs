@@ -2,7 +2,8 @@ import { requireUser } from '../lib/require-user.mjs'
 import { supabase } from '../lib/db.mjs'
 import { parseRange } from '../lib/range.mjs'
 import { summarizeDaily, dayKey } from '../lib/analytics.mjs'
-import { getUserSync } from '../lib/sync.mjs'
+import { getUserSync, getCoverage } from '../lib/sync.mjs'
+import { rangeCoverageStatus } from '../lib/coverage.mjs'
 
 // Single read endpoint for the dashboard. All data comes from our stored,
 // normalized GitHub-ingested rows — never live GitHub calls — and every
@@ -19,7 +20,7 @@ export default async function handler(req, res) {
     return
   }
 
-  const [{ data: repos }, { data: daily }, { data: repoStats }, { data: rhythm }, { data: prs }, sync] =
+  const [{ data: repos }, { data: daily }, { data: repoStats }, { data: rhythm }, { data: prs }, sync, coverage] =
     await Promise.all([
       supabase.from('repositories').select('*').eq('user_id', userId).order('pushed_at', { ascending: false }).limit(1000),
       supabase.rpc('dash_daily', { p_user: userId, p_from: from, p_to: to }),
@@ -27,6 +28,7 @@ export default async function handler(req, res) {
       supabase.rpc('dash_rhythm', { p_user: userId, p_from: from, p_to: to }),
       supabase.from('pull_requests').select('state, created_at, merged_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(3000),
       getUserSync(userId),
+      getCoverage(userId),
     ])
 
   const repoIds = (repos || []).map((r) => r.id)
@@ -92,6 +94,16 @@ export default async function handler(req, res) {
     deleted: Number(d.deletions) || 0,
   }))
 
+  // Coverage of the requested range across all repositories — distinguishes
+  // "no activity" from "history not synced".
+  const perRepoCoverage = (repos || []).map((r) => coverage.get(r.id) || [])
+  const rangeSync = sync?.detail?.rangeSync || null
+  const syncingThisRange =
+    sync?.status === 'syncing' &&
+    (!rangeSync ||
+      (!(rangeSync.to && rangeSync.to < (from || '')) && !(rangeSync.from && rangeSync.from > (to || '9999'))))
+  const rangeCoverage = rangeCoverageStatus(perRepoCoverage, { from, to }, syncingThisRange)
+
   res.status(200).json({
     generatedAt: new Date().toISOString(),
     range: { from, to },
@@ -115,8 +127,16 @@ export default async function handler(req, res) {
       revoked: sync?.status === 'revoked',
     },
     sync: sync
-      ? { status: sync.status, phase: sync.phase, progress: sync.progress, lastSyncedAt: sync.last_synced_at, error: sync.error }
+      ? {
+          status: sync.status,
+          phase: sync.phase,
+          progress: sync.progress,
+          detail: sync.detail || null,
+          lastSyncedAt: sync.last_synced_at,
+          error: sync.error,
+        }
       : { status: 'idle', progress: 0 },
+    rangeCoverage,
     repositories,
     languages: [...langTotals.entries()].map(([language, code]) => ({ language, code, files: 0 })).sort((a, b) => b.code - a.code),
     daily: dailyRows,

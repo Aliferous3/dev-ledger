@@ -67,7 +67,14 @@ export default async function handler(req, res) {
     })),
     appSlug: github.appSlug || null,
     sync: sync
-      ? { status: sync.status, phase: sync.phase, progress: sync.progress, lastSyncedAt: sync.last_synced_at, error: sync.error }
+      ? {
+          status: sync.status,
+          phase: sync.phase,
+          progress: sync.progress,
+          detail: sync.detail || null,
+          lastSyncedAt: sync.last_synced_at,
+          error: sync.error,
+        }
       : null,
   })
 }
