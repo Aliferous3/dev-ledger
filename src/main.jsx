@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { Icon } from '@iconify/react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AreaChart } from './Charts'
-import { Projects, Activity, Code, Shipping } from './LegacyTabs'
+import { Projects, Activity, Code } from './LegacyTabs'
 import { CompareDelta } from './CompareDelta'
 import { ContributionField, buildHeatmap } from './Heatmap'
 import { LanguageBar, LanguageLegend } from './LanguageBar'
@@ -15,8 +15,8 @@ import { useReducedMotion, ease, dur } from './motion'
 import { Curtain, useCurtainTransition } from './CurtainTransition'
 import './index.css'
 
-const nav = ['overview', 'projects', 'activity', 'code', 'shipping']
-const navLabels = { overview: 'Overview', projects: 'Projects', activity: 'Activity', code: 'Code', shipping: 'Shipping' }
+const nav = ['overview', 'projects', 'activity', 'code']
+const navLabels = { overview: 'Overview', projects: 'Projects', activity: 'Activity', code: 'Code' }
 
 const fmt = new Intl.NumberFormat('en-US')
 const stringN = (v) => v == null ? '—' : fmt.format(Number(v))
@@ -26,12 +26,23 @@ const c = (v) => compact(v)
 
 const monthShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
+function fmtBytes(v) {
+  const b = Number(v) || 0
+  if (b >= 1048576) return `${(b / 1048576).toFixed(1)} MB`
+  if (b >= 1024) return `${(b / 1024).toFixed(1)} KB`
+  return `${b} B`
+}
+
 function timeAgo(dateStr) {
   if (!dateStr) return '—'
-  const d = new Date(dateStr + 'T00:00:00Z')
+  const d = new Date(String(dateStr).length === 10 ? dateStr + 'T00:00:00Z' : dateStr)
   const diff = Date.now() - d.getTime()
-  const days = Math.floor(diff / 86400000)
-  if (days < 1) return 'today'
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
   if (days < 30) return `${days}d ago`
   const months = Math.floor(days / 30)
   if (months < 12) return `${months}mo ago`
@@ -61,84 +72,39 @@ function buildMonthly(daily) {
   return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key))
 }
 
-function rangeText(daily) {
-  if (!daily?.length) return 'All time'
-  const sd = new Date(daily[0].date + 'T00:00:00Z')
-  const ed = new Date(daily[daily.length - 1].date + 'T00:00:00Z')
-  const sf = sd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  const ef = ed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  return `${sf} — ${ef}`
+function buildPrMonthly(prsDaily) {
+  const buckets = new Map()
+  for (const d of prsDaily || []) {
+    const key = d.date.slice(0, 7)
+    if (!buckets.has(key)) buckets.set(key, { key, label: monthShort[Number(d.date.slice(5, 7)) - 1], opened: 0, merged: 0 })
+    const b = buckets.get(key)
+    b.opened += d.opened || 0
+    b.merged += d.merged || 0
+  }
+  return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key))
 }
 
-const statusColor = {
-  ready: '#34d399',
-  loading: '#60a5fa',
-  error: '#f87171',
-  unavailable: '#64748b',
-  stale: '#fbbf24',
-}
-const statusNote = {
-  ready: 'Ready',
-  loading: 'Loading',
-  error: 'Error',
-  unavailable: 'Not connected',
-  stale: 'Stale',
-}
+const SYNCING = new Set(['syncing'])
 
 function App() {
-  const emptyLocal = {
-    generatedAt: new Date().toISOString(),
-    tools: { git: true, cloc: false },
-    summary: {
-      repos: null,
-      currentLoc: null,
-      commits: null,
-      sourceAdded: null,
-      sourceDeleted: null,
-      allAdded: null,
-      allDeleted: null,
-      allChurn: null,
-      activeDays: null,
-      longestStreak: null,
-      peakDayCommits: null,
-    },
-    repositories: [],
-    languages: [],
-    daily: [],
-  }
-  const [local, setLocal] = useState(emptyLocal)
-  const [github, setGithub] = useState({ connected: false })
-  const [vercel, setVercel] = useState({ connected: false, projects: 0, deployments: 0, projectList: [] })
-  const [localCompare, setLocalCompare] = useState(null)
-  const [githubCompare, setGithubCompare] = useState(null)
-  const [vercelCompare, setVercelCompare] = useState(null)
+  const [me, setMe] = useState(undefined) // undefined = loading, null = signed out
+  const [dash, setDash] = useState(null)
+  const [compareData, setCompareData] = useState(null)
+  const [sync, setSync] = useState(null)
   const [compare, setCompare] = useState(false)
-  const [status, setStatus] = useState({
-    local: 'loading',
-    github: 'loading',
-    vercel: 'loading',
-    wakatime: 'unavailable',
-    ai: 'unavailable',
-  })
-  const [mode, setMode] = useState(null)
-  const [snapshotAt, setSnapshotAt] = useState(null)
-  const {
-    view,
-    target,
-    requestView,
-    transitioning,
-    phase,
-    direction: curtainDir,
-    onCovered,
-    onRevealed,
-  } = useCurtainTransition({ views: nav, initial: 'overview' })
-  const [refreshing, setRefreshing] = useState(false)
-  const [refreshOk, setRefreshOk] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [loadingDash, setLoadingDash] = useState(true)
   const [range, setRange] = useState(() => readInitialRange())
   const rangeRef = useRef(range)
+  const pumpTimer = useRef(null)
   const reduced = useReducedMotion()
   const headerRef = useRef(null)
   const [headerTop, setHeaderTop] = useState(112)
+  const {
+    view, target, requestView, transitioning, phase,
+    direction: curtainDir, onCovered, onRevealed,
+  } = useCurtainTransition({ views: nav, initial: 'overview' })
+
   useEffect(() => { rangeRef.current = range }, [range])
   useEffect(() => {
     const measure = () => {
@@ -162,7 +128,7 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const onPop = (e) => {
+    const onPop = () => {
       const q = new URLSearchParams(window.location.search)
       if (q.has('from') || q.has('to')) {
         setRange({ mode: 'custom', from: q.get('from') || null, to: q.get('to') || null })
@@ -174,42 +140,62 @@ function App() {
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
-  const fetchSource = async (name, r, setter, withStatus = true, force = false) => {
-    if (withStatus) setStatus((x) => ({ ...x, [name]: 'loading' }))
+  const loadDashboard = useCallback(async (r = rangeRef.current) => {
     try {
-      const query = new URLSearchParams()
-      if (force) query.set('refresh', '1')
-      if (r.from) query.set('from', r.from)
-      if (r.to) query.set('to', r.to)
-      const q = query.toString()
-      const res = await fetch(`/api/${name}${q ? `?${q}` : ''}`)
-      if (!res.ok) throw new Error(`${name} failed`)
+      const q = new URLSearchParams()
+      if (r.from) q.set('from', r.from)
+      if (r.to) q.set('to', r.to)
+      const res = await fetch(`/api/dashboard${q.size ? `?${q}` : ''}`)
+      if (res.status === 401) { setMe(null); return }
+      if (!res.ok) return
       const payload = await res.json()
-      setter(payload)
-      if (withStatus) setStatus((x) => ({ ...x, [name]: payload.error ? 'error' : (name === 'local' && payload.snapshotFresh === false) ? 'stale' : 'ready' }))
-      if (name === 'local' && payload.generatedAt) setSnapshotAt(payload.generatedAt)
-    } catch {
-      if (withStatus) setStatus((x) => ({ ...x, [name]: 'error' }))
-    }
-  }
-
-  const loadPrimary = useCallback(async (force = false) => {
-    const setters = { local: setLocal, github: setGithub, vercel: setVercel }
-    if (force) { setRefreshing(true); setRefreshOk(false) }
-    await Promise.allSettled(['local', 'github', 'vercel'].map((x) => fetchSource(x, rangeRef.current, setters[x], true, force)))
-    setRefreshing(false)
-    if (force) setRefreshOk(true)
+      setDash(payload)
+      if (payload.sync) setSync(payload.sync)
+      setLoadingDash(false)
+    } catch {}
   }, [])
 
   const loadCompare = useCallback(async () => {
     const cr = makeCompareRange(rangeRef.current)
-    if (cr && compare) {
-      const setters = { local: setLocalCompare, github: setGithubCompare, vercel: setVercelCompare }
-      await Promise.allSettled(['local', 'github', 'vercel'].map((x) => fetchSource(x, cr, setters[x], false)))
-    } else {
-      setLocalCompare(null); setGithubCompare(null); setVercelCompare(null)
-    }
+    if (!cr || !compare) { setCompareData(null); return }
+    try {
+      const q = new URLSearchParams({ from: cr.from, to: cr.to })
+      const res = await fetch(`/api/dashboard?${q}`)
+      if (res.ok) setCompareData(await res.json())
+    } catch {}
   }, [compare])
+
+  // Bounded sync pump: each POST runs a ~20s slice of ingestion, persists
+  // cursors, and returns. While status is 'syncing' we keep pumping; Vercel
+  // Cron continues the work even if the tab closes.
+  const pump = useCallback(async (force = false) => {
+    try {
+      const res = await fetch(`/api/sync${force ? '?force=1' : ''}`, { method: 'POST' })
+      if (!res.ok) return
+      const s = await res.json()
+      setSync(s)
+      if (SYNCING.has(s.status)) {
+        loadDashboard()
+        pumpTimer.current = setTimeout(() => pump(false), 2000)
+      } else if (s.status === 'rate_limited' && s.resumeAt) {
+        const wait = Math.min(new Date(s.resumeAt).getTime() - Date.now() + 2000, 5 * 60_000)
+        pumpTimer.current = setTimeout(() => pump(false), Math.max(5000, wait))
+      }
+    } catch {}
+  }, [loadDashboard])
+
+  useEffect(() => () => { if (pumpTimer.current) clearTimeout(pumpTimer.current) }, [])
+
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshOk, setRefreshOk] = useState(false)
+  const refresh = useCallback(async () => {
+    setRefreshing(true)
+    setRefreshOk(false)
+    await pump(true)
+    await loadDashboard()
+    setRefreshing(false)
+    setRefreshOk(true)
+  }, [pump, loadDashboard])
 
   useEffect(() => {
     if (!refreshOk) return
@@ -223,40 +209,36 @@ function App() {
   }, [persistRange])
 
   useEffect(() => {
-    loadPrimary(false)
+    fetch('/api/user')
+      .then(async (res) => {
+        if (res.status === 401) { setMe(null); return }
+        const m = await res.json()
+        setMe(m)
+        loadDashboard()
+        const st = m.sync?.status
+        const stale = m.sync?.lastSyncedAt && Date.now() - new Date(m.sync.lastSyncedAt).getTime() > 10 * 60_000
+        if (!st || st === 'idle' || st === 'syncing' || !m.sync?.lastSyncedAt || stale) pump()
+      })
+      .catch(() => setMe(null))
+  }, [loadDashboard, pump])
+
+  useEffect(() => {
+    if (me) loadDashboard()
     loadCompare()
-  }, [range.from, range.to, loadPrimary, loadCompare])
+  }, [range.from, range.to]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    fetch('/api/health')
-      .then((r) => r.json())
-      .then((h) => { setMode(h.mode); setSnapshotAt(h.snapshotUpdatedAt) })
-      .catch(() => {})
-  }, [])
+  useEffect(() => { loadCompare() }, [compare, loadCompare])
+  useEffect(() => { persistRange(range) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    loadCompare()
-  }, [compare, loadCompare])
-
-  useEffect(() => {
-    persistRange(range)
-  }, [])
-
-  const data = { ...local, github, vercel }
-  const compareData = useMemo(() => (localCompare ? { ...localCompare, github: githubCompare, vercel: vercelCompare } : null), [localCompare, githubCompare, vercelCompare])
-  const daily = local.daily || []
+  const daily = dash?.daily || []
   const monthly = useMemo(() => buildMonthly(daily), [daily])
+  const prMonthly = useMemo(() => buildPrMonthly(dash?.prsDaily), [dash?.prsDaily])
   const cumulative = useMemo(() => {
     let cur = 0
-    return monthly.map((m) => {
-      cur += m.net
-      return cur
-    })
+    return monthly.map((m) => { cur += m.net; return cur })
   }, [monthly])
 
-  const heatmapEnd = useMemo(() => {
-    return range.to ? new Date(range.to + 'T00:00:00Z') : new Date()
-  }, [range.to])
+  const heatmapEnd = useMemo(() => (range.to ? new Date(range.to + 'T00:00:00Z') : new Date()), [range.to])
   const heatmapCount = useMemo(() => {
     if (range.mode !== 'all') return rangeDays(range)
     if (!daily.length) return 365
@@ -265,18 +247,42 @@ function App() {
   }, [range, daily, heatmapEnd])
   const heatmapWeeks = useMemo(() => buildHeatmap(daily, heatmapCount, heatmapEnd), [daily, heatmapCount, heatmapEnd])
 
-  const sourceMeta = useMemo(() => [
-    { key: 'local', label: 'LOCAL GIT', glossaryKey: mode === 'hosted' ? 'localSnapshot' : 'localGit' },
-    { key: 'github', label: 'GITHUB', glossaryKey: 'github' },
-    { key: 'vercel', label: 'VERCEL', glossaryKey: 'vercel' },
-    { key: 'wakatime', label: 'WAKATIME', glossaryKey: 'wakatime' },
-    { key: 'ai', label: 'AI TOOLS', glossaryKey: 'aiTools' },
-  ], [mode])
+  if (me === undefined) {
+    return <div className='min-h-screen bg-[#0a0a0a]' />
+  }
+  if (me === null) {
+    return <Landing onStart={() => (window.location.href = '/api/auth/login')} />
+  }
 
-  const statusError = { local: local.error, github: github.error, vercel: vercel.error || vercel.warning }
-  const sourceKeys = sourceMeta.map((s) => s.key)
-  const loadingCount = sourceKeys.filter((k) => status[k] === 'loading').length
-  const progress = loadingCount > 0 ? (sourceKeys.length - loadingCount) / sourceKeys.length : 0
+  const syncing = sync && SYNCING.has(sync.status)
+  const revoked = sync?.status === 'revoked' || dash?.github?.revoked
+  const needsInstall = sync?.status === 'needs_install'
+  const syncPct = Math.round((sync?.progress || 0) * 100)
+  const building = (syncing || needsInstall) && !(dash?.repositories?.length)
+
+  const statusPills = [
+    {
+      key: 'github',
+      label: 'GITHUB',
+      glossaryKey: 'github',
+      state: revoked ? 'error' : 'ready',
+      text: revoked ? 'Revoked' : 'Connected',
+    },
+    {
+      key: 'sync',
+      label: 'SYNC',
+      glossaryKey: 'sync',
+      state: syncing ? 'loading' : sync?.status === 'error' ? 'error' : sync?.status === 'rate_limited' ? 'stale' : 'ready',
+      text: syncing
+        ? `${syncPct}%`
+        : sync?.status === 'rate_limited'
+          ? 'Paused'
+          : sync?.lastSyncedAt
+            ? timeAgo(sync.lastSyncedAt)
+            : 'Idle',
+    },
+  ]
+  const statusColor = { ready: '#34d399', loading: '#60a5fa', error: '#f87171', stale: '#fbbf24' }
 
   return (
     <div className='min-h-screen bg-[#0a0a0a] text-zinc-400 antialiased selection:bg-zinc-100 selection:text-black'>
@@ -306,50 +312,48 @@ function App() {
               ))}
             </nav>
             <div className='lg:ml-auto flex flex-wrap items-center gap-5'>
-              {sourceMeta.map((s) => {
-                const st = status[s.key]
-                return (
-                  <Term
-                    key={s.key}
-                    keyName={s.glossaryKey}
-                    className='group flex items-center gap-1.5 text-[9.5px] uppercase tracking-[0.2em] text-zinc-700 transition-colors hover:text-zinc-400'
-                    as='span'
-                    tabIndex={-1}
-                  >
-                    <motion.span
-                      className='h-[3px] w-[3px] rounded-full'
-                      style={{ background: statusColor[st] }}
-                      initial={false}
-                      animate={
-                        st === 'loading'
-                          ? { scale: [1, 1.25, 1], opacity: [1, 0.65, 1] }
-                          : st === 'error'
-                            ? { x: [0, -2, 2, -2, 0] }
-                            : { scale: 1, opacity: 1, x: 0 }
-                      }
-                      transition={
-                        st === 'loading'
-                          ? { repeat: Infinity, duration: 1.6, ease: 'easeInOut' }
-                          : { duration: reduced ? 0 : 0.25, ease: [0.23, 1, 0.32, 1] }
-                      }
-                    />
-                    {s.label}
-                  </Term>
-                )
-              })}
+              {statusPills.map((s) => (
+                <Term
+                  key={s.key}
+                  keyName={s.glossaryKey}
+                  className='group flex items-center gap-1.5 text-[9.5px] uppercase tracking-[0.2em] text-zinc-700 transition-colors hover:text-zinc-400'
+                  as='span'
+                  tabIndex={-1}
+                >
+                  <motion.span
+                    className='h-[3px] w-[3px] rounded-full'
+                    style={{ background: statusColor[s.state] }}
+                    initial={false}
+                    animate={
+                      s.state === 'loading'
+                        ? { scale: [1, 1.25, 1], opacity: [1, 0.65, 1] }
+                        : s.state === 'error'
+                          ? { x: [0, -2, 2, -2, 0] }
+                          : { scale: 1, opacity: 1, x: 0 }
+                    }
+                    transition={
+                      s.state === 'loading'
+                        ? { repeat: Infinity, duration: 1.6, ease: 'easeInOut' }
+                        : { duration: reduced ? 0 : 0.25, ease: [0.23, 1, 0.32, 1] }
+                    }
+                  />
+                  {s.label}
+                  <span className='text-zinc-800 normal-case tracking-[0.08em]'>{s.text}</span>
+                </Term>
+              ))}
               <button
-                onClick={() => loadPrimary(true)}
+                onClick={refresh}
                 disabled={refreshing}
                 className='group text-zinc-700 hover:text-zinc-400 transition-colors disabled:opacity-40'
-                title='Refresh data'
+                title='Sync with GitHub'
               >
                 <AnimatePresence mode='wait'>
                   <motion.div
-                    key={refreshing ? 'spinner' : refreshOk ? 'check' : 'refresh'}
+                    key={refreshing || syncing ? 'spinner' : refreshOk ? 'check' : 'refresh'}
                     className='origin-center'
                     initial={{ opacity: 0, scale: 0.6 }}
                     animate={
-                      refreshing
+                      refreshing || syncing
                         ? { opacity: 1, scale: 1, rotate: 360 }
                         : refreshOk
                           ? { opacity: 1, scale: [0.7, 1.1, 1], rotate: 0 }
@@ -358,7 +362,7 @@ function App() {
                     whileHover={refreshing || refreshOk ? {} : { rotate: 25 }}
                     exit={{ opacity: 0, scale: 0.7 }}
                     transition={
-                      refreshing
+                      refreshing || syncing
                         ? { opacity: { duration: 0.15 }, scale: { duration: 0.15 }, rotate: { repeat: Infinity, duration: 1.2, ease: 'linear' } }
                         : refreshOk
                           ? { duration: 0.35, ease: [0.23, 1, 0.32, 1] }
@@ -366,29 +370,25 @@ function App() {
                     }
                   >
                     <Icon
-                      icon={refreshing ? 'ph:spinner' : refreshOk ? 'ph:check' : 'ph:arrows-clockwise'}
+                      icon={refreshing || syncing ? 'ph:spinner' : refreshOk ? 'ph:check' : 'ph:arrows-clockwise'}
                       className='h-3.5 w-3.5'
                     />
                   </motion.div>
                 </AnimatePresence>
               </button>
+              <AccountMenu me={me} onSettings={() => setSettingsOpen(true)} onRefresh={refresh} />
             </div>
           </div>
           <div className='mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3'>
             <DateRange range={range} onChange={changeRange} compare={compare} onCompare={setCompare} />
           </div>
           <div className='mt-4 rule' />
-          {progress > 0 && (
-            <motion.div
-              className='mt-0.5 h-[1px] w-full bg-zinc-900'
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
+          {(syncing || sync?.status === 'rate_limited') && (
+            <motion.div className='mt-0.5 h-[1px] w-full bg-zinc-900' initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               <motion.div
                 className='h-full bg-zinc-300'
                 initial={{ width: '0%' }}
-                animate={{ width: `${progress * 100}%` }}
+                animate={{ width: `${Math.max(2, syncPct)}%` }}
                 transition={reduced ? { duration: 0 } : { duration: 0.45, ease: [0.23, 1, 0.32, 1] }}
               />
             </motion.div>
@@ -403,13 +403,176 @@ function App() {
           top={headerTop}
           label={navLabels[target] || target}
         />
+
         <main className='pb-24'>
-          {view === 'overview' && <Overview data={data} compare={compare} compareData={compareData} daily={daily} monthly={monthly} cumulative={cumulative} status={status} range={range} weeks={heatmapWeeks} />}
-          {view === 'projects' && <Projects data={data} compare={compare} compareData={compareData} status={status} range={range} />}
-          {view === 'activity' && <Activity data={data} compare={compare} compareData={compareData} daily={daily} status={status} range={range} />}
-          {view === 'code' && <Code data={data} compare={compare} compareData={compareData} status={status} range={range} />}
-          {view === 'shipping' && <Shipping data={data} compare={compare} compareData={compareData} status={status} range={range} />}
+          {revoked && <RevokedBanner />}
+          {needsInstall && !revoked && <InstallBanner appSlug={me.appSlug} />}
+          {building && !needsInstall && !revoked && <BuildingNotice pct={syncPct} />}
+          {settingsOpen ? (
+            <Settings me={me} dash={dash} onClose={() => setSettingsOpen(false)} />
+          ) : (
+            <>
+              {view === 'overview' && <Overview data={dash} compare={compare} compareData={compareData} daily={daily} monthly={monthly} prMonthly={prMonthly} cumulative={cumulative} range={range} weeks={heatmapWeeks} loading={loadingDash} />}
+              {view === 'projects' && <Projects data={dash} compare={compare} compareData={compareData} range={range} loading={loadingDash} />}
+              {view === 'activity' && <Activity data={dash} compare={compare} compareData={compareData} daily={daily} range={range} loading={loadingDash} />}
+              {view === 'code' && <Code data={dash} compare={compare} compareData={compareData} range={range} loading={loadingDash} />}
+            </>
+          )}
         </main>
+      </div>
+    </div>
+  )
+}
+
+function AccountMenu({ me, onSettings, onRefresh }) {
+  const [open, setOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const ref = useRef(null)
+  const login = me?.user?.githubLogin
+  const avatar = me?.user?.avatarUrl
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setConfirmDelete(false) } }
+    window.addEventListener('mousedown', onDown)
+    return () => window.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  const deleteData = async () => {
+    const res = await fetch('/api/user?confirm=1', { method: 'DELETE' })
+    if (res.ok) window.location.href = '/'
+  }
+
+  const itemCls = 'block w-full text-left px-4 py-2.5 text-[10px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900 transition-colors'
+
+  return (
+    <div ref={ref} className='relative'>
+      <button onClick={() => setOpen((o) => !o)} className='flex items-center gap-2.5 group'>
+        {avatar ? (
+          <img src={avatar} alt='' className='h-6 w-6 rounded-full border border-zinc-800 group-hover:border-zinc-600 transition-colors' />
+        ) : (
+          <span className='h-6 w-6 rounded-full bg-zinc-800' />
+        )}
+        <span className='text-[10px] tracking-[0.14em] text-zinc-500 group-hover:text-zinc-300 transition-colors'>@{login}</span>
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className='absolute right-0 top-full mt-3 w-56 bg-[#0c0c0c] border border-zinc-800 shadow-2xl z-50'
+          >
+            <div className='px-4 py-3 border-b border-zinc-900 text-[9px] uppercase tracking-[0.22em] text-zinc-700'>Signed in as @{login}</div>
+            <button className={itemCls} onClick={() => { setOpen(false); onSettings() }}>Manage repositories</button>
+            <button className={itemCls} onClick={() => { setOpen(false); onRefresh() }}>Refresh GitHub</button>
+            <a className={itemCls} href='/api/auth/logout'>Sign out</a>
+            <div className='border-t border-zinc-900'>
+              {confirmDelete ? (
+                <div className='px-4 py-3'>
+                  <div className='text-[9px] uppercase tracking-[0.18em] text-red-400/90'>Delete all Dev Ledger data?</div>
+                  <div className='mt-2 flex gap-3'>
+                    <button onClick={deleteData} className='text-[9px] uppercase tracking-[0.18em] text-red-300 hover:text-red-200'>Confirm</button>
+                    <button onClick={() => setConfirmDelete(false)} className='text-[9px] uppercase tracking-[0.18em] text-zinc-600 hover:text-zinc-400'>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <button className={`${itemCls} text-red-500/70 hover:text-red-400`} onClick={() => setConfirmDelete(true)}>Delete my data</button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function RevokedBanner() {
+  return (
+    <div className='mt-10 border border-zinc-800 px-6 py-8 flex flex-col sm:flex-row sm:items-center gap-6'>
+      <div className='flex-1'>
+        <div className='text-[10px] uppercase tracking-[0.24em] text-zinc-500'>GitHub access revoked</div>
+        <div className='mt-2 text-[13px] text-zinc-400'>Dev Ledger can no longer reach your GitHub data. Historical analytics remain until you delete your account.</div>
+      </div>
+      <a href='/api/auth/login' className='inline-flex items-center gap-2 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-zinc-900 bg-zinc-100 hover:bg-white transition-colors self-start'>
+        <Icon icon='octicon:mark-github-16' className='h-4 w-4' />
+        Reconnect GitHub
+      </a>
+    </div>
+  )
+}
+
+function InstallBanner({ appSlug }) {
+  const href = appSlug ? `https://github.com/apps/${appSlug}/installations/new` : '/api/auth/login'
+  return (
+    <div className='mt-10 border border-zinc-800 px-6 py-8 flex flex-col sm:flex-row sm:items-center gap-6'>
+      <div className='flex-1'>
+        <div className='text-[10px] uppercase tracking-[0.24em] text-zinc-500'>Connect repositories</div>
+        <div className='mt-2 text-[13px] text-zinc-400'>Authorize Dev Ledger on GitHub — all repositories or a selected set. Read-only.</div>
+      </div>
+      <a href={href} className='inline-flex items-center gap-2 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-zinc-900 bg-zinc-100 hover:bg-white transition-colors self-start'>
+        <Icon icon='octicon:mark-github-16' className='h-4 w-4' />
+        Authorize on GitHub
+      </a>
+    </div>
+  )
+}
+
+function BuildingNotice({ pct }) {
+  return (
+    <div className='mt-10'>
+      <div className='text-[10px] uppercase tracking-[0.24em] text-zinc-600'>Building your body of work</div>
+      <div className='mt-2 text-[13px] text-zinc-500'>Importing your GitHub history — repositories, commits, pull requests, languages. {pct}%</div>
+    </div>
+  )
+}
+
+function Settings({ me, dash, onClose }) {
+  const repos = dash?.repositories || []
+  const installs = me?.installations || []
+  return (
+    <div className='pt-14'>
+      <div className='flex items-baseline justify-between border-b border-zinc-900 pb-10'>
+        <div>
+          <div className='label-s'>Repositories</div>
+          <div className='mt-2 text-[11px] uppercase tracking-[0.22em] text-zinc-600'>GitHub-authorized access · managed on GitHub</div>
+        </div>
+        <button onClick={onClose} className='text-[10px] uppercase tracking-[0.2em] text-zinc-600 hover:text-zinc-300 transition-colors'>← Back</button>
+      </div>
+
+      <div className='mt-8 flex flex-wrap gap-3'>
+        {installs.map((i) => (
+          <a key={i.id} href={i.url} target='_blank' rel='noreferrer' className='inline-flex items-center gap-2 border border-zinc-800 px-4 py-2.5 text-[10px] uppercase tracking-[0.18em] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-colors'>
+            <Icon icon='octicon:gear-16' className='h-3.5 w-3.5' />
+            {i.account ? `Edit access · ${i.account}` : 'Edit access on GitHub'}
+          </a>
+        ))}
+        {!installs.length && me?.appSlug && (
+          <a href={`https://github.com/apps/${me.appSlug}/installations/new`} target='_blank' rel='noreferrer' className='inline-flex items-center gap-2 border border-zinc-800 px-4 py-2.5 text-[10px] uppercase tracking-[0.18em] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-colors'>
+            Install on GitHub
+          </a>
+        )}
+      </div>
+
+      <div className='mt-10'>
+        {repos.map((r) => (
+          <div key={r.path} className='group flex items-baseline justify-between border-b border-zinc-900 py-4'>
+            <div className='flex items-baseline gap-4 min-w-0'>
+              <span className='text-[15px] text-zinc-200 truncate'>{r.path}</span>
+              <span className='text-[9px] uppercase tracking-[0.18em] text-zinc-700'>{r.private ? 'private' : 'public'}{r.fork ? ' · fork' : ''}{r.archived ? ' · archived' : ''}</span>
+            </div>
+            <div className='text-[10px] uppercase tracking-[0.16em] text-zinc-600 whitespace-nowrap pl-6'>
+              {r.primaryLanguage || '—'} · {fmtBytes(r.languageBytes)} · {timeAgo(r.lastActivityAt || r.lastCommitAt)}
+            </div>
+          </div>
+        ))}
+        {!repos.length && <div className='py-12 text-[10px] uppercase tracking-[0.2em] text-zinc-700'>No repositories authorized yet</div>}
+      </div>
+
+      <div className='mt-10 text-[10px] uppercase tracking-[0.18em] text-zinc-700 leading-relaxed max-w-xl'>
+        Repository access is granted through the GitHub App installation and can be changed at any time on GitHub.
+        Removing a repository there removes it here. To remove your Dev Ledger account data entirely, use the account menu → Delete my data.
       </div>
     </div>
   )
@@ -430,17 +593,34 @@ function DevMetric({ label, value, icon, term, current, previous, compare }) {
   )
 }
 
-function Overview({ data, compare, compareData, daily, monthly, cumulative, range, weeks }) {
+function MiniBars({ values, labels }) {
+  if (!values.length) {
+    return <div className='mt-6 flex h-[110px] items-end border-b border-zinc-900'><span className='pb-2 text-[10px] uppercase tracking-[0.2em] text-zinc-700'>No data</span></div>
+  }
+  const max = Math.max(...values, 1)
+  return (
+    <>
+      <div className='mt-6 flex h-[110px] items-end gap-1.5'>
+        {values.map((v, i) => (
+          <div key={i} className='group relative flex-1 bg-zinc-100/15 transition-all hover:bg-zinc-100/60' style={{ height: `${(v / max) * 100}%` }}>
+            <span className='absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] tabular-nums text-zinc-500 opacity-0 group-hover:opacity-100'>{v}</span>
+          </div>
+        ))}
+      </div>
+      <div className='mt-2 flex justify-between text-[9px] uppercase tracking-[0.2em] text-zinc-800'>
+        {labels.map((m, i) => <span key={i}>{m}</span>)}
+      </div>
+    </>
+  )
+}
+
+function Overview({ data, compare, compareData, daily, monthly, prMonthly, cumulative, range, weeks, loading }) {
   const reduced = useReducedMotion()
   const [hoveredLang, setHoveredLang] = useState(null)
-  const s = data.summary || {}
-  const gh = data.github || {}
-  const vc = data.vercel || {}
-  const c = compareData || {}
-  const cs = c.summary || {}
-  const cgh = c.github || {}
-  const cvc = c.vercel || {}
-  const totalLoc = s.currentLoc
+  const s = data?.summary || {}
+  const gh = data?.github || {}
+  const cs = compareData?.summary || {}
+  const cgh = compareData?.github || {}
   const added = s.sourceAdded || 0
   const deleted = s.sourceDeleted || 0
   const net = added - deleted
@@ -449,36 +629,30 @@ function Overview({ data, compare, compareData, daily, monthly, cumulative, rang
   const repos = s.repos || 0
   const activeDays = s.activeDays || 0
   const longestStreak = s.longestStreak || 0
-  const pullRequests = gh.connected ? gh.pullRequests : null
-  const merged = gh.connected ? gh.mergedPrs : null
-  const prod = vc.connected ? vc.productionDeployments : null
-  const preview = vc.connected ? vc.previewDeployments : null
-  const succeeded = vc.connected ? vc.readyDeployments : null
-  const failed = vc.connected ? vc.errorDeployments : null
-  const prevAdded = (cs.sourceAdded || 0)
-  const prevDeleted = (cs.sourceDeleted || 0)
+  const pullRequests = gh.pullRequests ?? null
+  const merged = gh.mergedPrs ?? null
+  const prevAdded = cs.sourceAdded || 0
+  const prevDeleted = cs.sourceDeleted || 0
   const prevNet = prevAdded - prevDeleted
   const prevChurn = prevAdded + prevDeleted
   const prevCommits = cs.commits
   const prevActiveDays = cs.activeDays
   const prevLongestStreak = cs.longestStreak
-  const prevPRs = cgh.connected ? cgh.pullRequests : null
-  const prevMerged = cgh.connected ? cgh.mergedPrs : null
-  const prevProd = cvc.connected ? cvc.productionDeployments : null
-  const prevPreview = cvc.connected ? cvc.previewDeployments : null
-  const prevSucceeded = cvc.connected ? cvc.readyDeployments : null
-  const prevFailed = cvc.connected ? cvc.errorDeployments : null
+  const prevPRs = cgh.pullRequests
+  const prevMerged = cgh.mergedPrs
   const activeWindow = range.mode === 'all' && !daily.length ? 365 : rangeDays(range)
-  const languages = data.languages || []
-  const langTotal = totalLoc || languages.reduce((a, l) => a + (l.code || 0), 0) || 1
+  const languages = data?.languages || []
   const rankedRepos = useMemo(() => {
-    return [...(data.repositories || [])].sort(
-      (a, b) => b.sourceAdded + b.sourceDeleted - (a.sourceAdded + a.sourceDeleted)
+    return [...(data?.repositories || [])].sort(
+      (a, b) => (b.sourceAdded + b.sourceDeleted) - (a.sourceAdded + a.sourceDeleted)
     )
-  }, [data.repositories])
+  }, [data?.repositories])
+  const primaryLang = languages[0]?.language
 
   const monthLabels = monthly.map((m) => m.label[0])
   const commitValues = monthly.map((m) => m.commits)
+  const prValues = prMonthly.map((m) => m.opened)
+  const netValues = monthly.map((m) => m.net)
 
   return (
     <div>
@@ -500,9 +674,15 @@ function Overview({ data, compare, compareData, daily, monthly, cumulative, rang
           <div className='mt-6 space-y-1 text-[11px] uppercase tracking-[0.2em] text-zinc-600'>
             <div className='text-zinc-500'>{range.from || ''} — {range.to || ''}</div>
             <div className='flex items-center gap-4 pt-2'>
-              <span><Term keyName='currentSourceLoc' showIcon>Current Source Loc</Term> <span className='text-zinc-400'>{stringN(totalLoc)}</span></span>
+              <span><Term keyName='languageBytes' showIcon>Source bytes</Term> <span className='text-zinc-400'>{fmtBytes(s.languageBytes)}</span></span>
               <span className='text-zinc-800'>·</span>
               <span>{stringN(repos)} <Term keyName='repositories' showIcon>repositories</Term></span>
+              {primaryLang && (
+                <>
+                  <span className='text-zinc-800'>·</span>
+                  <span><Term keyName='primaryLanguage' showIcon>{primaryLang}</Term></span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -559,13 +739,7 @@ function Overview({ data, compare, compareData, daily, monthly, cumulative, rang
         <DevMetric label='Merged' value={merged === null ? '—' : n(merged)} icon='octicon:git-merge-16' term='merged' current={merged} previous={prevMerged} compare={compare} />
         <DevMetric label='Active Days' value={n(activeDays)} icon='ph:calendar-check-bold' term='activeDays' current={activeDays} previous={prevActiveDays} compare={compare} />
         <DevMetric label='Longest Streak' value={n(longestStreak)} icon='ph:flame-bold' term='longestStreak' current={longestStreak} previous={prevLongestStreak} compare={compare} />
-        <DevMetric label='Coding Hours' value='—' icon='ph:clock-bold' term='codingHours' />
-        <DevMetric label='Avg Hours / Day' value='—' icon='ph:gauge-bold' term='avgHours' />
         <DevMetric label='Repositories' value={n(repos)} icon='octicon:repo-16' term='repositories' />
-        <DevMetric label='Production Deploys' value={prod === null ? '—' : n(prod)} icon='ph:rocket-launch-bold' term='productionDeploys' current={prod} previous={prevProd} compare={compare} />
-        <DevMetric label='Preview Deploys' value={preview === null ? '—' : n(preview)} icon='ph:eye-bold' term='previewDeploys' current={preview} previous={prevPreview} compare={compare} />
-        <DevMetric label='Succeeded' value={succeeded === null ? '—' : n(succeeded)} icon='ph:check-bold' term='succeeded' current={succeeded} previous={prevSucceeded} compare={compare} />
-        <DevMetric label='Failed' value={failed === null ? '—' : n(failed)} icon='ph:x-bold' term='failed' current={failed} previous={prevFailed} compare={compare} />
         </div>
       </section>
 
@@ -581,7 +755,7 @@ function Overview({ data, compare, compareData, daily, monthly, cumulative, rang
           {rankedRepos.map((p, i) => (
             <motion.div
               key={p.path}
-              className='group grid grid-cols-[auto_1fr_auto] lg:grid-cols-[1.4fr_repeat(5,minmax(0,0.55fr))_0.6fr] items-baseline gap-4 lg:gap-6 border-b border-zinc-900 py-6 transition-colors hover:border-zinc-700 hover:bg-zinc-900/20'
+              className='group grid grid-cols-[auto_1fr_auto] lg:grid-cols-[1.4fr_repeat(4,minmax(0,0.55fr))] items-baseline gap-4 lg:gap-6 border-b border-zinc-900 py-6 transition-colors hover:border-zinc-700 hover:bg-zinc-900/20'
               whileHover={reduced ? {} : { x: 2 }}
               transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
             >
@@ -590,6 +764,7 @@ function Overview({ data, compare, compareData, daily, monthly, cumulative, rang
                 <div>
                   <div className='text-[20px] lg:text-[24px] font-light leading-none tracking-[-0.02em] text-zinc-100 transition-all group-hover:translate-x-1.5 group-hover:text-white'>
                     {p.name}
+                    {p.private && <Icon icon='octicon:lock-16' className='inline h-3 w-3 ml-2 text-zinc-700' />}
                   </div>
                   <div className='mt-2 text-[9.5px] uppercase tracking-[0.24em] text-zinc-700 transition-colors group-hover:text-zinc-600'>
                     {p.primaryLanguage ? `${p.primaryLanguage} · ` : ''}
@@ -598,22 +773,21 @@ function Overview({ data, compare, compareData, daily, monthly, cumulative, rang
                 </div>
               </div>
               {[
-                ['LOC', n(p.currentLoc)],
                 ['Churn', compact((p.sourceAdded || 0) + (p.sourceDeleted || 0))],
                 ['Commits', n(p.commits || 0)],
                 ['Days', n(p.activeDays || 0)],
-                ['Hours', '—'],
+                ['Language', p.primaryLanguage || '—'],
               ].map(([l, v]) => (
                 <div key={l} className='text-right hidden lg:block'>
                   <div className='text-[9px] uppercase tracking-[0.24em] text-zinc-800'>{l}</div>
                   <div className='mt-1.5 text-[17px] lg:text-[19px] font-light tabular-nums text-zinc-300 figure transition-colors group-hover:text-zinc-100'>{v}</div>
                 </div>
               ))}
-              <div className='text-right text-[9.5px] uppercase tracking-[0.24em]' style={{ color: '#3f3f46' }}>
-                —
-              </div>
             </motion.div>
           ))}
+          {!rankedRepos.length && !loading && (
+            <div className='py-14 text-center text-[10px] uppercase tracking-[0.2em] text-zinc-700'>No repositories imported yet</div>
+          )}
         </div>
       </section>
 
@@ -626,56 +800,43 @@ function Overview({ data, compare, compareData, daily, monthly, cumulative, rang
       <section className='mt-20 grid grid-cols-1 lg:grid-cols-3 gap-16'>
         <div>
           <div className='label-s'>Commits by month</div>
-          <div className='mt-6 flex h-[110px] items-end gap-1.5'>
-            {commitValues.length ? (
-              commitValues.map((v, i) => (
-                <div
-                  key={i}
-                  className='group relative flex-1 bg-zinc-100/15 transition-all hover:bg-zinc-100/60'
-                  style={{ height: `${(v / Math.max(...commitValues, 1)) * 100}%` }}
-                >
-                  <span className='absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] tabular-nums text-zinc-500 opacity-0 group-hover:opacity-100'>
-                    {v}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <div className='w-full h-full border-b border-zinc-900 text-[10px] uppercase tracking-[0.2em] text-zinc-700 flex items-end pb-2'>
-                No data
-              </div>
-            )}
-          </div>
-          <div className='mt-2 flex justify-between text-[9px] uppercase tracking-[0.2em] text-zinc-800'>
-            {monthLabels.map((m, i) => (
-              <span key={i}>{m}</span>
-            ))}
-          </div>
+          <MiniBars values={commitValues} labels={monthLabels} />
         </div>
-
         <div>
-          <div className='label-s'>Coding hours by month</div>
-          <div className='mt-6 h-[110px] flex items-center justify-center border-b border-zinc-900'>
-            <span className='text-[10px] uppercase tracking-[0.2em] text-zinc-700'>Not connected</span>
-          </div>
-          <div className='mt-2 flex justify-between text-[9px] uppercase tracking-[0.2em] text-zinc-800 opacity-0'>
-            {monthLabels.map((m, i) => (
-              <span key={i}>{m}</span>
-            ))}
-          </div>
+          <div className='label-s'>Pull requests by month</div>
+          <MiniBars values={prValues} labels={prMonthly.map((m) => m.label[0])} />
         </div>
-
         <div>
-          <div className='label-s'>Deployments by month</div>
-          <div className='mt-6 h-[110px] flex items-center justify-center border-b border-zinc-900'>
-            <span className='text-[10px] uppercase tracking-[0.2em] text-zinc-700'>No monthly data</span>
-          </div>
-          <div className='mt-2 flex justify-between text-[9px] uppercase tracking-[0.2em] text-zinc-800 opacity-0'>
-            {monthLabels.map((m, i) => (
-              <span key={i}>{m}</span>
-            ))}
-          </div>
+          <div className='label-s'>Net lines by month</div>
+          <MiniBars values={netValues.map((v) => Math.max(0, v))} labels={monthLabels} />
         </div>
       </section>
+    </div>
+  )
+}
+
+function Landing({ onStart }) {
+  return (
+    <div className='min-h-screen bg-[#0a0a0a] text-zinc-400 antialiased selection:bg-zinc-100 selection:text-black flex items-center justify-center px-6'>
+      <div className='max-w-md text-center'>
+        <div className='text-[12px] uppercase tracking-[0.3em] text-zinc-600 mb-6'>work</div>
+        <h1 className='text-[38px] lg:text-[48px] font-light leading-[0.95] tracking-[-0.03em] text-zinc-100 figure'>BODY OF WORK</h1>
+        <p className='mt-6 text-[13px] leading-relaxed tracking-[-0.01em] text-zinc-500'>
+          Your GitHub history, made legible.
+        </p>
+        <div className='mt-10'>
+          <button
+            onClick={onStart}
+            className='inline-flex items-center gap-2.5 px-5 py-3 text-[11px] uppercase tracking-[0.2em] text-zinc-900 bg-zinc-100 hover:bg-white transition-colors'
+          >
+            <Icon icon='octicon:mark-github-16' className='h-4 w-4' />
+            Continue with GitHub
+          </button>
+        </div>
+        <div className='mt-12 text-[10px] uppercase tracking-[0.26em] text-zinc-700 leading-loose'>
+          Commits. Projects. Languages. Momentum.<br />One continuous record.
+        </div>
+      </div>
     </div>
   )
 }

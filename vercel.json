@@ -2,7 +2,10 @@
   "buildCommand": "npm run build",
   "framework": "vite",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/api/:path*", "destination": "/api/:path*" },
     { "source": "/(.*)", "destination": "/" }
+  ],
+  "crons": [
+    { "path": "/api/cron/sync", "schedule": "*/15 * * * *" }
   ]
 }

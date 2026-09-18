@@ -1,0 +1,150 @@
+import crypto from 'node:crypto'
+import { github } from '../../lib/config.mjs'
+import { supabase } from '../../lib/db.mjs'
+import { runSync, setUserSync } from '../../lib/sync.mjs'
+
+export const config = { api: { bodyParser: false } }
+
+async function rawBody(req) {
+  // config.api.bodyParser=false keeps the stream raw on Vercel. If a runtime
+  // already parsed the body, fall back to re-serializing it.
+  if (req.body != null) {
+    return Buffer.isBuffer(req.body) ? req.body : Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body))
+  }
+  const chunks = []
+  for await (const chunk of req) chunks.push(chunk)
+  return Buffer.concat(chunks)
+}
+
+function verifySignature(raw, signature) {
+  if (!github.webhookSecret || !signature) return false
+  const expected = 'sha256=' + crypto.createHmac('sha256', github.webhookSecret).update(raw).digest('hex')
+  const a = Buffer.from(signature)
+  const b = Buffer.from(expected)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+
+// GitHub App webhook receiver. Signature-verified, read-only intent: events
+// only mark sync work pending or upsert event payload data — no writes back
+// to GitHub ever happen here.
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' })
+    return
+  }
+  const raw = await rawBody(req)
+  if (!verifySignature(raw, req.headers['x-hub-signature-256'])) {
+    res.status(401).json({ error: 'Invalid signature' })
+    return
+  }
+  const event = req.headers['x-github-event']
+  let payload
+  try {
+    payload = JSON.parse(raw.toString('utf8'))
+  } catch {
+    res.status(400).json({ error: 'Invalid payload' })
+    return
+  }
+
+  try {
+    if (event === 'installation') {
+      await onInstallation(payload)
+    } else if (event === 'installation_repositories') {
+      await onInstallationRepositories(payload)
+    } else if (event === 'push') {
+      await onPush(payload)
+    } else if (event === 'pull_request') {
+      await onPullRequest(payload)
+    }
+    res.status(200).json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: 'Webhook handling failed' })
+  }
+}
+
+async function onInstallation(payload) {
+  const inst = payload.installation
+  if (!inst) return
+  if (payload.action === 'deleted') {
+    // Mark sync revoked but keep historical analytics until the user deletes
+    // their account — the UI surfaces a "Reconnect GitHub" state.
+    const { data: rows } = await supabase.from('github_installations').select('user_id').eq('installation_id', inst.id)
+    await supabase.from('github_installations').delete().eq('installation_id', inst.id)
+    for (const r of rows || []) {
+      await setUserSync(r.user_id, { status: 'revoked', error: 'GitHub access was revoked' })
+    }
+    return
+  }
+  if (payload.action === 'created') {
+    // Link to an existing user by GitHub account id when possible.
+    const { data: user } = await supabase
+      .from('users').select('id').eq('github_user_id', inst.account?.id).maybeSingle()
+    if (user) {
+      await supabase.from('github_installations').upsert({
+        user_id: user.id,
+        installation_id: inst.id,
+        account_id: inst.account?.id,
+        account_login: inst.account?.login,
+        account_type: inst.account?.type,
+      }, { onConflict: 'user_id,installation_id' })
+      await setUserSync(user.id, { status: 'syncing', phase: 'discover' })
+      await runSync(user.id, { budgetMs: 5000, force: true })
+    }
+  }
+}
+
+async function onInstallationRepositories(payload) {
+  const installationId = payload.installation?.id
+  if (!installationId) return
+  const { data: link } = await supabase
+    .from('github_installations').select('user_id').eq('installation_id', installationId).maybeSingle()
+  if (!link) return
+
+  const removed = (payload.repositories_removed || []).map((r) => r.id)
+  if (removed.length) {
+    await supabase.from('repositories').delete().eq('user_id', link.user_id).in('github_repo_id', removed)
+  }
+  if ((payload.repositories_added || []).length) {
+    await setUserSync(link.user_id, { status: 'syncing', phase: 'discover' })
+    await runSync(link.user_id, { budgetMs: 5000, force: true })
+  }
+}
+
+async function onPush(payload) {
+  const repoId = payload.repository?.id
+  if (!repoId) return
+  const { data: repo } = await supabase
+    .from('repositories').select('id, user_id').eq('github_repo_id', repoId).maybeSingle()
+  if (!repo) return
+  // Mark the repo for incremental commit sync — only commits GitHub
+  // attributes to the user are ingested, so pushes by others cost little.
+  await supabase.from('repo_sync')
+    .upsert({ user_id: repo.user_id, repository_id: repo.id, phase: 'done' }, { onConflict: 'user_id,repository_id' })
+  await setUserSync(repo.user_id, { status: 'syncing', phase: 'commits' })
+  await runSync(repo.user_id, { budgetMs: 5000, force: true })
+}
+
+async function onPullRequest(payload) {
+  const pr = payload.pull_request
+  const repoId = payload.repository?.id
+  if (!pr || !repoId) return
+  const { data: repo } = await supabase
+    .from('repositories').select('id, user_id').eq('github_repo_id', repoId).maybeSingle()
+  if (!repo) return
+  const { data: user } = await supabase
+    .from('users').select('github_user_id').eq('id', repo.user_id).single()
+  if (!user || pr.user?.id !== user.github_user_id) return // not the user's PR
+  await supabase.from('pull_requests').upsert({
+    user_id: repo.user_id,
+    repository_id: repo.id,
+    github_pr_id: pr.id,
+    number: pr.number,
+    author_user_id: pr.user.id,
+    author_login: pr.user.login,
+    state: pr.merged_at ? 'merged' : pr.state,
+    created_at: pr.created_at,
+    closed_at: pr.closed_at,
+    merged_at: pr.merged_at,
+    title: (pr.title || '').slice(0, 300),
+  }, { onConflict: 'user_id,github_pr_id' })
+}

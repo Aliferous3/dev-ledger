@@ -5,6 +5,8 @@ dist/
 .env
 .env.*
 !.env.example
+*.pem
+*.key
 *.log
 nul
 .DS_Store

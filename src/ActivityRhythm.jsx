@@ -24,7 +24,7 @@ export function ActivityRhythm({ rhythm, totalCommits, range }) {
   const reduced = useReducedMotion()
   const [hover, setHover] = useState(null)
   const matrix = useMemo(() => buildMatrix(rhythm), [rhythm])
-  const { max, peakHour, peakWindow, peakWeekday, dayparts, weekdayPct, weekendPct } = useMemo(() => {
+  const { max, peakHour, peakWindow, peakWeekdayIndex, dayparts, weekdayPct, weekendPct } = useMemo(() => {
     let max = 1
     let peakHour = 0
     let peakWeekdayIndex = 0

@@ -1,22 +1,28 @@
 export const glossary = {
-  currentSourceLoc: {
-    term: 'Current Source LOC',
-    definition: 'Current lines of source code across all included repositories. This is a present-state snapshot and does not change with the selected historical date range.',
+  languageBytes: {
+    term: 'Source Bytes',
+    definition: 'Aggregate size of repository source files as reported by GitHub’s language analysis, summed across authorized repositories.',
+    note: 'A present-state snapshot estimated from source bytes, not lines of code. Does not change with the selected date range.',
+  },
+  attribution: {
+    term: 'Commit Attribution',
+    definition: 'A commit counts toward your body of work only when GitHub links the commit’s author identity to your GitHub account.',
+    note: 'Commits from other authors, bots, and unlinked email addresses are excluded. Merge commits you authored are included.',
   },
   netSourceGrowth: {
     term: 'Net Source Growth',
     definition: 'Net change in source lines during the selected period.',
     formula: 'Lines added − Lines deleted',
-    note: 'This is not the same as current LOC.',
+    note: 'Calculated from GitHub-attributed commit statistics.',
   },
   linesAdded: {
     term: 'Lines Added',
-    definition: 'Total source-code lines added in Git commits during the selected period.',
+    definition: 'Total source-code lines added in GitHub-attributed commits during the selected period.',
     note: 'Repeated rewrites can cause this number to exceed the current codebase size.',
   },
   linesDeleted: {
     term: 'Lines Deleted',
-    definition: 'Total source-code lines removed in Git commits during the selected period.',
+    definition: 'Total source-code lines removed in GitHub-attributed commits during the selected period.',
   },
   netLines: {
     term: 'Net Lines',
@@ -31,19 +37,20 @@ export const glossary = {
   },
   commits: {
     term: 'Commits',
-    definition: 'Git commits attributed to your configured author identity within the selected period.',
+    definition: 'GitHub commits attributed to the authenticated user within the selected period.',
+    note: 'Attribution follows GitHub’s author-to-account linking. See “Commit Attribution”.',
   },
   pullRequests: {
     term: 'Pull Requests',
-    definition: 'GitHub pull requests authored within the selected period.',
+    definition: 'GitHub pull requests authored by the authenticated user within the selected period.',
   },
   merged: {
     term: 'Merged',
-    definition: 'Authored pull requests merged within the selected period.',
+    definition: 'GitHub pull requests authored by the authenticated user that were merged within the selected period.',
   },
   activeDays: {
     term: 'Active Days',
-    definition: 'Calendar days containing at least one qualifying Git commit during the selected period.',
+    definition: 'Calendar days containing at least one qualifying commit by the authenticated user during the selected period.',
   },
   longestStreak: {
     term: 'Longest Streak',
@@ -51,38 +58,12 @@ export const glossary = {
   },
   repositories: {
     term: 'Repositories',
-    definition: 'Distinct canonical Git repositories included in the dashboard after duplicate worktrees and clones are removed.',
-  },
-  productionDeploys: {
-    term: 'Production Deploys',
-    definition: "Vercel deployments targeting the 'production' environment during the selected period.",
-  },
-  previewDeploys: {
-    term: 'Preview Deploys',
-    definition: 'Vercel non-production preview deployments during the selected period.',
-  },
-  succeeded: {
-    term: 'Succeeded',
-    definition: "Deployments that reached Vercel's successful/ready state during the selected period.",
-  },
-  failed: {
-    term: 'Failed',
-    definition: 'Deployments that ended in an error/failed state during the selected period.',
-  },
-  codingHours: {
-    term: 'Coding Hours',
-    definition: 'When WakaTime is connected, total tracked coding time during the selected period.',
-    note: 'Currently not connected.',
-  },
-  avgHours: {
-    term: 'Avg Hours / Day',
-    definition: 'Average tracked coding time per active day during the selected period.',
-    note: 'Only available when WakaTime is connected.',
+    definition: 'Distinct GitHub repositories authorized for Dev Ledger analysis.',
   },
   languageComposition: {
     term: 'Language Composition',
-    definition: 'Current source-code distribution by programming language, based on cloc. Ancillary formats such as JSON and Markdown are excluded from the headline composition.',
-    note: 'Snapshot metric.',
+    definition: 'Source-code distribution by programming language, based on GitHub repository language byte estimates.',
+    note: 'GitHub language classification is approximate and based on bytes, not lines.',
   },
   sourceChurn: {
     term: 'Source Churn',
@@ -90,7 +71,7 @@ export const glossary = {
   },
   primaryLanguage: {
     term: 'Primary Language',
-    definition: 'Programming language with the greatest current source LOC in a repository.',
+    definition: 'Programming language with the greatest reported byte total in a repository, according to GitHub.',
   },
   cumulativeGrowth: {
     term: 'Cumulative Growth',
@@ -99,10 +80,6 @@ export const glossary = {
   dailyContribution: {
     term: 'Daily Contribution Field',
     definition: 'Day-by-day development activity across the selected range. Cell intensity reflects the amount of qualifying commit activity on that date.',
-  },
-  vercelMapping: {
-    term: 'Vercel Mapping',
-    definition: 'Deployment state is shown only when the local repository is confidently linked to a Vercel project.',
   },
   snapshotMetric: {
     term: 'Snapshot Metric',
@@ -114,7 +91,7 @@ export const glossary = {
   },
   loc: {
     term: 'LOC',
-    definition: 'Current source lines of code for the project.',
+    definition: 'Lines of code. Dev Ledger reports line changes from GitHub-attributed commits; absolute current LOC is not computed because GitHub does not provide it.',
   },
   churn: {
     term: 'Churn',
@@ -124,42 +101,20 @@ export const glossary = {
     term: 'Days',
     definition: 'Active development days for the project during the selected period.',
   },
-  hours: {
-    term: 'Hours',
-    definition: 'WakaTime-tracked coding hours for this project and period, when available.',
-    note: 'Currently not connected.',
-  },
   range7d: { term: '7D', definition: 'Last 7 days ending today.' },
   range30d: { term: '30D', definition: 'Last 30 days ending today.' },
   range90d: { term: '90D', definition: 'Last 90 days ending today.' },
   rangeYtd: { term: 'YTD', definition: 'January 1 through today.' },
   range1y: { term: '1Y', definition: 'Rolling 365-day period ending today.' },
-  rangeAll: { term: 'ALL', definition: 'All available history in the connected data sources.' },
+  rangeAll: { term: 'ALL', definition: 'All available history for the authenticated GitHub account.' },
   rangeCustom: { term: 'Custom', definition: 'User-selected inclusive start and end dates.' },
-  localGit: {
-    term: 'Local Git',
-    definition: 'Repository discovery, commit history, and source-code metrics from the local scan root.',
-  },
-  localSnapshot: {
-    term: 'Local Git (synced)',
-    definition: 'Local Git data is served from the latest synced snapshot.',
-    note: 'Snapshot freshness is reflected in the source status dot.',
-  },
   github: {
     term: 'GitHub',
-    definition: 'Pull requests and contribution metadata from the GitHub CLI.',
+    definition: 'Repository metadata, commits, pull requests, and language data from the GitHub App.',
   },
-  vercel: {
-    term: 'Vercel',
-    definition: 'Deployment history and project status from the Vercel API.',
-  },
-  wakatime: {
-    term: 'WakaTime',
-    definition: 'Coding-time tracking is not connected.',
-  },
-  aiTools: {
-    term: 'AI Tools',
-    definition: 'AI tooling status is not connected.',
+  sync: {
+    term: 'Sync',
+    definition: 'Background refresh of GitHub repository, commit, and pull-request data.',
   },
   compare: {
     term: 'Compare',
@@ -172,9 +127,9 @@ export const glossary = {
   },
   projectMomentum: {
     term: 'Project Momentum',
-    definition: 'A normalized score of current development activity across included repositories.',
+    definition: 'A normalized score of current development activity across authorized repositories.',
     formula: '0.30 log1p(commits) + 0.25 active-day density + 0.25 log1p(churn) + 0.20 recency decay, scaled 0–100.',
-    note: 'Local Git data only.',
+    note: 'GitHub-attributed commit data only.',
   },
   momentumScore: {
     term: 'Momentum Score',
@@ -193,7 +148,7 @@ export const glossary = {
   activityRhythm: {
     term: 'Activity Rhythm',
     definition: 'Weekday × hour-of-day commit distribution from the selected period.',
-    note: '168 buckets. Local Git timestamps in the user/system local timezone.',
+    note: '168 buckets. Based on GitHub commit timestamps; weekday and hour are computed in UTC.',
   },
   peakWeekday: { term: 'Peak Weekday', definition: 'Weekday with the most commits during the selected period.' },
   peakHour: { term: 'Peak Hour', definition: 'Hour window with the most commits during the selected period.' },
@@ -211,8 +166,7 @@ export const glossary = {
     note: 'Ranges approximately −100% to +100%.',
   },
   churnPerDay: { term: 'Churn / Active Day', definition: 'Average source churn per active development day.', formula: 'Total churn / Active days' },
-  churnConcentration: { term: 'Churn Concentration', definition: 'Share of selected-period source churn attributable to the most active repositories.', note: 'Calculated from Local Git project churn.' },
+  churnConcentration: { term: 'Churn Concentration', definition: 'Share of selected-period source churn attributable to the most active repositories.', note: 'Calculated from GitHub-attributed repository churn.' },
   extremes: { term: 'Extremes', definition: 'Maximum daily values for commits, churn, additions, and deletions within the selected period.' },
-  milestones: { term: 'Milestones', definition: 'Notable events reconstructable from available historical data, such as commit-count thresholds and first production deployments.' },
-  shippingCadence: { term: 'Shipping Cadence', definition: 'Production deployment interval metrics from Vercel deployment history.', note: 'Partial if pagination limits are reached.' },
+  milestones: { term: 'Milestones', definition: 'Notable events reconstructable from available historical data, such as commit-count thresholds.' },
 }
