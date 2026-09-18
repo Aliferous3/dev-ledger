@@ -89,6 +89,20 @@ test('rangeCoverageStatus: no coverage → missing', () => {
   assert.equal(r.status, 'missing')
 })
 
+test('coversRange: range ending today is covered by a scan earlier today', () => {
+  // covered_to is a scan timestamp (e.g. 09:14), while a "today" request ends
+  // at 23:59:59.999 — in the future. Coverage cannot extend past now, so this
+  // must not report uncovered.
+  const now = new Date()
+  const today = now.toISOString().slice(0, 10)
+  const ivs = [iv('2025-01-01T00:00:00Z', now.toISOString(), true)]
+  assert.equal(coversRange(ivs, '2025-07-17T00:00:00.000Z', `${today}T23:59:59.999Z`), true)
+  assert.equal(
+    rangeCoverageStatus([ivs], { from: '2025-07-17', to: today }).status,
+    'complete'
+  )
+})
+
 test('rangeCoverageStatus: syncing flag wins over partial', () => {
   const perRepo = [[iv('2025-08-01T00:00:00Z', '2026-09-18T00:00:00Z')]]
   assert.equal(rangeCoverageStatus(perRepo, { from: '2025-01-01', to: '2025-02-01' }, true).status, 'syncing')
