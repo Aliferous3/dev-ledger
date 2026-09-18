@@ -4,8 +4,37 @@ import { supabase } from '../../lib/db.mjs'
 import { setUserSync } from '../../lib/sync.mjs'
 
 export default async function handler(req, res) {
-  const { code, state, installation_id: installationId } = req.query || {}
+  const { code, state, installation_id: installationId, setup_action: setupAction } = req.query || {}
   const session = await getSession(req, res)
+
+  // GitHub App setup redirect (post-install/update) carries installation_id
+  // and a fresh code, but no OAuth state. With an existing session, link the
+  // installation directly; without one, restart login so OAuth completes.
+  if (installationId && setupAction) {
+    if (!session.userId) {
+      res.writeHead(302, { Location: '/api/auth/login' })
+      res.end()
+      return
+    }
+    if (supabase) {
+      const appOctokit = await getAppOctokit().catch(() => null)
+      const { data: inst } = appOctokit
+        ? await appOctokit.rest.apps.getInstallation({ installation_id: Number(installationId) }).catch(() => ({ data: null }))
+        : { data: null }
+      await supabase.from('github_installations').upsert({
+        user_id: session.userId,
+        installation_id: Number(installationId),
+        account_id: inst?.account?.id,
+        account_login: inst?.account?.login,
+        account_type: inst?.account?.type,
+      }, { onConflict: 'user_id,installation_id' })
+      await setUserSync(session.userId, { status: 'syncing', phase: 'discover' })
+    }
+    res.writeHead(302, { Location: '/' })
+    res.end()
+    return
+  }
+
   if (!code || !state || state !== session.oauthState) {
     res.status(400).json({ error: 'Invalid OAuth state' })
     return
