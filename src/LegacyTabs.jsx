@@ -325,7 +325,7 @@ export function Activity({ data, compare, compareData, daily, range, loading }) 
         </div>
       </section>
 
-      <ContributionField weeks={heatmapWeeks} sub={`${n(s.activeDays || 0)} of ${activeWindow} days active`} />
+      <ContributionField weeks={heatmapWeeks} sub={`${stringN(s.activeDays || 0)} of ${activeWindow} days active`} />
 
       <ActivityRhythm rhythm={data?.rhythm} totalCommits={s.commits || 0} range={range} />
 
