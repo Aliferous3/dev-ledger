@@ -23,8 +23,14 @@ export default async function handler(req, res) {
       redirect_uri: redirectUri,
     }),
   })
-  const tokenData = await tokenRes.json()
-  if (!tokenData.access_token) {
+  const tokenData = await tokenRes.json().catch(() => null)
+  if (!tokenData?.access_token) {
+    console.error(
+      'github token exchange failed: http=%d error=%s desc=%s',
+      tokenRes.status,
+      tokenData?.error,
+      tokenData?.error_description
+    )
     res.status(400).json({ error: 'GitHub token exchange failed' })
     return
   }
