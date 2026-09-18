@@ -15,11 +15,11 @@ export default async function handler(req, res) {
     .from('user_sync')
     .select('user_id, status, resume_at')
     .or('status.eq.syncing,and(status.eq.rate_limited,resume_at.lt.' + new Date().toISOString() + ')')
-    .limit(3)
+    .limit(2)
 
   const results = []
   for (const row of rows || []) {
-    const r = await runSync(row.user_id, { budgetMs: 45000 })
+    const r = await runSync(row.user_id, { budgetMs: 20000 })
     results.push({ user: row.user_id, status: r?.status })
   }
   res.status(200).json({ ok: true, continued: results.length, results })
