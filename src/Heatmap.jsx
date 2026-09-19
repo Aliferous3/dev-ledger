@@ -61,7 +61,7 @@ export function buildHeatmap(daily, count = 365, end = new Date()) {
   return weeks
 }
 
-export function ContributionField({ weeks, title, sub }) {
+export function ContributionField({ weeks, title, sub, gutter = false }) {
   const [hover, setHover] = useState(null)
   const labels = useMemo(() => monthLabelsFor(weeks), [weeks])
   const reduced = useReducedMotion()
@@ -96,14 +96,25 @@ export function ContributionField({ weeks, title, sub }) {
   const hoveredData = hover?.day?.data || {}
 
   return (
-    <section className='mt-14' onMouseLeave={onLeave}>
-      <div className='flex items-baseline justify-between'>
-        <div className='label-s'>{title || 'Daily Contribution Field'}</div>
-        <span className='text-[10px] uppercase tracking-[0.2em] text-zinc-700'>{sub}</span>
-      </div>
-      <div className='mt-6 flex gap-[3px] overflow-x-auto'>
+    <section className={title || sub ? 'mt-14' : ''} onMouseLeave={onLeave}>
+      {(title || sub) && (
+        <div className='flex items-baseline justify-between'>
+          <div className='label-s'>{title || 'Daily Contribution Field'}</div>
+          <span className='text-[10px] uppercase tracking-[0.2em] text-zinc-700'>{sub}</span>
+        </div>
+      )}
+      <div className='mt-6 flex gap-[2px] sm:gap-[3px] overflow-x-auto'>
+        {gutter && (
+          <div className='flex flex-col gap-[2px] sm:gap-[3px] pr-1 shrink-0'>
+            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+              <span key={i} className='h-[13px] w-3 leading-[13px] text-[8px] uppercase tracking-[0.1em] text-zinc-800 text-right'>
+                {d}
+              </span>
+            ))}
+          </div>
+        )}
         {weeks.map((col, w) => (
-          <div key={w} className='flex flex-1 min-w-[6px] flex-col gap-[3px]'>
+          <div key={w} className='flex flex-1 min-w-[3px] sm:min-w-[6px] flex-col gap-[2px] sm:gap-[3px]'>
             {col.map((day, d) => {
               const level = day.date ? levelFor(day) : 0
               const isActive = hoveredDate === day.date
@@ -141,9 +152,15 @@ export function ContributionField({ weeks, title, sub }) {
           </div>
         ))}
       </div>
-      <div className='mt-3 flex justify-between text-[9.5px] uppercase tracking-[0.24em] text-zinc-700'>
+      <div
+        className={`mt-3 flex justify-between text-[8px] sm:text-[9.5px] uppercase tracking-[0.14em] sm:tracking-[0.24em] text-zinc-700 ${gutter ? 'pl-[18px] sm:pl-[19px]' : ''}`}
+      >
         {labels.map((x, i) => (
-          <span key={i} style={{ width: `${100 / 53}%` }} className='text-center'>
+          <span
+            key={i}
+            style={{ width: `${100 / weeks.length}%` }}
+            className={x.w >= weeks.length - 2 ? 'text-right' : x.w <= 1 ? 'text-left' : 'text-center'}
+          >
             {x.m}
           </span>
         ))}

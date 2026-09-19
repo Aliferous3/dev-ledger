@@ -110,17 +110,23 @@ export function compareDisplay(range) {
   return 'PREVIOUS PERIOD'
 }
 
-export function readInitialRange() {
-  const q = new URLSearchParams(window.location.search)
-  if (q.get('range')) {
-    const stored = q.get('range')
-    if (['7d','30d','90d','ytd','1y','all'].includes(stored)) return makeRange(stored)
-  }
-  if (q.has('from') || q.has('to')) {
-    const from = q.get('from') || null
-    const to = q.get('to') || null
-    return { mode: 'custom', from, to }
-  }
+const PRESET_MODES = new Set(['7d', '30d', '90d', 'ytd', '1y', 'all'])
+
+// Canonical URL → range resolution. Explicit from/to always means CUSTOM and
+// takes precedence over a preset param; a bare preset name resolves to that
+// preset; anything else returns null so the caller can fall back to stored or
+// default state. Pure — shared by initial load and popstate handling.
+export function rangeFromSearch(search) {
+  const q = new URLSearchParams(search || '')
+  const from = q.get('from')
+  const to = q.get('to')
+  if (from || to) return { mode: 'custom', from: from || null, to: to || null }
+  const r = q.get('range')
+  if (r && PRESET_MODES.has(r)) return makeRange(r)
+  return null
+}
+
+export function readStoredRange() {
   try {
     const raw = window.localStorage.getItem('dev-dashboard-range')
     if (raw) {
@@ -128,5 +134,9 @@ export function readInitialRange() {
       if (j && j.mode) return makeRange(j.mode, j.from, j.to)
     }
   } catch {}
-  return makeRange('1y')
+  return null
+}
+
+export function readInitialRange() {
+  return rangeFromSearch(window.location.search) || readStoredRange() || makeRange('1y')
 }
