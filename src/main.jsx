@@ -9,7 +9,7 @@ import { ContributionField, buildHeatmap } from './Heatmap'
 import { LanguageBar, LanguageLegend } from './LanguageBar'
 import { DateRange } from './DateRange'
 import { Term } from './TermTooltip'
-import { makeRange, rangeQuery, rangeDays, rangeDisplay, readInitialRange, makeCompareRange, compareDisplay } from './range'
+import { makeRange, rangeQuery, rangeDays, rangeDisplay, readInitialRange, rangeFromSearch, makeCompareRange, compareDisplay, DEFAULT_RANGE_MODE } from './range'
 import { AnimatedNumber } from './AnimatedNumber'
 import { useReducedMotion, ease, dur } from './motion'
 import { Curtain, useCurtainTransition } from './CurtainTransition'
@@ -121,24 +121,19 @@ function App() {
   }, [])
 
   const persistRange = useCallback((r) => {
-    const q = rangeQuery(r)
-    const url = q ? `?${q}` : window.location.pathname
-    window.history.replaceState({ range: r }, '', url)
     try { window.localStorage.setItem('dev-dashboard-range', JSON.stringify(r)) } catch {}
   }, [])
 
   useEffect(() => {
     const onPop = () => {
-      const q = new URLSearchParams(window.location.search)
-      if (q.has('from') || q.has('to')) {
-        setRange({ mode: 'custom', from: q.get('from') || null, to: q.get('to') || null })
-      } else if (q.get('range')) {
-        setRange(makeRange(q.get('range')))
-      }
+      // Back/forward resolves canonically — a clean URL is the default range.
+      const r = rangeFromSearch(window.location.search) ?? makeRange(DEFAULT_RANGE_MODE)
+      setRange(r)
+      persistRange(r)
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
-  }, [])
+  }, [persistRange])
 
   const loadDashboard = useCallback(async (r = rangeRef.current) => {
     try {
@@ -258,6 +253,10 @@ function App() {
   const changeRange = useCallback((r) => {
     setRange(r)
     persistRange(r)
+    // Only explicit user changes write the URL — presets get ?range=, custom
+    // windows get ?from&to, and returning to the default clears the query.
+    const q = rangeQuery(r)
+    window.history.pushState({ range: r }, '', q ? `?${q}` : window.location.pathname)
   }, [persistRange])
 
   useEffect(() => {
@@ -280,7 +279,17 @@ function App() {
   }, [range.from, range.to]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadCompare() }, [compare, loadCompare])
-  useEffect(() => { persistRange(range) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    persistRange(range)
+    // Canonicalize only when the URL itself carried explicit range params —
+    // a clean URL stays clean (localStorage/defaults never inject a query).
+    if (rangeFromSearch(window.location.search)) {
+      const q = rangeQuery(range)
+      if (`?${q}` !== window.location.search) {
+        window.history.replaceState({ range }, '', q ? `?${q}` : window.location.pathname)
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const daily = dash?.daily || []
   const monthly = useMemo(() => buildMonthly(daily), [daily])
