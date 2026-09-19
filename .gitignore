@@ -30,3 +30,4 @@ dev-ledger-snapshot.json
 .dc-ref/
 .qa/
 .*.mjs
+.qa-cookie*

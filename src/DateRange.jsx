@@ -39,8 +39,8 @@ export function DateRange({ range, onChange, compare, onCompare }) {
       e.setUTCDate(e.getUTCDate() - (days + 1))
     }
     const pad = (d) => d.toISOString().slice(0, 10)
-    // A stepped window is not representable by ?range=<preset> — persisting the
-    // preset name would snap back to the standard window on reload. Emit custom.
+    // A stepped window is no longer the preset — it is an explicit custom
+    // window so the URL records real dates (?from&to) and refresh round-trips.
     onChange({ mode: 'custom', from: pad(s), to: pad(e) })
   }
 

@@ -1,61 +1,100 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { rangeFromSearch, rangeQuery, makeRange } from '../src/range.js'
 
-// Canonical URL ↔ range-state contract. Explicit from/to params always resolve
-// to CUSTOM and take precedence over any preset param; only the six named
-// presets resolve via ?range=.
+// Range-URL contract: explicit params win, the default range is a clean URL,
+// storage never injects a query string, custom windows use ?from&to.
 
-test('from+to resolves to custom with exact dates', () => {
-  const r = rangeFromSearch('?from=2025-07-17&to=2025-07-24')
-  assert.deepEqual(r, { mode: 'custom', from: '2025-07-17', to: '2025-07-24' })
+const store = {}
+globalThis.window = {
+  location: { search: '', pathname: '/' },
+  localStorage: {
+    getItem: (k) => store[k] ?? null,
+    setItem: (k, v) => { store[k] = String(v) },
+    removeItem: (k) => { delete store[k] },
+  },
+}
+
+const { makeRange, rangeQuery, rangeFromSearch, readStoredRange, readInitialRange, DEFAULT_RANGE_MODE } =
+  await import('../src/range.js')
+
+const reset = () => { for (const k of Object.keys(store)) delete store[k]; window.location.search = '' }
+
+test('rangeQuery: default mode produces a clean URL', () => {
+  assert.equal(rangeQuery(makeRange(DEFAULT_RANGE_MODE)), '')
+  assert.equal(DEFAULT_RANGE_MODE, '1y')
 })
 
-test('explicit dates beat a preset param', () => {
-  const r = rangeFromSearch('?range=7d&from=2025-07-17&to=2025-07-24')
-  assert.equal(r.mode, 'custom')
-  assert.equal(r.from, '2025-07-17')
-})
-
-test('named presets resolve', () => {
-  for (const m of ['7d', '30d', '90d', 'ytd', '1y', 'all']) {
-    const r = rangeFromSearch(`?range=${m}`)
-    assert.equal(r.mode, m, m)
+test('rangeQuery: non-default presets get ?range=', () => {
+  for (const m of ['7d', '30d', '90d', 'ytd', 'all']) {
+    assert.equal(rangeQuery(makeRange(m)), `range=${m}`)
   }
 })
 
-test('partial custom params still resolve to custom', () => {
-  assert.deepEqual(rangeFromSearch('?from=2025-07-17'), { mode: 'custom', from: '2025-07-17', to: null })
-  assert.deepEqual(rangeFromSearch('?to=2025-07-24'), { mode: 'custom', from: null, to: '2025-07-24' })
+test('rangeQuery: custom windows use ?from&to', () => {
+  assert.equal(rangeQuery({ mode: 'custom', from: '2026-01-01', to: '2026-02-01' }), 'from=2026-01-01&to=2026-02-01')
+  assert.equal(rangeQuery({ mode: 'custom', from: '2026-01-01', to: null }), 'from=2026-01-01')
+  assert.equal(rangeQuery({ mode: 'custom', from: null, to: null }), '', 'dateless custom is clean')
 })
 
-test('unknown or bare custom range param yields null (caller falls back)', () => {
+test('rangeFromSearch: explicit params win, from/to beats preset', () => {
+  assert.equal(rangeFromSearch('?range=ytd').mode, 'ytd')
+  const c = rangeFromSearch('?range=7d&from=2026-01-01&to=2026-01-31')
+  assert.deepEqual(c, { mode: 'custom', from: '2026-01-01', to: '2026-01-31' })
   assert.equal(rangeFromSearch('?range=bogus'), null)
   assert.equal(rangeFromSearch('?range=custom'), null)
   assert.equal(rangeFromSearch(''), null)
   assert.equal(rangeFromSearch('?unrelated=1'), null)
 })
 
-test('rangeQuery writes from/to for custom, range for presets', () => {
-  const q = rangeQuery({ mode: 'custom', from: '2025-07-17', to: '2025-07-24' })
-  const params = new URLSearchParams(q)
-  assert.equal(params.get('from'), '2025-07-17')
-  assert.equal(params.get('to'), '2025-07-24')
-  assert.equal(params.get('range'), null)
-  assert.equal(rangeQuery({ mode: '7d' }), 'range=7d')
+test('from+to resolves to custom with exact dates; partial params too', () => {
+  assert.deepEqual(rangeFromSearch('?from=2025-07-17&to=2025-07-24'), { mode: 'custom', from: '2025-07-17', to: '2025-07-24' })
+  assert.deepEqual(rangeFromSearch('?from=2025-07-17'), { mode: 'custom', from: '2025-07-17', to: null })
+  assert.deepEqual(rangeFromSearch('?to=2025-07-24'), { mode: 'custom', from: null, to: '2025-07-24' })
 })
 
-test('round-trip: rangeQuery output re-resolves to the same range', () => {
-  const custom = { mode: 'custom', from: '2025-07-17', to: '2025-07-24' }
-  assert.deepEqual(rangeFromSearch(rangeQuery(custom)), custom)
-  for (const m of ['7d', '30d', '90d', 'ytd', '1y']) {
-    const r = rangeFromSearch(rangeQuery({ mode: m }))
-    assert.equal(r.mode, m)
+test('named presets resolve', () => {
+  for (const m of ['7d', '30d', '90d', 'ytd', '1y', 'all']) {
+    assert.equal(rangeFromSearch(`?range=${m}`).mode, m, m)
   }
-  assert.equal(rangeFromSearch(rangeQuery({ mode: 'all' })).mode, 'all')
+})
+
+test('round-trip: non-default presets and custom re-resolve identically', () => {
+  const custom = { mode: 'custom', from: '2025-07-17', to: '2025-07-24' }
+  assert.deepEqual(rangeFromSearch('?' + rangeQuery(custom)), custom)
+  for (const m of ['7d', '30d', '90d', 'ytd', 'all']) {
+    assert.equal(rangeFromSearch('?' + rangeQuery({ mode: m })).mode, m)
+  }
+  // The default serializes to a clean URL — which re-resolves to the default.
+  assert.equal(rangeQuery({ mode: '1y' }), '')
+  assert.equal(rangeFromSearch(''), null) // caller falls back to default
 })
 
 test('makeRange custom preserves exact dates', () => {
-  const r = makeRange('custom', '2025-07-17', '2025-07-24')
-  assert.deepEqual(r, { mode: 'custom', from: '2025-07-17', to: '2025-07-24' })
+  assert.deepEqual(makeRange('custom', '2025-07-17', '2025-07-24'), { mode: 'custom', from: '2025-07-17', to: '2025-07-24' })
+})
+
+test('readInitialRange: clean URL resolves stored then default — never writes URL', () => {
+  reset()
+  assert.equal(readInitialRange().mode, DEFAULT_RANGE_MODE)
+  store['dev-dashboard-range'] = JSON.stringify({ mode: '30d' })
+  const r = readInitialRange()
+  assert.equal(r.mode, '30d')
+  assert.equal(window.location.search, '', 'storage must not inject a query string')
+})
+
+test('readInitialRange: URL params beat localStorage', () => {
+  reset()
+  store['dev-dashboard-range'] = JSON.stringify({ mode: '7d' })
+  window.location.search = '?range=ytd'
+  assert.equal(readInitialRange().mode, 'ytd')
+  window.location.search = '?from=2026-01-01&to=2026-01-31'
+  assert.equal(readInitialRange().mode, 'custom')
+})
+
+test('stored default still round-trips to a clean URL', () => {
+  reset()
+  store['dev-dashboard-range'] = JSON.stringify({ mode: '1y' })
+  const r = readInitialRange()
+  assert.equal(r.mode, '1y')
+  assert.equal(rangeQuery(r), '')
 })

@@ -7,7 +7,7 @@ import { Projects, Activity, Code } from './LegacyTabs'
 import { buildHeatmap } from './Heatmap'
 import { DateRange } from './DateRange'
 import { Term } from './TermTooltip'
-import { makeRange, rangeQuery, rangeDays, readInitialRange, readStoredRange, rangeFromSearch, makeCompareRange } from './range'
+import { makeRange, rangeQuery, rangeDays, readInitialRange, readStoredRange, rangeFromSearch, makeCompareRange, DEFAULT_RANGE_MODE } from './range'
 import { useReducedMotion } from './motion'
 import { Curtain, useCurtainTransition } from './CurtainTransition'
 import './index.css'
@@ -74,23 +74,20 @@ function App() {
     }
   }, [])
 
-  const persistRange = useCallback((r, push = false) => {
-    const q = rangeQuery(r)
-    const url = q ? `?${q}` : window.location.pathname
-    if (push) window.history.pushState({ range: r }, '', url)
-    else window.history.replaceState({ range: r }, '', url)
+  const persistRange = useCallback((r) => {
     try { window.localStorage.setItem('dev-dashboard-range', JSON.stringify(r)) } catch {}
   }, [])
 
   useEffect(() => {
     const onPop = () => {
-      const r = rangeFromSearch(window.location.search) || readStoredRange() || makeRange('1y')
+      // Back/forward resolves canonically — a clean URL is the default range.
+      const r = rangeFromSearch(window.location.search) ?? makeRange(DEFAULT_RANGE_MODE)
       setRange(r)
-      try { window.localStorage.setItem('dev-dashboard-range', JSON.stringify(r)) } catch {}
+      persistRange(r)
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
-  }, [])
+  }, [persistRange])
 
   const loadDashboard = useCallback(async (r = rangeRef.current) => {
     try {
@@ -209,7 +206,11 @@ function App() {
 
   const changeRange = useCallback((r) => {
     setRange(r)
-    persistRange(r, true)
+    persistRange(r)
+    // Only explicit user changes write the URL — presets get ?range=, custom
+    // windows get ?from&to, and returning to the default clears the query.
+    const q = rangeQuery(r)
+    window.history.pushState({ range: r }, '', q ? `?${q}` : window.location.pathname)
   }, [persistRange])
 
   useEffect(() => {
@@ -232,7 +233,17 @@ function App() {
   }, [range.from, range.to]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadCompare() }, [compare, loadCompare])
-  useEffect(() => { persistRange(range) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    persistRange(range)
+    // Canonicalize only when the URL itself carried explicit range params —
+    // a clean URL stays clean (localStorage/defaults never inject a query).
+    if (rangeFromSearch(window.location.search)) {
+      const q = rangeQuery(range)
+      if (`?${q}` !== window.location.search) {
+        window.history.replaceState({ range }, '', q ? `?${q}` : window.location.pathname)
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const daily = dash?.daily || []
   const heatmapEnd = useMemo(() => (range.to ? new Date(range.to + 'T00:00:00Z') : new Date()), [range.to])
@@ -257,7 +268,7 @@ function App() {
   const syncPct = Math.round((sync?.progress || 0) * 100)
   const building = (syncing || needsInstall) && !(dash?.repositories?.length)
 
-  const phaseLabel = { discover: 'Repos', metadata: 'Metadata', commits: 'History', pulls: 'PRs', range: 'Range' }
+  const phaseLabel = { discover: 'Discovering', metadata: 'Metadata', commits: 'History', pulls: 'PRs', range: 'Range', finalizing: 'Finalizing' }
   const syncDetail = sync?.detail
   const syncTooltip = syncDetail
     ? [
