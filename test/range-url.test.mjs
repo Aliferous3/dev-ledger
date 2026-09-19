@@ -33,6 +33,7 @@ test('rangeQuery: non-default presets get ?range=', () => {
 test('rangeQuery: custom windows use ?from&to', () => {
   assert.equal(rangeQuery({ mode: 'custom', from: '2026-01-01', to: '2026-02-01' }), 'from=2026-01-01&to=2026-02-01')
   assert.equal(rangeQuery({ mode: 'custom', from: '2026-01-01', to: null }), 'from=2026-01-01')
+  assert.equal(rangeQuery({ mode: 'custom', from: null, to: null }), '', 'dateless custom is clean')
 })
 
 test('rangeFromSearch: explicit params win, from/to beats preset', () => {
@@ -40,8 +41,36 @@ test('rangeFromSearch: explicit params win, from/to beats preset', () => {
   const c = rangeFromSearch('?range=7d&from=2026-01-01&to=2026-01-31')
   assert.deepEqual(c, { mode: 'custom', from: '2026-01-01', to: '2026-01-31' })
   assert.equal(rangeFromSearch('?range=bogus'), null)
+  assert.equal(rangeFromSearch('?range=custom'), null)
   assert.equal(rangeFromSearch(''), null)
   assert.equal(rangeFromSearch('?unrelated=1'), null)
+})
+
+test('from+to resolves to custom with exact dates; partial params too', () => {
+  assert.deepEqual(rangeFromSearch('?from=2025-07-17&to=2025-07-24'), { mode: 'custom', from: '2025-07-17', to: '2025-07-24' })
+  assert.deepEqual(rangeFromSearch('?from=2025-07-17'), { mode: 'custom', from: '2025-07-17', to: null })
+  assert.deepEqual(rangeFromSearch('?to=2025-07-24'), { mode: 'custom', from: null, to: '2025-07-24' })
+})
+
+test('named presets resolve', () => {
+  for (const m of ['7d', '30d', '90d', 'ytd', '1y', 'all']) {
+    assert.equal(rangeFromSearch(`?range=${m}`).mode, m, m)
+  }
+})
+
+test('round-trip: non-default presets and custom re-resolve identically', () => {
+  const custom = { mode: 'custom', from: '2025-07-17', to: '2025-07-24' }
+  assert.deepEqual(rangeFromSearch('?' + rangeQuery(custom)), custom)
+  for (const m of ['7d', '30d', '90d', 'ytd', 'all']) {
+    assert.equal(rangeFromSearch('?' + rangeQuery({ mode: m })).mode, m)
+  }
+  // The default serializes to a clean URL — which re-resolves to the default.
+  assert.equal(rangeQuery({ mode: '1y' }), '')
+  assert.equal(rangeFromSearch(''), null) // caller falls back to default
+})
+
+test('makeRange custom preserves exact dates', () => {
+  assert.deepEqual(makeRange('custom', '2025-07-17', '2025-07-24'), { mode: 'custom', from: '2025-07-17', to: '2025-07-24' })
 })
 
 test('readInitialRange: clean URL resolves stored then default — never writes URL', () => {

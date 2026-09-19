@@ -2,29 +2,18 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Icon } from '@iconify/react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { AreaChart } from './Charts'
+import Overview from './Overview'
 import { Projects, Activity, Code } from './LegacyTabs'
-import { CompareDelta } from './CompareDelta'
-import { ContributionField, buildHeatmap } from './Heatmap'
-import { LanguageBar, LanguageLegend } from './LanguageBar'
+import { buildHeatmap } from './Heatmap'
 import { DateRange } from './DateRange'
 import { Term } from './TermTooltip'
-import { makeRange, rangeQuery, rangeDays, rangeDisplay, readInitialRange, rangeFromSearch, makeCompareRange, compareDisplay, DEFAULT_RANGE_MODE } from './range'
-import { AnimatedNumber } from './AnimatedNumber'
-import { useReducedMotion, ease, dur } from './motion'
+import { makeRange, rangeQuery, rangeDays, readInitialRange, readStoredRange, rangeFromSearch, makeCompareRange, DEFAULT_RANGE_MODE } from './range'
+import { useReducedMotion } from './motion'
 import { Curtain, useCurtainTransition } from './CurtainTransition'
 import './index.css'
 
 const nav = ['overview', 'projects', 'activity', 'code']
 const navLabels = { overview: 'Overview', projects: 'Projects', activity: 'Activity', code: 'Code' }
-
-const fmt = new Intl.NumberFormat('en-US')
-const stringN = (v) => v == null ? '—' : fmt.format(Number(v))
-const n = (v) => <AnimatedNumber value={v} className='' />
-const compact = (v) => <AnimatedNumber value={v} compact />
-const c = (v) => compact(v)
-
-const monthShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 function fmtBytes(v) {
   const b = Number(v) || 0
@@ -47,41 +36,6 @@ function timeAgo(dateStr) {
   const months = Math.floor(days / 30)
   if (months < 12) return `${months}mo ago`
   return `${Math.floor(days / 365)}y ago`
-}
-
-function buildMonthly(daily) {
-  const buckets = new Map()
-  for (const d of daily || []) {
-    const key = d.date.slice(0, 7)
-    if (!buckets.has(key)) {
-      buckets.set(key, {
-        key,
-        label: monthShort[Number(d.date.slice(5, 7)) - 1],
-        commits: 0,
-        net: 0,
-        added: 0,
-        deleted: 0,
-      })
-    }
-    const b = buckets.get(key)
-    b.commits += d.commits || 0
-    b.added += d.added || 0
-    b.deleted += d.deleted || 0
-    b.net += (d.added || 0) - (d.deleted || 0)
-  }
-  return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key))
-}
-
-function buildPrMonthly(prsDaily) {
-  const buckets = new Map()
-  for (const d of prsDaily || []) {
-    const key = d.date.slice(0, 7)
-    if (!buckets.has(key)) buckets.set(key, { key, label: monthShort[Number(d.date.slice(5, 7)) - 1], opened: 0, merged: 0 })
-    const b = buckets.get(key)
-    b.opened += d.opened || 0
-    b.merged += d.merged || 0
-  }
-  return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key))
 }
 
 const SYNCING = new Set(['syncing'])
@@ -292,13 +246,6 @@ function App() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const daily = dash?.daily || []
-  const monthly = useMemo(() => buildMonthly(daily), [daily])
-  const prMonthly = useMemo(() => buildPrMonthly(dash?.prsDaily), [dash?.prsDaily])
-  const cumulative = useMemo(() => {
-    let cur = 0
-    return monthly.map((m) => { cur += m.net; return cur })
-  }, [monthly])
-
   const heatmapEnd = useMemo(() => (range.to ? new Date(range.to + 'T00:00:00Z') : new Date()), [range.to])
   const heatmapCount = useMemo(() => {
     if (range.mode !== 'all') return rangeDays(range)
@@ -499,7 +446,7 @@ function App() {
             <Settings me={me} dash={dash} onClose={() => setSettingsOpen(false)} />
           ) : (
             <>
-              {view === 'overview' && <Overview data={dash} compare={compare} compareData={compareData} daily={daily} monthly={monthly} prMonthly={prMonthly} cumulative={cumulative} range={range} weeks={heatmapWeeks} loading={loadingDash} />}
+              {view === 'overview' && <Overview data={dash} compare={compare} compareData={compareData} daily={daily} prsDaily={dash?.prsDaily} range={range} weeks={heatmapWeeks} loading={loadingDash} />}
               {view === 'projects' && <Projects data={dash} compare={compare} compareData={compareData} range={range} loading={loadingDash} />}
               {view === 'activity' && <Activity data={dash} compare={compare} compareData={compareData} daily={daily} range={range} loading={loadingDash} />}
               {view === 'code' && <Code data={dash} compare={compare} compareData={compareData} range={range} loading={loadingDash} />}
@@ -712,242 +659,6 @@ function Settings({ me, dash, onClose }) {
   )
 }
 
-function DevMetric({ label, value, icon, term, current, previous, compare }) {
-  return (
-    <div className='group'>
-      <div className='flex items-center gap-1.5'>
-        <Icon icon={icon} className='h-3 w-3 text-zinc-800 transition-colors group-hover:text-zinc-500' />
-        <div className='label-s'>{term ? <Term keyName={term} showIcon>{label}</Term> : label}</div>
-      </div>
-      <div className='mt-2.5 text-[26px] lg:text-[30px] font-light leading-none tracking-[-0.03em] tabular-nums text-zinc-200 transition-colors group-hover:text-white figure'>
-        {value}
-      </div>
-      <CompareDelta current={current} previous={previous} compare={compare} />
-    </div>
-  )
-}
-
-function MiniBars({ values, labels }) {
-  if (!values.length) {
-    return <div className='mt-6 flex h-[110px] items-end border-b border-zinc-900'><span className='pb-2 text-[10px] uppercase tracking-[0.2em] text-zinc-700'>No data</span></div>
-  }
-  const max = Math.max(...values, 1)
-  return (
-    <>
-      <div className='mt-6 flex h-[110px] items-end gap-1.5'>
-        {values.map((v, i) => (
-          <div key={i} className='group relative flex-1 bg-zinc-100/15 transition-all hover:bg-zinc-100/60' style={{ height: `${(v / max) * 100}%` }}>
-            <span className='absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] tabular-nums text-zinc-500 opacity-0 group-hover:opacity-100'>{v}</span>
-          </div>
-        ))}
-      </div>
-      <div className='mt-2 flex justify-between text-[9px] uppercase tracking-[0.2em] text-zinc-800'>
-        {labels.map((m, i) => <span key={i}>{m}</span>)}
-      </div>
-    </>
-  )
-}
-
-function Overview({ data, compare, compareData, daily, monthly, prMonthly, cumulative, range, weeks, loading }) {
-  const reduced = useReducedMotion()
-  const [hoveredLang, setHoveredLang] = useState(null)
-  const s = data?.summary || {}
-  const gh = data?.github || {}
-  const cs = compareData?.summary || {}
-  const cgh = compareData?.github || {}
-  const added = s.sourceAdded || 0
-  const deleted = s.sourceDeleted || 0
-  const net = added - deleted
-  const churn = added + deleted
-  const commits = s.commits || 0
-  const repos = s.repos || 0
-  const activeDays = s.activeDays || 0
-  const longestStreak = s.longestStreak || 0
-  const pullRequests = gh.pullRequests ?? null
-  const merged = gh.mergedPrs ?? null
-  const prevAdded = cs.sourceAdded || 0
-  const prevDeleted = cs.sourceDeleted || 0
-  const prevNet = prevAdded - prevDeleted
-  const prevChurn = prevAdded + prevDeleted
-  const prevCommits = cs.commits
-  const prevActiveDays = cs.activeDays
-  const prevLongestStreak = cs.longestStreak
-  const prevPRs = cgh.pullRequests
-  const prevMerged = cgh.mergedPrs
-  const activeWindow = range.mode === 'all' && !daily.length ? 365 : rangeDays(range)
-  const languages = data?.languages || []
-  const rankedRepos = useMemo(() => {
-    return [...(data?.repositories || [])].sort(
-      (a, b) => (b.sourceAdded + b.sourceDeleted) - (a.sourceAdded + a.sourceDeleted)
-    )
-  }, [data?.repositories])
-  const primaryLang = languages[0]?.language
-
-  const monthLabels = monthly.map((m) => m.label[0])
-  const commitValues = monthly.map((m) => m.commits)
-  const prValues = prMonthly.map((m) => m.opened)
-  const netValues = monthly.map((m) => m.net)
-
-  return (
-    <div>
-      <section className='grid grid-cols-1 lg:grid-cols-[1fr_auto] items-end gap-12 lg:gap-16 pt-14 lg:pt-16'>
-        <div className='min-w-0'>
-          <div className='label-s'><Term keyName='netSourceGrowth' showIcon>Net Source Growth</Term> · {rangeDisplay(range)}</div>
-          <motion.div
-            className='mt-5 flex items-baseline text-[64px] sm:text-[80px] lg:text-[112px] xl:text-[132px] font-light leading-[0.82] tracking-[-0.055em] tabular-nums text-zinc-50 figure'
-            initial={{ opacity: 0, y: 14, filter: 'blur(3px)' }}
-            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            transition={reduced ? { duration: 0 } : { duration: dur.hero, ease: ease.out, delay: 0.12 }}
-          >
-            <span className={net >= 0 ? 'text-zinc-50' : 'text-zinc-200'}>
-              {net >= 0 ? '+' : '−'}
-            </span>
-            {stringN(Math.abs(net))}
-          </motion.div>
-          <CompareDelta current={net} previous={prevNet} compare={compare} label={compare ? `vs ${compareDisplay(range).toLowerCase()}` : ''} />
-          <div className='mt-6 space-y-1 text-[11px] uppercase tracking-[0.2em] text-zinc-600'>
-            <div className='text-zinc-500'>{range.from || ''} — {range.to || ''}</div>
-            <div className='flex items-center gap-4 pt-2'>
-              <span><Term keyName='languageBytes' showIcon>Source bytes</Term> <span className='text-zinc-400'>{fmtBytes(s.languageBytes)}</span></span>
-              <span className='text-zinc-800'>·</span>
-              <span>{stringN(repos)} <Term keyName='repositories' showIcon>repositories</Term></span>
-              {primaryLang && (
-                <>
-                  <span className='text-zinc-800'>·</span>
-                  <span><Term keyName='primaryLanguage' showIcon>{primaryLang}</Term></span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className='w-full lg:w-[420px] pb-3'>
-          <div className='label-s'><Term keyName='cumulativeGrowth' showIcon>Cumulative growth</Term></div>
-          <div className='mt-4'>
-            {cumulative.length > 1 ? (
-              <AreaChart
-                height={150}
-                labels={monthLabels}
-                series={[{ data: cumulative, color: '#e4e4e7', label: 'loc', fill: true }]}
-                grid={false}
-                axisColor='#3f3f46'
-              />
-            ) : (
-              <div className='h-[150px] flex items-end border-b border-zinc-900'>
-                <span className='text-[10px] uppercase tracking-[0.2em] text-zinc-700'>No historical data</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className='mt-16 lg:mt-20'>
-        <div className='label-s'>{rangeDisplay(range)}</div>
-        <div className='mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 lg:gap-x-14'>
-        {[
-          { l: 'Lines Added', v: n(added), t: 'linesAdded', c: added, p: prevAdded },
-          { l: 'Lines Deleted', v: n(deleted), t: 'linesDeleted', c: deleted, p: prevDeleted },
-          { l: 'Net Lines', v: n(net), t: 'netLines', c: net, p: prevNet },
-          { l: 'Total Churn', v: n(churn), t: 'totalChurn', c: churn, p: prevChurn },
-        ].map((x, i) => (
-          <div
-            key={x.l}
-            className={`group ${i ? 'border-t sm:border-t-0 sm:border-l border-zinc-900 pt-6 sm:pt-0 sm:pl-6 lg:pl-14' : ''}`}
-          >
-            <div className='label-s'>{x.t ? <Term keyName={x.t} showIcon>{x.l}</Term> : x.l}</div>
-            <div className='mt-3 text-[32px] lg:text-[40px] font-light leading-none tracking-[-0.035em] tabular-nums text-zinc-100 transition-colors group-hover:text-white figure'>
-              {x.v}
-            </div>
-            <CompareDelta current={x.c} previous={x.p} compare={compare} label={compare ? `vs previous ${range.mode === 'ytd' ? 'ytd' : range.mode}` : ''} />
-          </div>
-        ))}
-        </div>
-      </section>
-
-      <div className='mt-16 rule' />
-
-      <section className='mt-16'>
-        <div className='label-s'>{rangeDisplay(range)}</div>
-        <div className='mt-5 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-x-8 lg:gap-x-10 gap-y-14'>
-        <DevMetric label='Commits' value={n(commits)} icon='octicon:git-commit-16' term='commits' current={commits} previous={prevCommits} compare={compare} />
-        <DevMetric label='Pull Requests' value={pullRequests === null ? '—' : n(pullRequests)} icon='octicon:git-pull-request-16' term='pullRequests' current={pullRequests} previous={prevPRs} compare={compare} />
-        <DevMetric label='Merged' value={merged === null ? '—' : n(merged)} icon='octicon:git-merge-16' term='merged' current={merged} previous={prevMerged} compare={compare} />
-        <DevMetric label='Active Days' value={n(activeDays)} icon='ph:calendar-check-bold' term='activeDays' current={activeDays} previous={prevActiveDays} compare={compare} />
-        <DevMetric label='Longest Streak' value={n(longestStreak)} icon='ph:flame-bold' term='longestStreak' current={longestStreak} previous={prevLongestStreak} compare={compare} />
-        <DevMetric label='Repositories' value={n(repos)} icon='octicon:repo-16' term='repositories' />
-        </div>
-      </section>
-
-      <div className='mt-16 rule' />
-
-      <ContributionField weeks={weeks} sub={`${stringN(activeDays)} of ${activeWindow} days active`} title={<Term keyName='dailyContribution' showIcon>Daily Contribution Field</Term>} />
-
-      <div className='mt-16 rule' />
-
-      <section className='mt-14'>
-        <div className='label-s'>Projects · ranked by <Term keyName='sourceChurn' showIcon>churn</Term> · {rangeDisplay(range)}</div>
-        <div className='mt-8'>
-          {rankedRepos.map((p, i) => (
-            <motion.div
-              key={p.path}
-              className='group grid grid-cols-[auto_1fr_auto] lg:grid-cols-[1.4fr_repeat(4,minmax(0,0.55fr))] items-baseline gap-4 lg:gap-6 border-b border-zinc-900 py-6 transition-colors hover:border-zinc-700 hover:bg-zinc-900/20'
-              whileHover={reduced ? {} : { x: 2 }}
-              transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
-            >
-              <div className='flex items-baseline gap-4'>
-                <span className='text-[10px] tabular-nums text-zinc-800 transition-colors group-hover:text-zinc-500'>{String(i + 1).padStart(2, '0')}</span>
-                <div>
-                  <div className='text-[20px] lg:text-[24px] font-light leading-none tracking-[-0.02em] text-zinc-100 transition-all group-hover:translate-x-1.5 group-hover:text-white'>
-                    {p.name}
-                    {p.private && <Icon icon='octicon:lock-16' className='inline h-3 w-3 ml-2 text-zinc-700' />}
-                  </div>
-                  <div className='mt-2 text-[9.5px] uppercase tracking-[0.24em] text-zinc-700 transition-colors group-hover:text-zinc-600'>
-                    {p.primaryLanguage ? `${p.primaryLanguage} · ` : ''}
-                    {timeAgo(p.lastCommit)}
-                  </div>
-                </div>
-              </div>
-              {[
-                ['Churn', compact((p.sourceAdded || 0) + (p.sourceDeleted || 0))],
-                ['Commits', n(p.commits || 0)],
-                ['Days', n(p.activeDays || 0)],
-                ['Language', p.primaryLanguage || '—'],
-              ].map(([l, v]) => (
-                <div key={l} className='text-right hidden lg:block'>
-                  <div className='text-[9px] uppercase tracking-[0.24em] text-zinc-800'>{l}</div>
-                  <div className='mt-1.5 text-[17px] lg:text-[19px] font-light tabular-nums text-zinc-300 figure transition-colors group-hover:text-zinc-100'>{v}</div>
-                </div>
-              ))}
-            </motion.div>
-          ))}
-          {!rankedRepos.length && !loading && (
-            <div className='py-14 text-center text-[10px] uppercase tracking-[0.2em] text-zinc-700'>No repositories imported yet</div>
-          )}
-        </div>
-      </section>
-
-      <section className='mt-16'>
-        <div className='label-s'><Term keyName='languageComposition' showIcon>Language composition</Term></div>
-        <LanguageBar languages={languages} onHover={setHoveredLang} activeLang={hoveredLang} />
-        <LanguageLegend languages={languages} onHover={setHoveredLang} activeLang={hoveredLang} />
-      </section>
-
-      <section className='mt-20 grid grid-cols-1 lg:grid-cols-3 gap-16'>
-        <div>
-          <div className='label-s'>Commits by month</div>
-          <MiniBars values={commitValues} labels={monthLabels} />
-        </div>
-        <div>
-          <div className='label-s'>Pull requests by month</div>
-          <MiniBars values={prValues} labels={prMonthly.map((m) => m.label[0])} />
-        </div>
-        <div>
-          <div className='label-s'>Net lines by month</div>
-          <MiniBars values={netValues.map((v) => Math.max(0, v))} labels={monthLabels} />
-        </div>
-      </section>
-    </div>
-  )
-}
 
 function Landing({ onStart }) {
   return (
