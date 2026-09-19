@@ -107,3 +107,75 @@ body {
 .glass-card { background: color-mix(in oklab, var(--color-base-200) 86%, transparent); backdrop-filter: blur(18px); }
 
 .metric-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+
+/* ————— login entrance motion (masked baseline reveals + rule draws) ————— */
+
+@keyframes auth-mask-rise {
+  from { transform: translateY(118%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes auth-rule-x {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes auth-rule-y {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes auth-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes auth-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.reveal-mask {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+  padding-bottom: 0.08em;
+  margin-bottom: -0.08em;
+}
+
+.reveal-inner {
+  display: inline-block;
+  transform: translateY(118%);
+  animation: auth-mask-rise 1.1s cubic-bezier(0.19, 1, 0.22, 1) forwards;
+  will-change: transform;
+}
+
+.anim-fade,
+.anim-rise,
+.anim-rule-x,
+.anim-rule-y {
+  opacity: 0;
+  animation-duration: 1.3s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: forwards;
+}
+
+.anim-fade { animation-name: auth-fade; animation-duration: 1.6s; }
+.anim-rise { animation-name: auth-rise; }
+.anim-rule-x { animation-name: auth-rule-x, auth-fade; transform-origin: left center; animation-duration: 1.4s; }
+.anim-rule-y { animation-name: auth-rule-y, auth-fade; transform-origin: top center; animation-duration: 1.4s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal-inner {
+    animation: none;
+    transform: none;
+  }
+  .anim-fade,
+  .anim-rise,
+  .anim-rule-x,
+  .anim-rule-y {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

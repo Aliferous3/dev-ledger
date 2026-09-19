@@ -10,6 +10,9 @@ import { Term } from './TermTooltip'
 import { makeRange, rangeQuery, rangeDays, readInitialRange, readStoredRange, rangeFromSearch, makeCompareRange, DEFAULT_RANGE_MODE } from './range'
 import { useReducedMotion } from './motion'
 import { Curtain, useCurtainTransition } from './CurtainTransition'
+import { initSmoothScroll, destroySmoothScroll, scrollToTop } from './scroll'
+import Login from './Login'
+import 'lenis/dist/lenis.css'
 import './index.css'
 
 const nav = ['overview', 'projects', 'activity', 'code']
@@ -58,6 +61,16 @@ function App() {
     view, target, requestView, transitioning, phase,
     direction: curtainDir, onCovered, onRevealed,
   } = useCurtainTransition({ views: nav, initial: 'overview' })
+
+  // One inertial scroll engine for the whole app — no-op under reduced
+  // motion or on coarse-pointer devices, where native scrolling stays.
+  useEffect(() => {
+    initSmoothScroll()
+    return () => destroySmoothScroll()
+  }, [])
+
+  // Primary tab navigation lands at the top of the new view.
+  useEffect(() => { scrollToTop(true) }, [view])
 
   useEffect(() => { rangeRef.current = range }, [range])
   useEffect(() => {
@@ -259,7 +272,7 @@ function App() {
     return <div className='min-h-screen bg-[#0a0a0a]' />
   }
   if (me === null) {
-    return <Landing onStart={() => (window.location.href = '/api/auth/login')} />
+    return <Login />
   }
 
   const syncing = sync && SYNCING.has(sync.status)
@@ -659,31 +672,5 @@ function Settings({ me, dash, onClose }) {
   )
 }
 
-
-function Landing({ onStart }) {
-  return (
-    <div className='min-h-screen bg-[#0a0a0a] text-zinc-400 antialiased selection:bg-zinc-100 selection:text-black flex items-center justify-center px-6'>
-      <div className='max-w-md text-center'>
-        <div className='text-[12px] uppercase tracking-[0.3em] text-zinc-600 mb-6'>work</div>
-        <h1 className='text-[38px] lg:text-[48px] font-light leading-[0.95] tracking-[-0.03em] text-zinc-100 figure'>BODY OF WORK</h1>
-        <p className='mt-6 text-[13px] leading-relaxed tracking-[-0.01em] text-zinc-500'>
-          Your GitHub history, made legible.
-        </p>
-        <div className='mt-10'>
-          <button
-            onClick={onStart}
-            className='inline-flex items-center gap-2.5 px-5 py-3 text-[11px] uppercase tracking-[0.2em] text-zinc-900 bg-zinc-100 hover:bg-white transition-colors'
-          >
-            <Icon icon='octicon:mark-github-16' className='h-4 w-4' />
-            Continue with GitHub
-          </button>
-        </div>
-        <div className='mt-12 text-[10px] uppercase tracking-[0.26em] text-zinc-700 leading-loose'>
-          Commits. Projects. Languages. Momentum.<br />One continuous record.
-        </div>
-      </div>
-    </div>
-  )
-}
 
 createRoot(document.getElementById('root')).render(<App />)
