@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react'
 import { Icon } from '@iconify/react'
-import { buildMatrix, MATRIX_YEARS } from './loginMatrix'
+import { buildMatrix, MATRIX_YEARS, MATRIX_COLS, ROWS_PER_YEAR } from './loginMatrix'
 
 /* Production login — the supplied FINAL composition with the right field
    transformed into an archival coding-history matrix (deterministic,
@@ -101,20 +101,22 @@ function Tick({ className, delay }) {
   )
 }
 
-/* The history matrix — rows map to years; cells assemble in a left→right
-   sweep during P4, then settle into independent phosphor breathing. */
+/* The history matrix — each year owns ROWS_PER_YEAR rows; cells assemble
+   in a left→right sweep during P4, then settle into independent phosphor
+   breathing. Cell/gap sizes come from CSS vars per context (compact vs
+   right field) so the geometry stays crisp at every breakpoint. */
 function HistoryField({ withYears = true }) {
   return (
     <div className='anim-fade' style={{ animationDelay: `${T.gridFade}s` }} aria-hidden='true'>
-      <div className='flex gap-3'>
+      <div className='flex items-start gap-2.5'>
         <div
-          className='grid gap-[3px]'
-          style={{ gridTemplateColumns: `repeat(30, minmax(0,1fr))` }}
+          className='auth-matrix grid'
+          style={{ gridTemplateColumns: `repeat(${MATRIX_COLS}, var(--cell))` }}
         >
           {CELLS.map((cell) => (
             <span
               key={`${cell.r}-${cell.c}`}
-              className='auth-cell aspect-square w-[7px] sm:w-[8px] lg:w-[9px] xl:w-[10px]'
+              className='auth-cell'
               style={{
                 background: cell.bg,
                 '--lo': cell.lo,
@@ -128,12 +130,15 @@ function HistoryField({ withYears = true }) {
           ))}
         </div>
         {withYears && (
-          <div className='hidden flex-col justify-between py-px md:flex'>
+          <div className='auth-year-index hidden flex-col md:flex'>
             {MATRIX_YEARS.map((y, i) => (
               <span
                 key={y}
-                className='anim-fade mono text-[8px] leading-none tracking-[0.14em] text-zinc-700'
-                style={{ animationDelay: `${T.yearBase + i * T.yearStep}s` }}
+                className='anim-fade mono flex items-center text-[9px] leading-none tracking-[0.14em] text-zinc-700'
+                style={{
+                  animationDelay: `${T.yearBase + i * T.yearStep}s`,
+                  height: `calc(var(--cell) * ${ROWS_PER_YEAR} + var(--cgap) * ${ROWS_PER_YEAR - 1})`,
+                }}
               >
                 {y}
               </span>
@@ -141,7 +146,7 @@ function HistoryField({ withYears = true }) {
           </div>
         )}
       </div>
-      <div className='mono mt-6 text-[10.5px] leading-[1.9] text-zinc-600'>
+      <div className='mono mt-8 text-[10.5px] leading-[1.9] text-zinc-600'>
         <div><RevealLine delay={T.terminal[0]}>// contributions over time</RevealLine></div>
         <div><RevealLine delay={T.terminal[1]}>// a clearer picture</RevealLine></div>
         <div>
@@ -226,13 +231,13 @@ export default function Login() {
             <RevealWords text='Your GitHub history, made legible.' delay={T.subtitle} stagger={0.06} />
           </p>
           {/* compact history field below lg — the right column takes over at lg+ */}
-          <div className='mt-12 max-w-[360px] lg:hidden'>
-            <HistoryField withYears={false} />
+          <div className='mt-12 max-w-[420px] lg:hidden'>
+            <HistoryField />
           </div>
         </div>
 
         {/* record field — hangs from V2 at lg+ */}
-        <div className='absolute right-[6vw] top-[16%] hidden w-[27%] pt-14 lg:block'>
+        <div className='absolute right-[6vw] top-[16%] hidden w-[30%] pt-14 lg:block'>
           <HistoryField />
         </div>
 

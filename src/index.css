@@ -179,12 +179,42 @@ body {
   50% { opacity: var(--lo, 1); box-shadow: 0 0 7px rgba(240, 238, 230, var(--g, 0)); }
 }
 
+/* geometry: cells/gaps are CSS vars so the field scales crisply per
+   breakpoint — compact (<lg) first, then the right-field sizes. */
+.auth-matrix {
+  --cell: 7px;
+  --cgap: 3px;
+  gap: var(--cgap);
+}
+
+@media (min-width: 640px) { .auth-matrix { --cell: 8px; } }
+@media (min-width: 768px) { .auth-matrix { --cell: 9px; } }
+@media (min-width: 1024px) { .auth-matrix { --cell: 8px; --cgap: 2.5px; } }
+@media (min-width: 1280px) { .auth-matrix { --cell: 10px; --cgap: 3.5px; } }
+@media (min-width: 1400px) { .auth-matrix { --cell: 11px; --cgap: 4px; } }
+
+@media (min-width: 1280px) { .auth-year-index > span { font-size: 10px; } }
+
 .auth-cell {
+  position: relative;
   display: block;
+  width: var(--cell);
+  height: var(--cell);
   opacity: 0;
   animation-name: auth-cell-in, auth-cell-breathe;
   animation-iteration-count: 1, infinite;
   animation-fill-mode: forwards, none;
+  transition:
+    transform 180ms cubic-bezier(0.19, 1, 0.22, 1),
+    filter 180ms ease;
+}
+
+/* GitHub-like tactile enlargement — transform/filter only, so the seeded
+   breathing (opacity/box-shadow) keeps its phase underneath. */
+.auth-cell:hover {
+  transform: scale(1.45);
+  filter: brightness(1.4) drop-shadow(0 0 5px rgba(232, 230, 223, 0.28));
+  z-index: 2;
 }
 
 /* terminal cursor — hard blink, ~600ms per half-cycle, independent of cells */

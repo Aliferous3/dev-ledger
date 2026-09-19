@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { buildMatrix, MATRIX_YEARS, MATRIX_COLS } from '../src/loginMatrix.js'
+import { buildMatrix, MATRIX_YEARS, MATRIX_COLS, MATRIX_ROWS, ROWS_PER_YEAR } from '../src/loginMatrix.js'
 
 test('matrix is deterministic — same seed, same cells', () => {
   const a = buildMatrix()
@@ -9,11 +9,13 @@ test('matrix is deterministic — same seed, same cells', () => {
   assert.deepEqual(a, b)
 })
 
-test('matrix dimensions: one row per year index', () => {
+test('matrix dimensions: ROWS_PER_YEAR rows per year index label', () => {
   const cells = buildMatrix()
-  assert.equal(cells.length, MATRIX_YEARS.length * MATRIX_COLS)
+  assert.equal(cells.length, MATRIX_ROWS * MATRIX_COLS)
+  assert.equal(MATRIX_ROWS, MATRIX_YEARS.length * ROWS_PER_YEAR)
   const rows = new Set(cells.map((c) => c.r))
-  assert.equal(rows.size, MATRIX_YEARS.length)
+  assert.equal(rows.size, MATRIX_ROWS)
+  for (const c of cells) assert.equal(Math.floor(c.r / ROWS_PER_YEAR), c.year)
 })
 
 test('luminance is sparse — mostly dark, few bright cells', () => {
