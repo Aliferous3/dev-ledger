@@ -165,6 +165,54 @@ body {
 .anim-rule-x { animation-name: auth-rule-x, auth-fade; transform-origin: left center; animation-duration: 1.4s; }
 .anim-rule-y { animation-name: auth-rule-y, auth-fade; transform-origin: top center; animation-duration: 1.4s; }
 
+/* ————— login history field —————
+   Cells assemble once (P4 sweep), then breathe independently on 5–12s
+   cycles. Both are plain CSS — no per-frame React state. */
+
+@keyframes auth-cell-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes auth-cell-breathe {
+  0%, 100% { opacity: var(--hi, 1); box-shadow: 0 0 0 rgba(240, 238, 230, 0); }
+  50% { opacity: var(--lo, 1); box-shadow: 0 0 7px rgba(240, 238, 230, var(--g, 0)); }
+}
+
+.auth-cell {
+  display: block;
+  opacity: 0;
+  animation-name: auth-cell-in, auth-cell-breathe;
+  animation-iteration-count: 1, infinite;
+  animation-fill-mode: forwards, none;
+}
+
+/* terminal cursor — hard blink, ~600ms per half-cycle, independent of cells */
+@keyframes auth-cursor-blink {
+  0%, 48% { opacity: 1; }
+  49%, 100% { opacity: 0; }
+}
+
+.auth-cursor {
+  display: inline-block;
+  opacity: 0;
+  animation-name: auth-fade, auth-cursor-blink;
+  animation-duration: 0.4s, 1.2s;
+  animation-timing-function: ease-out, step-end;
+  animation-iteration-count: 1, infinite;
+  animation-fill-mode: forwards, none;
+}
+
+/* exit treatment — the folio dims as one piece before OAuth navigation */
+.login-exit > div {
+  transition: opacity 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  opacity: 0.25;
+}
+
+.login-exit .auth-cursor {
+  animation: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .reveal-inner {
     animation: none;
@@ -173,9 +221,15 @@ body {
   .anim-fade,
   .anim-rise,
   .anim-rule-x,
-  .anim-rule-y {
+  .anim-rule-y,
+  .auth-cell {
     animation: none;
     opacity: 1;
     transform: none;
+    box-shadow: none;
+  }
+  .auth-cursor {
+    animation: none;
+    opacity: 1;
   }
 }
