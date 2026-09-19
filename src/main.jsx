@@ -12,6 +12,7 @@ import { useReducedMotion } from './motion'
 import { Curtain, useCurtainTransition } from './CurtainTransition'
 import { initSmoothScroll, destroySmoothScroll, scrollToTop } from './scroll'
 import Login from './Login'
+import { TerminalButton, TerminalIconButton } from './TerminalButton'
 import 'lenis/dist/lenis.css'
 import './index.css'
 
@@ -379,11 +380,11 @@ function App() {
                   <span className='text-zinc-800 normal-case tracking-[0.08em]'>{s.text}</span>
                 </Term>
               ))}
-              <button
+              <TerminalIconButton
                 onClick={refresh}
                 disabled={refreshing}
-                className='group text-zinc-700 hover:text-zinc-400 transition-colors disabled:opacity-40'
-                title='Sync with GitHub'
+                label='Sync with GitHub'
+                className='w-auto h-auto'
               >
                 <AnimatePresence mode='wait'>
                   <motion.div
@@ -413,7 +414,7 @@ function App() {
                     />
                   </motion.div>
                 </AnimatePresence>
-              </button>
+              </TerminalIconButton>
               <AccountMenu me={me} onSettings={() => setSettingsOpen(true)} onRefresh={refresh} />
             </div>
           </div>
@@ -512,20 +513,20 @@ function AccountMenu({ me, onSettings, onRefresh }) {
             className='absolute right-0 top-full mt-3 w-56 bg-[var(--app-bg)] border border-zinc-800 shadow-2xl z-50'
           >
             <div className='px-4 py-3 border-b border-zinc-900 text-[9px] uppercase tracking-[0.22em] text-zinc-700'>Signed in as @{login}</div>
-            <button className={itemCls} onClick={() => { setOpen(false); onSettings() }}>Manage repositories</button>
-            <button className={itemCls} onClick={() => { setOpen(false); onRefresh() }}>Refresh GitHub</button>
-            <a className={itemCls} href='/api/auth/logout'>Sign out</a>
+            <button className={itemCls} onClick={() => { setOpen(false); onSettings() }}><span className='mr-2 text-zinc-700' aria-hidden='true'>&gt;</span>Manage repositories</button>
+            <button className={itemCls} onClick={() => { setOpen(false); onRefresh() }}><span className='mr-2 text-zinc-700' aria-hidden='true'>&gt;</span>Refresh GitHub</button>
+            <a className={itemCls} href='/api/auth/logout'><span className='mr-2 text-zinc-700' aria-hidden='true'>&gt;</span>Sign out</a>
             <div className='border-t border-zinc-900'>
               {confirmDelete ? (
                 <div className='px-4 py-3'>
                   <div className='text-[9px] uppercase tracking-[0.18em] text-red-400/90'>Delete all Dev Ledger data?</div>
-                  <div className='mt-2 flex gap-3'>
-                    <button onClick={deleteData} className='text-[9px] uppercase tracking-[0.18em] text-red-300 hover:text-red-200'>Confirm</button>
-                    <button onClick={() => setConfirmDelete(false)} className='text-[9px] uppercase tracking-[0.18em] text-zinc-600 hover:text-zinc-400'>Cancel</button>
+                  <div className='mt-3 flex gap-2.5'>
+                    <TerminalButton variant='danger' compact cursor='none' onClick={deleteData}>confirm</TerminalButton>
+                    <TerminalButton variant='secondary' compact cursor='none' onClick={() => setConfirmDelete(false)}>cancel</TerminalButton>
                   </div>
                 </div>
               ) : (
-                <button className={`${itemCls} text-red-500/70 hover:text-red-400`} onClick={() => setConfirmDelete(true)}>Delete my data</button>
+                <button className={`${itemCls} text-red-500/70 hover:text-red-400`} onClick={() => setConfirmDelete(true)}><span className='mr-2 text-red-500/50' aria-hidden='true'>!</span>Delete my data</button>
               )}
             </div>
           </motion.div>
@@ -542,10 +543,9 @@ function RevokedBanner() {
         <div className='text-[10px] uppercase tracking-[0.24em] text-zinc-500'>GitHub access revoked</div>
         <div className='mt-2 text-[13px] text-zinc-400'>Dev Ledger can no longer reach your GitHub data. Historical analytics remain until you delete your account.</div>
       </div>
-      <a href='/api/auth/login' className='inline-flex items-center gap-2 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-zinc-900 bg-zinc-100 hover:bg-white transition-colors self-start'>
-        <Icon icon='octicon:mark-github-16' className='h-4 w-4' />
-        Reconnect GitHub
-      </a>
+      <TerminalButton variant='primary' href='/api/auth/login' icon='octicon:mark-github-16' className='self-start'>
+        reconnect github
+      </TerminalButton>
     </div>
   )
 }
@@ -558,10 +558,9 @@ function InstallBanner({ appSlug }) {
         <div className='text-[10px] uppercase tracking-[0.24em] text-zinc-500'>Connect repositories</div>
         <div className='mt-2 text-[13px] text-zinc-400'>Authorize Dev Ledger on GitHub — all repositories or a selected set. Read-only.</div>
       </div>
-      <a href={href} className='inline-flex items-center gap-2 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-zinc-900 bg-zinc-100 hover:bg-white transition-colors self-start'>
-        <Icon icon='octicon:mark-github-16' className='h-4 w-4' />
-        Authorize on GitHub
-      </a>
+      <TerminalButton variant='primary' href={href} icon='octicon:mark-github-16' className='self-start'>
+        authorize on github
+      </TerminalButton>
     </div>
   )
 }
@@ -609,14 +608,15 @@ function CoverageNotice({ coverage, empty, onSync, syncing, outside }) {
         )}
       </div>
       {(showSyncButton || showCheckButton) && (
-        <button
+        <TerminalButton
+          variant='secondary'
           onClick={onSync}
+          loading={syncing}
+          loadingLabel='syncing'
           disabled={syncing}
-          className='inline-flex items-center gap-2 border border-zinc-800 px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-colors disabled:opacity-40'
         >
-          <Icon icon={syncing ? 'ph:spinner' : 'ph:arrows-clockwise'} className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? 'Syncing' : showCheckButton ? 'Check outside repositories' : 'Sync this range'}
-        </button>
+          {showCheckButton ? 'check outside repositories' : 'sync this range'}
+        </TerminalButton>
       )}
     </div>
   )
@@ -632,20 +632,19 @@ function Settings({ me, dash, onClose }) {
           <div className='label-s'>Repositories</div>
           <div className='mt-2 text-[11px] uppercase tracking-[0.22em] text-zinc-600'>GitHub-authorized access · managed on GitHub</div>
         </div>
-        <button onClick={onClose} className='text-[10px] uppercase tracking-[0.2em] text-zinc-600 hover:text-zinc-300 transition-colors'>← Back</button>
+        <TerminalButton variant='secondary' compact cursor='none' onClick={onClose}>back</TerminalButton>
       </div>
 
       <div className='mt-8 flex flex-wrap gap-3'>
         {installs.map((i) => (
-          <a key={i.id} href={i.url} target='_blank' rel='noreferrer' className='inline-flex items-center gap-2 border border-zinc-800 px-4 py-2.5 text-[10px] uppercase tracking-[0.18em] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-colors'>
-            <Icon icon='octicon:gear-16' className='h-3.5 w-3.5' />
-            {i.account ? `Edit access · ${i.account}` : 'Edit access on GitHub'}
-          </a>
+          <TerminalButton key={i.id} variant='secondary' href={i.url} target='_blank' rel='noreferrer' icon='octicon:gear-16' cursor='none'>
+            {i.account ? `edit access · ${i.account}` : 'edit access on github'}
+          </TerminalButton>
         ))}
         {!installs.length && me?.appSlug && (
-          <a href={`https://github.com/apps/${me.appSlug}/installations/new`} target='_blank' rel='noreferrer' className='inline-flex items-center gap-2 border border-zinc-800 px-4 py-2.5 text-[10px] uppercase tracking-[0.18em] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-colors'>
-            Install on GitHub
-          </a>
+          <TerminalButton variant='secondary' href={`https://github.com/apps/${me.appSlug}/installations/new`} target='_blank' rel='noreferrer' cursor='none'>
+            install on github
+          </TerminalButton>
         )}
       </div>
 

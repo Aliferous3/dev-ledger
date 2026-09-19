@@ -18,6 +18,7 @@ import {
   subMonths,
 } from 'date-fns'
 import { useReducedMotion } from './motion'
+import { TerminalButton, TerminalIconButton } from './TerminalButton'
 
 const today = () => startOfDay(new Date())
 
@@ -165,22 +166,10 @@ export function DatePicker({ from, to, open, onClose, onApply, onClear }) {
         >
           <div className='flex items-center justify-between pb-4 border-b border-zinc-900'>
             <div className='flex items-center gap-4'>
-              <button
-                onClick={() => setBase((b) => subMonths(b, 1))}
-                className='text-zinc-600 hover:text-zinc-300 transition-colors text-[10px] uppercase tracking-[0.2em]'
-              >
-                ← prev
-              </button>
-              <button
-                onClick={() => setBase((b) => addMonths(b, 1))}
-                className='text-zinc-600 hover:text-zinc-300 transition-colors text-[10px] uppercase tracking-[0.2em]'
-              >
-                next →
-              </button>
+              <TerminalIconButton icon='ph:caret-left' label='Previous month' onClick={() => setBase((b) => subMonths(b, 1))} />
+              <TerminalIconButton icon='ph:caret-right' label='Next month' onClick={() => setBase((b) => addMonths(b, 1))} />
             </div>
-            <button onClick={onClose} className='text-zinc-600 hover:text-zinc-300 transition-colors text-[10px] uppercase tracking-[0.2em]'>
-              close
-            </button>
+            <TerminalIconButton icon='ph:x' label='Close date picker' onClick={onClose} />
           </div>
 
           <div className='mt-5 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10'>
@@ -195,19 +184,8 @@ export function DatePicker({ from, to, open, onClose, onApply, onClear }) {
               {start ? format(start, 'MM / dd / yyyy') : '—'} → {end ? format(end, 'MM / dd / yyyy') : '—'}
             </div>
             <div className='flex items-center gap-2'>
-              <button
-                onClick={clear}
-                className='px-3 py-1.5 text-[9.5px] uppercase tracking-[0.2em] text-zinc-500 border border-zinc-900 hover:border-zinc-700 hover:text-zinc-300 transition-colors'
-              >
-                Clear
-              </button>
-              <button
-                onClick={apply}
-                disabled={!start || !end}
-                className='px-3 py-1.5 text-[9.5px] uppercase tracking-[0.2em] bg-[#f2f2f0] text-[#080808] hover:bg-white disabled:opacity-40 disabled:hover:bg-[#f2f2f0] transition-colors'
-              >
-                Apply
-              </button>
+              <TerminalButton variant='secondary' compact cursor='none' onClick={clear}>clear</TerminalButton>
+              <TerminalButton variant='primary' compact cursor='static' onClick={apply} disabled={!start || !end}>apply</TerminalButton>
             </div>
           </div>
         </motion.div>

@@ -151,10 +151,7 @@ export default function GitTopology({ className = '', mini = false, base = 2.0 }
           </text>
         ))}
       </svg>
-      <div className='mono mt-3 text-[10.5px] leading-none text-zinc-600'>
-        <span className='text-zinc-500'>&gt;</span> make something
-        <span className='auth-cursor auth-cursor-slow text-zinc-500'>_</span>
-      </div>
+
     </div>
   )
 }

@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { buildMatrix, MATRIX_YEARS, MATRIX_COLS, ROWS_PER_YEAR } from './loginMatrix'
 import GitTopology from './GitTopology'
+import { TerminalButton } from './TerminalButton'
 
 /* Production login — the supplied FINAL composition with the right field
    transformed into an archival coding-history matrix (deterministic,
@@ -24,8 +25,15 @@ const T = {
   gridFade: 1.2, yearBase: 1.25, yearStep: 0.05,
   terminal: [1.85, 2.0, 2.15], prompt: 2.3, cursorBlink: 2.45,
   topo: 2.0,
+  desc: [3.0, 3.16, 3.32],
   footIdx: 1.95, footLabel: 2.03, cta: 2.2,
 }
+
+const PRODUCT_DESC = [
+  'FROM YOUR FIRST COMMIT TO YOUR LATEST.',
+  'TRACE WHAT YOU BUILT, WHEN YOU BUILT IT,',
+  'AND HOW YOUR WORK CHANGED ALONG THE WAY.',
+]
 
 const CELLS = buildMatrix()
 const EASE = 'cubic-bezier(0.19, 1, 0.22, 1)'
@@ -107,10 +115,10 @@ function Tick({ className, delay }) {
    in a left→right sweep during P4, then settle into independent phosphor
    breathing. Cell/gap sizes come from CSS vars per context (compact vs
    right field) so the geometry stays crisp at every breakpoint. */
-function HistoryField({ withYears = true }) {
+function HistoryField({ withYears = true, tight = false }) {
   return (
     <div className='anim-fade' style={{ animationDelay: `${T.gridFade}s` }} aria-hidden='true'>
-      <div className='flex items-start gap-2 lg:gap-1.5 xl:gap-2.5'>
+      <div className='flex items-start gap-2 lg:gap-2 xl:gap-3'>
         <div
           className='auth-matrix grid'
           style={{ gridTemplateColumns: `repeat(${MATRIX_COLS}, var(--cell))` }}
@@ -132,11 +140,11 @@ function HistoryField({ withYears = true }) {
           ))}
         </div>
         {withYears && (
-          <div className='auth-year-index hidden flex-col md:flex'>
+          <div className='auth-year-index hidden flex-col min-[360px]:flex'>
             {MATRIX_YEARS.map((y, i) => (
               <span
                 key={y}
-                className='anim-fade mono flex items-center text-[9px] leading-none tracking-[0.14em] text-zinc-600'
+                className='anim-fade mono flex items-center leading-none tracking-[0.14em] text-zinc-500'
                 style={{
                   animationDelay: `${T.yearBase + i * T.yearStep}s`,
                   height: `calc(var(--cell) * ${ROWS_PER_YEAR} + var(--cgap) * ${ROWS_PER_YEAR - 1})`,
@@ -148,14 +156,15 @@ function HistoryField({ withYears = true }) {
           </div>
         )}
       </div>
-      <div className='mono mt-8 text-[10.5px] leading-[1.9] text-zinc-600'>
-        <div><RevealLine delay={T.terminal[0]}>// contributions over time</RevealLine></div>
-        <div><RevealLine delay={T.terminal[1]}>// a clearer picture</RevealLine></div>
+      <div className={`auth-term mono ${tight ? 'mt-6' : 'mt-9'} text-zinc-500`}>
+        <div><RevealLine delay={T.terminal[0]}>// commits become chronology</RevealLine></div>
+        <div><RevealLine delay={T.terminal[1]}>// chronology becomes a body of work</RevealLine></div>
         <div>
           <RevealLine delay={T.terminal[2]}>
-            <span className='text-zinc-500'>&gt;</span>{' '}
+            <span className='text-zinc-400'>&gt;</span>{' '}
+            <span className='text-zinc-300'>connect github</span>
             <span
-              className='auth-cursor text-zinc-300'
+              className='auth-cursor text-zinc-200'
               style={{ animationDelay: `${T.prompt}s, ${T.cursorBlink}s` }}
             >
               _
@@ -222,27 +231,48 @@ export default function Login() {
         <Tick className='bottom-[104px] left-[6vw] translate-y-1/2' delay={`${T.ticks[2]}s`} />
 
         {/* identity zone — the title hangs from V1 */}
-        <div className='absolute left-[6vw] right-[6vw] top-[16%] pl-8 pt-14 md:pl-12 lg:right-[41%]'>
+        <div className='absolute left-[6vw] right-[6vw] top-[16%] pl-8 pt-10 md:pl-12 md:pt-14 lg:right-[41%]'>
           <Label className='block text-zinc-600'>
             <RevealLine delay={T.eyebrow}>Body of Work — The Developer’s Record</RevealLine>
           </Label>
-          <h1 className='figure mt-9 text-[clamp(2.75rem,7.4vw,7.25rem)] font-light leading-[1.02] tracking-[0.01em] text-zinc-100'>
+          <h1 className='figure mt-7 text-[clamp(2.75rem,7.4vw,7.25rem)] font-light leading-[1.02] tracking-[0.01em] text-zinc-100 md:mt-9'>
             <RevealChars text='DEV LEDGER' delay={T.title} stagger={T.titleStagger} duration={T.titleDur} />
           </h1>
-          <p className='figure mt-8 text-[19px] italic leading-relaxed tracking-normal text-zinc-400'>
+          <p className='figure mt-6 text-[19px] italic leading-relaxed tracking-normal text-zinc-400 md:mt-8'>
             <RevealWords text='Your GitHub history, made legible.' delay={T.subtitle} stagger={0.06} />
           </p>
           {/* interactive git topology — left field manipulates history,
               right field observes it. Interactive at lg+, static motif
               at md–lg, hidden below md. */}
-          <div className='mt-14 hidden lg:block lg:max-w-[380px] xl:max-w-[460px]'>
+          <div className='hidden lg:mt-8 lg:block lg:max-w-[320px] xl:mt-10 xl:max-w-[460px]'>
             <GitTopology base={T.topo} />
+            {/* product annotation — printed into the folio, revealed line by
+                line once the topology begins resolving */}
+            <div className='mono mt-5 text-[10px] leading-[2] tracking-[0.18em] text-zinc-500 xl:mt-7 xl:text-[10.5px]'>
+              {PRODUCT_DESC.map((line, i) => (
+                <div key={line}>
+                  <RevealLine delay={T.desc[i]}>{line}</RevealLine>
+                </div>
+              ))}
+            </div>
           </div>
-          {/* compact history field below lg — the right column takes over at lg+ */}
-          <div className='mt-12 max-w-[420px] lg:hidden'>
-            <HistoryField />
-            <div className='anim-fade mt-10 hidden md:block' style={{ animationDelay: '2.4s' }}>
+          {/* compact history field below lg — the right column takes over at lg+.
+              Mini topology sits beside the product annotation on md, stacked
+              below sm where vertical room runs out. */}
+          <div className='mt-9 max-w-[460px] md:mt-10 lg:hidden'>
+            <HistoryField tight />
+          </div>
+          {/* mini topology beside the annotation on md; stacked below sm */}
+          <div className='mt-7 flex flex-wrap items-end gap-x-8 gap-y-5 lg:hidden'>
+            <div className='anim-fade hidden md:block' style={{ animationDelay: '2.4s' }}>
               <GitTopology mini />
+            </div>
+            <div className='mono hidden text-[9.5px] leading-[1.95] tracking-[0.18em] text-zinc-500 sm:block md:text-[10px]'>
+              {PRODUCT_DESC.map((line, i) => (
+                <div key={line}>
+                  <RevealLine delay={T.desc[i]}>{line}</RevealLine>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -262,18 +292,16 @@ export default function Login() {
               <span className='text-[11px] uppercase tracking-[0.28em] text-zinc-400'>Open the ledger</span>
             </RevealLine>
           </div>
-          <a
-            href='/api/auth/login'
-            onClick={beginAuth}
-            className='anim-rise group inline-flex items-center gap-3 border border-zinc-100 bg-zinc-100 px-7 py-[14px] text-[11px] font-medium uppercase tracking-[0.24em] text-zinc-950 transition-all duration-500 ease-out hover:-translate-y-px hover:bg-transparent hover:text-zinc-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-zinc-100/60 sm:px-8'
-            style={{ animationDelay: `${T.cta}s` }}
-          >
-            <Icon
+          <div className='anim-rise' style={{ animationDelay: `${T.cta}s` }}>
+            <TerminalButton
+              variant='primary'
+              href='/api/auth/login'
+              onClick={beginAuth}
               icon='octicon:mark-github-16'
-              className='h-[15px] w-[15px] transition-all duration-500 ease-out group-hover:-translate-y-[1px] group-hover:opacity-80'
-            />
-            Continue with GitHub
-          </a>
+            >
+              continue with github
+            </TerminalButton>
+          </div>
         </div>
       </div>
     </section>

@@ -5,6 +5,7 @@ import { makeRange, rangeDisplay } from './range'
 import { useReducedMotion } from './motion'
 import { DatePicker } from './DatePicker'
 import { Term } from './TermTooltip'
+import { TerminalButton } from './TerminalButton'
 
 const presets = ['7d', '30d', '90d', 'ytd', '1y', 'all']
 const rangeTerm = { '7d': 'range7d', '30d': 'range30d', '90d': 'range90d', ytd: 'rangeYtd', '1y': 'range1y', all: 'rangeAll' }
@@ -85,16 +86,17 @@ export function DateRange({ range, onChange, compare, onCompare }) {
       </div>
 
       <div className='relative'>
-        <button
+        <TerminalButton
+          variant='secondary'
+          compact
+          cursor='none'
+          active={customActive}
           onClick={() => setOpen((o) => !o)}
-          className={`flex items-center gap-2 border border-zinc-900 px-2 py-1.5 transition-colors ${
-            customActive ? 'bg-[#f2f2f0] text-[#080808]' : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/40'
-          }`}
         >
-          <Term keyName={customActive ? 'rangeCustom' : 'rangeCustom'} as='span' tabIndex={-1} showIcon={customActive}>
-            <span className='text-[9.5px] uppercase tracking-[0.2em]'>{label}</span>
+          <Term keyName='rangeCustom' as='span' tabIndex={-1} showIcon={customActive}>
+            {label}
           </Term>
-        </button>
+        </TerminalButton>
         <DatePicker
           from={range.from}
           to={range.to}
@@ -111,15 +113,16 @@ export function DateRange({ range, onChange, compare, onCompare }) {
       <div className='text-[9.5px] uppercase tracking-[0.2em] text-zinc-600' title={rangeDisplay(range)}>
         {rangeDisplay(range)}
       </div>
-      <button
+      <TerminalButton
+        variant='secondary'
+        compact
+        cursor='none'
+        active={compare}
         onClick={() => onCompare?.(!compare)}
         disabled={range.mode === 'all'}
-        className={`px-2.5 py-1.5 text-[9.5px] uppercase tracking-[0.2em] border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-          compare ? 'bg-[#f2f2f0] text-[#080808] border-zinc-800' : 'text-zinc-500 border-zinc-900 hover:text-zinc-200 hover:bg-zinc-900/40'
-        }`}
       >
-        <Term keyName='compare' as='span' tabIndex={-1} showIcon={compare}>Compare</Term>
-      </button>
+        <Term keyName='compare' as='span' tabIndex={-1} showIcon={compare}>compare</Term>
+      </TerminalButton>
     </div>
   )
 }
