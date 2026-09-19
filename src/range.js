@@ -42,15 +42,44 @@ export function makeRange(mode, from = null, to = null) {
   }
 }
 
+export const DEFAULT_RANGE_MODE = '1y'
+export const PRESET_MODES = ['7d', '30d', '90d', 'ytd', '1y', 'all']
+
 export function rangeQuery(range) {
   const q = new URLSearchParams()
   if (range.mode === 'custom' && (range.from || range.to)) {
     if (range.from) q.set('from', range.from)
     if (range.to) q.set('to', range.to)
+  } else if (range.mode === DEFAULT_RANGE_MODE || range.mode === 'custom') {
+    return '' // the product default (and a dateless custom) is a clean URL
   } else {
     q.set('range', range.mode)
   }
   return q.toString()
+}
+
+// Pure URL resolver — returns the range encoded in a search string, or null
+// when the URL carries no explicit range params. from/to always wins so an
+// explicit custom window can never be masked by a stale preset param.
+export function rangeFromSearch(search) {
+  const q = new URLSearchParams(search)
+  if (q.has('from') || q.has('to')) {
+    return { mode: 'custom', from: q.get('from') || null, to: q.get('to') || null }
+  }
+  const r = q.get('range')
+  if (r && PRESET_MODES.includes(r)) return makeRange(r)
+  return null
+}
+
+export function readStoredRange() {
+  try {
+    const raw = window.localStorage.getItem('dev-dashboard-range')
+    if (raw) {
+      const j = JSON.parse(raw)
+      if (j && j.mode) return makeRange(j.mode, j.from, j.to)
+    }
+  } catch {}
+  return null
 }
 
 export function rangeDays(range) {
@@ -111,22 +140,7 @@ export function compareDisplay(range) {
 }
 
 export function readInitialRange() {
-  const q = new URLSearchParams(window.location.search)
-  if (q.get('range')) {
-    const stored = q.get('range')
-    if (['7d','30d','90d','ytd','1y','all'].includes(stored)) return makeRange(stored)
-  }
-  if (q.has('from') || q.has('to')) {
-    const from = q.get('from') || null
-    const to = q.get('to') || null
-    return { mode: 'custom', from, to }
-  }
-  try {
-    const raw = window.localStorage.getItem('dev-dashboard-range')
-    if (raw) {
-      const j = JSON.parse(raw)
-      if (j && j.mode) return makeRange(j.mode, j.from, j.to)
-    }
-  } catch {}
-  return makeRange('1y')
+  // Explicit URL params always win; then stored preference; then the product
+  // default. localStorage only resolves the range — it never writes the URL.
+  return rangeFromSearch(window.location.search) ?? readStoredRange() ?? makeRange(DEFAULT_RANGE_MODE)
 }

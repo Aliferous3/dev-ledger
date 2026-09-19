@@ -2,6 +2,8 @@
 
 Your GitHub history, made legible.
 
+**Production: https://devledger-app.vercel.app**
+
 Dev Ledger is a private, per-user developer analytics dashboard. A visitor signs
 in with GitHub, authorizes the Dev Ledger GitHub App on all or selected
 repositories, and gets a personal "body of work" — commits, churn, pull
@@ -65,7 +67,9 @@ per 100 commits, no per-SHA detail fetches.
 
 ## GitHub App setup
 
-1. Create a GitHub App (Settings → Developer settings → GitHub Apps):
+1. Create a GitHub App (Settings → Developer settings → GitHub Apps). For the
+   production deployment `APP_URL` is `https://devledger-app.vercel.app`:
+   - **Homepage URL**: `{APP_URL}` (`https://devledger-app.vercel.app`)
    - **Callback URL**: `{APP_URL}/api/auth/callback`
    - **Setup URL**: `{APP_URL}/api/setup` (check "Redirect on update")
    - **Webhook URL**: `{APP_URL}/api/webhooks/github`, set a webhook secret
