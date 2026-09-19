@@ -20,6 +20,13 @@ test('class map carries variant + modifiers', () => {
   assert.ok(tbtnClass({ variant: 'secondary', active: true }).includes('tbtn-active'))
 })
 
+test('solid + large modifiers produce the paper CTA classes', () => {
+  const cls = tbtnClass({ variant: 'primary', solid: true, size: 'lg' })
+  assert.ok(cls.includes('tbtn-primary'))
+  assert.ok(cls.includes('tbtn-solid'))
+  assert.ok(cls.includes('tbtn-lg'))
+})
+
 test('cursor policy: primary may blink, secondary/danger degrade to static', () => {
   assert.equal(tbtnCursor({ variant: 'primary' }), 'blink')
   assert.equal(tbtnCursor({ variant: 'secondary' }), 'none')
@@ -68,6 +75,25 @@ test('all eight year labels still render from MATRIX_YEARS', () => {
 
 test('topology prompt line removed from GitTopology', () => {
   assert.ok(!src('GitTopology.jsx').includes('make something'))
+})
+
+test('folio masthead label removed entirely', () => {
+  const login = src('Login.jsx')
+  assert.ok(!login.includes('Folio'), 'folio label still present')
+  assert.ok(!login.includes('VOL. I'), 'vol label still present')
+  assert.ok(login.includes('GitHub / Auth'), 'right masthead label missing')
+})
+
+test('topology discoverability hint present', () => {
+  assert.ok(src('GitTopology.jsx').includes('CLICK A NODE · DRAG TO BRANCH'))
+})
+
+test('login CTA uses the prominent solid primary variant', () => {
+  const login = src('Login.jsx')
+  const cta = login.slice(login.indexOf('<TerminalButton'), login.indexOf('</TerminalButton>'))
+  assert.ok(cta.includes("variant='primary'"))
+  assert.ok(cta.includes('solid'))
+  assert.ok(cta.includes("size='lg'"))
 })
 
 test('background token still resolves to #131413', () => {

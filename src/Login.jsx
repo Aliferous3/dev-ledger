@@ -196,10 +196,7 @@ export default function Login() {
     >
       <div className='relative h-full min-h-[720px]'>
         {/* masthead, above the upper datum */}
-        <div className='absolute left-[6vw] right-[6vw] top-9 flex items-baseline justify-between'>
-          <Label delay={`${T.mastL}s`} className='anim-fade text-zinc-400'>
-            Vol. I — Folio 001
-          </Label>
+        <div className='absolute left-[6vw] right-[6vw] top-9 flex items-baseline justify-end'>
           <Label delay={`${T.mastR}s`} className='anim-fade text-zinc-600'>
             GitHub / Auth
           </Label>
@@ -248,7 +245,7 @@ export default function Login() {
             <GitTopology base={T.topo} />
             {/* product annotation — printed into the folio, revealed line by
                 line once the topology begins resolving */}
-            <div className='mono mt-5 text-[10px] leading-[2] tracking-[0.18em] text-zinc-500 xl:mt-7 xl:text-[10.5px]'>
+            <div className='mono mt-4 text-[10px] leading-[2] tracking-[0.18em] text-zinc-500 xl:mt-5 xl:text-[10.5px]'>
               {PRODUCT_DESC.map((line, i) => (
                 <div key={line}>
                   <RevealLine delay={T.desc[i]}>{line}</RevealLine>
@@ -292,12 +289,15 @@ export default function Login() {
               <span className='text-[11px] uppercase tracking-[0.28em] text-zinc-400'>Open the ledger</span>
             </RevealLine>
           </div>
-          <div className='anim-rise' style={{ animationDelay: `${T.cta}s` }}>
+          <div className='anim-rise max-[560px]:w-full' style={{ animationDelay: `${T.cta}s` }}>
             <TerminalButton
               variant='primary'
+              solid
+              size='lg'
               href='/api/auth/login'
               onClick={beginAuth}
               icon='octicon:mark-github-16'
+              className='max-[560px]:w-full max-[560px]:justify-center'
             >
               continue with github
             </TerminalButton>

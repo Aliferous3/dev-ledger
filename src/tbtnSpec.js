@@ -11,13 +11,15 @@ export const TB_PROMPT = {
    region should blink; secondary/compact/icon stay static. */
 export const TB_BLINK_OK = { primary: true, secondary: false, danger: false }
 
-export function tbtnClass({ variant = 'secondary', compact = false, active = false } = {}) {
+export function tbtnClass({ variant = 'secondary', compact = false, active = false, solid = false, size = null } = {}) {
   const v = TB_PROMPT[variant] ? variant : 'secondary'
   return [
     'tbtn',
     `tbtn-${v}`,
     compact ? 'tbtn-compact' : '',
     active ? 'tbtn-active' : '',
+    solid ? 'tbtn-solid' : '',
+    size === 'lg' ? 'tbtn-lg' : '',
   ].filter(Boolean).join(' ')
 }
 

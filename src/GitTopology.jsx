@@ -29,8 +29,10 @@ export default function GitTopology({ className = '', mini = false, base = 2.0 }
   const [drag, setDrag] = useState(null)
   const [hoverId, setHoverId] = useState(null)
   const [labels, setLabels] = useState([])
+  const [litId, setLitId] = useState(null)
   const svgRef = useRef(null)
   const pressRef = useRef(null)
+  const interactedRef = useRef(false)
 
   const flash = useCallback((text, x, y) => {
     const k = ++labelKey
@@ -42,6 +44,19 @@ export default function GitTopology({ className = '', mini = false, base = 2.0 }
   useEffect(() => {
     const last = topo.nodes.find((n) => n.id === topo.lastMain)
     const t = setTimeout(() => last && flash('HEAD', last.x, last.y), (base + topo.nodes.length * 0.14 + 0.6) * 1000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // One-shot discoverability tease: if untouched ~5.5s after seeding,
+  // flash CLICK at the twig tip. Never repeats; skipped for reduced motion.
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const t = setTimeout(() => {
+      if (interactedRef.current) return
+      const tip = topo.nodes[topo.nodes.length - 1]
+      if (tip) flash('CLICK', tip.x, tip.y)
+    }, (base + 5.5) * 1000)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -61,10 +76,13 @@ export default function GitTopology({ className = '', mini = false, base = 2.0 }
       if (n) setTimeout(() => flash(text, n.x, n.y), 200)
       return next
     })
+    setLitId(parentId)
+    setTimeout(() => setLitId((l) => (l === parentId ? null : l)), 700)
   }, [flash])
 
   const onNodeDown = (e, id) => {
     e.preventDefault()
+    interactedRef.current = true
     pressRef.current = { id, p: toSvg(e), moved: false }
     svgRef.current.setPointerCapture?.(e.pointerId)
   }
@@ -87,6 +105,7 @@ export default function GitTopology({ className = '', mini = false, base = 2.0 }
   }
 
   const onDblClick = (e) => {
+    interactedRef.current = true
     const p = toSvg(e)
     const n = nearestNode(topo, p.x, p.y)
     if (n) commit(n.id, p, 'BRANCH')
@@ -101,7 +120,7 @@ export default function GitTopology({ className = '', mini = false, base = 2.0 }
       <svg
         ref={svgRef}
         viewBox={`0 0 ${TOPO_W} ${TOPO_H}`}
-        className='block h-auto w-full select-none'
+        className={`topo-svg block h-auto w-full select-none${drag ? ' topo-svg-dragging' : ''}`}
         style={{ touchAction: 'none' }}
         onPointerMove={onMove}
         onPointerUp={onUp}
@@ -132,7 +151,7 @@ export default function GitTopology({ className = '', mini = false, base = 2.0 }
         {topo.nodes.map((n) => (
           <g
             key={n.id}
-            className='topo-node'
+            className={`topo-node${litId === n.id || (drag && drag.from === n.id) ? ' topo-node-lit' : ''}`}
             style={{ animationDelay: `${n.d}s` }}
             onPointerDown={(e) => onNodeDown(e, n.id)}
             onPointerEnter={() => setHoverId(n.id)}
@@ -151,7 +170,10 @@ export default function GitTopology({ className = '', mini = false, base = 2.0 }
           </text>
         ))}
       </svg>
-
+      {/* restrained discoverability hint — fades in after the seed resolves */}
+      <div className='topo-hint anim-fade mt-2' style={{ animationDelay: `${base + 2.1}s` }}>
+        CLICK A NODE · DRAG TO BRANCH
+      </div>
     </div>
   )
 }

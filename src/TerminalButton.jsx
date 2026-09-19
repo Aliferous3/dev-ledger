@@ -10,6 +10,8 @@ export function TerminalButton({
   variant = 'secondary',
   compact = false,
   active = false,
+  solid = false,
+  size = null,
   loading = false,
   loadingLabel = null,
   cursor = 'auto',
@@ -28,7 +30,7 @@ export function TerminalButton({
       disabled={!href ? disabled || loading : undefined}
       aria-disabled={href && (disabled || loading) ? true : undefined}
       aria-busy={loading || undefined}
-      className={`${tbtnClass({ variant, compact, active })}${disabled || loading ? ' tbtn-disabled' : ''} ${className}`}
+      className={`${tbtnClass({ variant, compact, active, solid, size })}${disabled || loading ? ' tbtn-disabled' : ''} ${className}`}
       {...rest}
     >
       {icon ? <Icon icon={icon} className='tbtn-icon' aria-hidden='true' /> : null}
