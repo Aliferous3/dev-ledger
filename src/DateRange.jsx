@@ -49,7 +49,7 @@ export function DateRange({ range, onChange, compare, onCompare }) {
 
   return (
     <div className='flex flex-wrap items-center gap-3'>
-      <div className='flex items-center border border-zinc-900 divide-x divide-zinc-900 overflow-hidden'>
+      <div className='flex items-center border border-zinc-900 divide-x divide-zinc-900 overflow-x-auto max-w-full [&>button]:shrink-0'>
         <button
           onClick={() => step('prev')}
           className='px-2 py-1.5 text-zinc-700 hover:text-zinc-300 transition-colors'

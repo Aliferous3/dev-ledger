@@ -20,7 +20,7 @@ export default async function handler(req, res) {
     return
   }
 
-  const [{ data: repos }, { data: daily }, { data: repoStats }, { data: rhythm }, { data: prs }, sync, coverage] =
+  const [{ data: repos }, { data: daily }, { data: repoStats }, { data: rhythm }, { data: prs }, sync, coverage, { data: repoMonthly }, { data: spanRows }] =
     await Promise.all([
       supabase.from('repositories').select('*').eq('user_id', userId).order('pushed_at', { ascending: false }).limit(1000),
       supabase.rpc('dash_daily', { p_user: userId, p_from: from, p_to: to }),
@@ -29,6 +29,10 @@ export default async function handler(req, res) {
       supabase.from('pull_requests').select('state, created_at, merged_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(3000),
       getUserSync(userId),
       getCoverage(userId),
+      // All-time per-repo monthly activity + global span — compact derived rows
+      // powering the Overview's work-shape analytics (lifecycle, eras, strata).
+      supabase.from('dash_repo_monthly').select('repository_id, month, commits, added, deleted, active_days').eq('user_id', userId),
+      supabase.from('dash_span').select('*').eq('user_id', userId).maybeSingle(),
     ])
 
   const repoIds = (repos || []).map((r) => r.id)
@@ -70,6 +74,7 @@ export default async function handler(req, res) {
   const repositories = (repos || []).map((r) => {
     const st = statsByRepo.get(r.id)
     return {
+      id: r.id,
       name: r.name,
       path: r.full_name,
       private: r.private,
@@ -142,5 +147,42 @@ export default async function handler(req, res) {
     daily: dailyRows,
     prsDaily: [...prsDailyMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
     rhythm: (rhythm || []).map((r) => ({ weekday: r.weekday, hour: r.hour, commits: Number(r.commits) || 0, days: 0 })),
+    workShape: {
+      // per-repo language vectors — presence model for the succession strata
+      repoLangs: Object.fromEntries(
+        [...(langRows || []).reduce((m, l) => {
+          const arr = m.get(l.repository_id) || []
+          arr.push({ language: l.language, bytes: Number(l.bytes) || 0 })
+          m.set(l.repository_id, arr)
+          return m
+        }, new Map())].map(([k, v]) => [k, v.sort((a, b) => b.bytes - a.bytes)])
+      ),
+      repoMonthly: (repoMonthly || []).map((m) => ({
+        repository_id: m.repository_id,
+        month: String(m.month).slice(0, 7),
+        commits: Number(m.commits) || 0,
+        added: Number(m.added) || 0,
+        deleted: Number(m.deleted) || 0,
+        activeDays: Number(m.active_days) || 0,
+      })),
+      prMonthly: (() => {
+        const mm = new Map()
+        for (const p of prs || []) {
+          const k = dayKey(p.created_at).slice(0, 7)
+          mm.set(k, (mm.get(k) || 0) + 1)
+        }
+        return [...mm.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, count]) => ({ month, opened: count }))
+      })(),
+      span: spanRows
+        ? {
+            firstActive: spanRows.first_active ? String(spanRows.first_active).slice(0, 10) : null,
+            lastActive: spanRows.last_active ? String(spanRows.last_active).slice(0, 10) : null,
+            activeDays: Number(spanRows.active_days) || 0,
+            totalCommits: Number(spanRows.total_commits) || 0,
+            totalAdded: Number(spanRows.total_added) || 0,
+            totalDeleted: Number(spanRows.total_deleted) || 0,
+          }
+        : null,
+    },
   })
 }

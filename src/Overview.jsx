@@ -10,6 +10,7 @@ import { rangeDays, rangeDisplay, compareDisplay } from './range'
 import { useReducedMotion, ease } from './motion'
 import { DrawHR, GrowthLine, SeriesLine, MomentumBar } from './Canvas'
 import { computeMomentum } from './LegacyTabs'
+import Shape from './WorkShape'
 
 const fmt = new Intl.NumberFormat('en-US')
 const stringN = (v) => (v == null ? '—' : fmt.format(Number(v)))
@@ -85,6 +86,8 @@ function monthlyBuckets(series, pick) {
 export default function Overview({ data, compare, compareData, daily, prsDaily, range, weeks, loading }) {
   const reduced = useReducedMotion()
   const [focus, setFocus] = useState(null)
+  const [repoFocus, setRepoFocus] = useState(null)
+  const [scrub, setScrub] = useState(null) // shared temporal guide, fraction of range
   const s = data?.summary || {}
   const gh = data?.github || {}
   const cs = compareData?.summary || {}
@@ -148,6 +151,28 @@ export default function Overview({ data, compare, compareData, daily, prsDaily, 
     cum += pct
     return { ...l, pct, x: start, up: i % 2 === 0 }
   })
+  // Collision-aware scale labeling: labels are centered over their segment and
+  // placed greedily left→right; anything that would overlap (or is too small)
+  // becomes an indexed tick listed in the legend beneath the scale.
+  const langScale = useMemo(() => {
+    const placed = []
+    const placedIdx = []
+    let nIdx = 0
+    return langTicks.map((l) => {
+      const estPx = Math.max(l.language.length * 7.4 + 46, 66)
+      const halfPct = (estPx / 2 / 360) * 100 // ≈ share of the scale column width
+      const cx = Math.min(Math.max(l.x + l.pct * 50, halfPct), 100 - halfPct)
+      const collides = l.pct < 0.05 || placed.some((right) => cx - halfPct < right + 1)
+      let tIdx = null
+      if (!collides) {
+        placed.push(cx + halfPct)
+      } else if (l.pct >= 0.015 && !placedIdx.some((right) => l.x < right + 4)) {
+        tIdx = ++nIdx
+        placedIdx.push(l.x)
+      }
+      return { ...l, cx, inline: !collides, tIdx }
+    })
+  }, [langTicks])
   const langFocus = focus?.startsWith('lang:') ? focus.slice(5) : null
   const dimFor = (key) => `transition-opacity duration-300 ${focus && focus !== key ? 'opacity-25' : ''}`
 
@@ -179,7 +204,7 @@ export default function Overview({ data, compare, compareData, daily, prsDaily, 
             <Coord>A · 01</Coord>
           </div>
           <motion.div
-            className='mt-5 flex items-baseline text-[clamp(76px,9.5vw,150px)] font-light leading-[0.84] tracking-[-0.055em] tabular-nums text-zinc-50 figure'
+            className='mt-5 flex items-baseline text-[clamp(52px,9.5vw,150px)] font-light leading-[0.84] tracking-[-0.055em] tabular-nums text-zinc-50 figure'
             initial={reduced ? false : { opacity: 0, y: 14, filter: 'blur(3px)' }}
             animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
             transition={{ duration: 0.7, ease: ease.out, delay: 0.12 }}
@@ -243,7 +268,14 @@ export default function Overview({ data, compare, compareData, daily, prsDaily, 
 
         {/* cumulative chart — a bounded cell sharing the matrix rules */}
         <div className='col-span-12 border-t border-zinc-900 pt-6'>
-          <GrowthLine values={cumulative} prior={compare ? priorCumulative : null} height={260} empty={empty} />
+          <GrowthLine
+            values={cumulative}
+            prior={compare ? priorCumulative : null}
+            height={260}
+            empty={empty}
+            scrub={scrub}
+            onScrub={(i) => setScrub(i == null ? null : i / Math.max(cumulative.length - 1, 1))}
+          />
           <div className='mt-2 flex justify-between label-s text-zinc-800'>
             <span>{empty ? 'NO HISTORICAL DATA — BASELINE HOLDS AT ZERO' : 'FIG. FIELD A — CUMULATIVE NET SOURCE'}</span>
             <span>{cumulative.length} OBSERVATIONS</span>
@@ -309,29 +341,63 @@ export default function Overview({ data, compare, compareData, daily, prsDaily, 
           </div>
           <div className='relative h-28 mt-0'>
             <div className='absolute left-0 right-0 top-10 h-px bg-zinc-800' />
-            {langTicks.map((l) => {
-              const labeled = l.pct >= 0.04
-              return (
+            {langScale.map((l) => (
+              <div
+                key={l.language}
+                onMouseEnter={() => setFocus(`lang:${l.language}`)}
+                onMouseLeave={() => setFocus(null)}
+                className={`absolute top-0 w-px transition-opacity duration-300 ${focus && focus !== `lang:${l.language}` && focus.startsWith('lang:') ? 'opacity-30' : ''}`}
+                style={{ left: `${Math.min(l.x, 97)}%` }}
+              >
+                <span className={`block w-px bg-zinc-500 ${l.up ? 'h-10' : 'h-6 mt-4'}`} />
+              </div>
+            ))}
+            {langScale.map((l) =>
+              l.inline ? (
+                <div
+                  key={`lbl-${l.language}`}
+                  onMouseEnter={() => setFocus(`lang:${l.language}`)}
+                  onMouseLeave={() => setFocus(null)}
+                  className={`absolute top-12 whitespace-nowrap max-w-[130px] -translate-x-1/2 text-center transition-opacity duration-300 ${focus && focus !== `lang:${l.language}` && focus.startsWith('lang:') ? 'opacity-30' : ''}`}
+                  style={{ left: `${l.cx}%` }}
+                >
+                  <span className='label-s block'>{l.language}</span>
+                  <span className='block text-[15px] text-zinc-500 figure tabular-nums'>
+                    {fmtBytes(l.code)}
+                  </span>
+                </div>
+              ) : l.tIdx != null ? (
+                <span
+                  key={`idx-${l.language}`}
+                  onMouseEnter={() => setFocus(`lang:${l.language}`)}
+                  onMouseLeave={() => setFocus(null)}
+                  className='absolute top-11 label-s text-zinc-700 -translate-x-1/2'
+                  style={{ left: `${Math.min(l.x, 97)}%` }}
+                >
+                  {String(l.tIdx).padStart(2, '0')}
+                </span>
+              ) : null
+            )}
+          </div>
+          {langScale.some((l) => !l.inline) && (
+            <div className='mt-4 grid grid-cols-2 gap-x-5'>
+              {langScale.filter((l) => !l.inline).map((l) => (
                 <div
                   key={l.language}
                   onMouseEnter={() => setFocus(`lang:${l.language}`)}
                   onMouseLeave={() => setFocus(null)}
-                  className={`absolute top-0 w-px transition-opacity duration-300 ${focus && focus !== `lang:${l.language}` && focus.startsWith('lang:') ? 'opacity-30' : ''}`}
-                  style={{ left: `${Math.min(l.x, 97)}%` }}
+                  className={`flex items-baseline justify-between gap-2 border-t border-zinc-900 py-1.5 transition-opacity duration-300 ${langFocus && langFocus !== l.language ? 'opacity-30' : ''}`}
                 >
-                  <span className={`block w-px bg-zinc-500 ${l.up ? 'h-10' : 'h-6 mt-4'}`} />
-                  {labeled && (
-                    <div className={`absolute mt-1 whitespace-nowrap max-w-[130px] ${l.x > 78 ? 'right-0 text-right' : l.x < 12 ? 'left-0' : 'left-1/2 -translate-x-1/2'}`}>
-                      <span className='label-s block'>{l.language}</span>
-                      <span className='block text-[15px] text-zinc-500 figure tabular-nums'>
-                        {fmtBytes(l.code)}
-                      </span>
-                    </div>
-                  )}
+                  <span className='label-s text-zinc-600 truncate'>
+                    {l.tIdx != null ? `${String(l.tIdx).padStart(2, '0')} ` : ''}{l.language}
+                  </span>
+                  <span className='text-[11px] text-zinc-700 tabular-nums whitespace-nowrap'>
+                    {fmtBytes(l.code)} · {(l.pct * 100).toFixed(1)}%
+                  </span>
                 </div>
-              )
-            })}
-          </div>
+              ))}
+            </div>
+          )}
           <span className='label-s mt-4 block text-zinc-800'>
             Ticks at cumulative byte share{primaryLang ? ` · ${(langTicks[0].pct * 100).toFixed(1)}% ${primaryLang}` : ''}
           </span>
@@ -355,8 +421,8 @@ export default function Overview({ data, compare, compareData, daily, prsDaily, 
               whileInView={{ opacity: 1, x: 0 }}
               viewport={{ once: true, amount: 0.3 }}
               transition={{ duration: 0.6, delay: i * 0.04, ease: ease.out }}
-              onMouseEnter={() => p.primaryLanguage && setFocus(`lang:${p.primaryLanguage}`)}
-              onMouseLeave={() => setFocus(null)}
+              onMouseEnter={() => { p.primaryLanguage && setFocus(`lang:${p.primaryLanguage}`); setRepoFocus(p.id) }}
+              onMouseLeave={() => { setFocus(null); setRepoFocus(null) }}
               className={`grid grid-cols-12 items-center gap-4 border-b border-zinc-900 py-5 transition-all hover:bg-zinc-100/[0.02] ${
                 langFocus && p.primaryLanguage !== langFocus ? 'opacity-25' : ''
               }`}
@@ -404,7 +470,7 @@ export default function Overview({ data, compare, compareData, daily, prsDaily, 
                   {emptyLane && <span className='label-s mt-2 block text-zinc-800'>NO DATA</span>}
                 </div>
                 <div className='col-span-9 lg:col-span-10 py-3 border-l border-zinc-900 pl-6'>
-                  <SeriesLine values={lane.values} height={96} />
+                  <SeriesLine values={lane.values} height={96} scrub={scrub} onScrub={setScrub} />
                 </div>
               </div>
             )
@@ -412,10 +478,32 @@ export default function Overview({ data, compare, compareData, daily, prsDaily, 
         </div>
         <div className='mt-3 flex justify-between gap-3 label-s text-zinc-800'>
           <span className='whitespace-nowrap'>{range.from || '—'}</span>
-          <span className='hidden sm:inline'>OBSERVATIONS SHARE ONE BASELINE</span>
+          <span className='hidden sm:inline tabular-nums'>
+            {(() => {
+              const d = scrub != null ? series[Math.round(scrub * Math.max(series.length - 1, 0))] : null
+              return d
+                ? `${d.date} · ${d.commits} COMMITS · ${d.opened} PRS · ${d.net >= 0 ? '+' : '−'}${fmt.format(Math.abs(d.net))} NET`
+                : 'OBSERVATIONS SHARE ONE BASELINE'
+            })()}
+          </span>
           <span className='whitespace-nowrap'>{range.to || '—'}</span>
         </div>
       </section>
+
+      <DrawHR />
+
+      {/* ============ FIELD F — THE SHAPE OF YOUR WORK ============ */}
+      <Shape
+        data={data}
+        range={range}
+        compare={compare}
+        compareData={compareData}
+        rangeLabel={rangeDisplay(range).toUpperCase()}
+        langFocus={langFocus}
+        onHoverLang={(l) => setFocus(l ? `lang:${l}` : null)}
+        repoFocus={repoFocus}
+        setRepoFocus={setRepoFocus}
+      />
     </div>
   )
 }

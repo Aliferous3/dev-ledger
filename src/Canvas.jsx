@@ -115,7 +115,7 @@ function smoothPath(points) {
 
 /* ---------------------- cumulative growth line -------------------- */
 
-export function GrowthLine({ values, prior = null, height = 280, empty = false, className }) {
+export function GrowthLine({ values, prior = null, height = 280, empty = false, className, onScrub, scrub = null }) {
   const reduced = useReducedMotion()
   const [hover, setHover] = useState(null)
   const pts = useMemo(() => {
@@ -135,7 +135,10 @@ export function GrowthLine({ values, prior = null, height = 280, empty = false, 
   const n = values.length
 
   return (
-    <div className={`relative w-full select-none ${className || ''}`} onMouseLeave={() => setHover(null)}>
+    <div
+      className={`relative w-full select-none ${className || ''}`}
+      onMouseLeave={() => { setHover(null); onScrub?.(null) }}
+    >
       <svg viewBox={`0 0 ${W} ${height}`} preserveAspectRatio='none' className='w-full' style={{ height }}>
         {[0.25, 0.5, 0.75].map((p) => (
           <line key={p} x1={0} x2={W} y1={height * p} y2={height * p} stroke='rgba(250,250,250,0.05)' strokeWidth={1} vectorEffect='non-scaling-stroke' />
@@ -178,6 +181,9 @@ export function GrowthLine({ values, prior = null, height = 280, empty = false, 
           viewport={{ once: true, amount: 0.2 }}
           transition={{ duration: 1.6, ease: [0.33, 1, 0.4, 1] }}
         />
+        {scrub != null && (
+          <line x1={scrub * W} x2={scrub * W} y1={0} y2={height} stroke='rgba(250,250,250,0.16)' strokeWidth={1} vectorEffect='non-scaling-stroke' />
+        )}
         {hover != null && pts.cur[hover] && (
           <g>
             <line x1={pts.cur[hover].x} x2={pts.cur[hover].x} y1={0} y2={height} stroke='rgba(250,250,250,0.22)' strokeWidth={1} vectorEffect='non-scaling-stroke' />
@@ -188,7 +194,7 @@ export function GrowthLine({ values, prior = null, height = 280, empty = false, 
       {n > 1 && (
         <div className='absolute inset-0 flex' style={{ height }}>
           {values.map((_, i) => (
-            <div key={i} className='flex-1' onMouseEnter={() => setHover(i)} />
+            <div key={i} className='flex-1' onMouseEnter={() => { setHover(i); onScrub?.(i) }} />
           ))}
         </div>
       )}
@@ -208,7 +214,7 @@ export function GrowthLine({ values, prior = null, height = 280, empty = false, 
 
 /* --------------------------- generic series ----------------------- */
 
-export function SeriesLine({ values, height = 96, dashed = false, className }) {
+export function SeriesLine({ values, height = 96, dashed = false, className, scrub = null, onScrub }) {
   const reduced = useReducedMotion()
   const empty = Math.max(...values, 0) === 0
   const max = Math.max(...values, 1) * 1.12
@@ -218,25 +224,37 @@ export function SeriesLine({ values, height = 96, dashed = false, className }) {
   }))
   const d = smoothPath(pts)
   return (
-    <svg viewBox={`0 0 ${W} ${height}`} preserveAspectRatio='none' className={`w-full ${className || ''}`} style={{ height }}>
-      {[0.33, 0.66].map((p) => (
-        <line key={p} x1={0} x2={W} y1={height * p} y2={height * p} stroke='rgba(250,250,250,0.05)' strokeWidth={1} vectorEffect='non-scaling-stroke' />
-      ))}
-      <line x1={0} x2={W} y1={height - 1} y2={height - 1} stroke='rgba(250,250,250,0.16)' strokeWidth={1} vectorEffect='non-scaling-stroke' />
-      <motion.path
-        key={d}
-        d={empty ? `M 0 ${height - 1} L ${W} ${height - 1}` : d}
-        fill='none'
-        stroke={`${INK}0.82)`}
-        strokeWidth={1.1}
-        strokeDasharray={dashed ? '2 4' : undefined}
-        vectorEffect='non-scaling-stroke'
-        initial={reduced ? false : { pathLength: 0 }}
-        whileInView={reduced ? undefined : { pathLength: 1 }}
-        viewport={{ once: true, amount: 0.3 }}
-        transition={{ duration: 1.3, ease: [0.33, 1, 0.4, 1] }}
-      />
-    </svg>
+    <div
+      className={className}
+      onMouseMove={onScrub ? (e) => {
+        const r = e.currentTarget.getBoundingClientRect()
+        onScrub(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)))
+      } : undefined}
+      onMouseLeave={onScrub ? () => onScrub(null) : undefined}
+    >
+      <svg viewBox={`0 0 ${W} ${height}`} preserveAspectRatio='none' className='w-full' style={{ height }}>
+        {[0.33, 0.66].map((p) => (
+          <line key={p} x1={0} x2={W} y1={height * p} y2={height * p} stroke='rgba(250,250,250,0.05)' strokeWidth={1} vectorEffect='non-scaling-stroke' />
+        ))}
+        <line x1={0} x2={W} y1={height - 1} y2={height - 1} stroke='rgba(250,250,250,0.16)' strokeWidth={1} vectorEffect='non-scaling-stroke' />
+        <motion.path
+          key={d}
+          d={empty ? `M 0 ${height - 1} L ${W} ${height - 1}` : d}
+          fill='none'
+          stroke={`${INK}0.82)`}
+          strokeWidth={1.1}
+          strokeDasharray={dashed ? '2 4' : undefined}
+          vectorEffect='non-scaling-stroke'
+          initial={reduced ? false : { pathLength: 0 }}
+          whileInView={reduced ? undefined : { pathLength: 1 }}
+          viewport={{ once: true, amount: 0.3 }}
+          transition={{ duration: 1.3, ease: [0.33, 1, 0.4, 1] }}
+        />
+        {scrub != null && (
+          <line x1={scrub * W} x2={scrub * W} y1={0} y2={height} stroke='rgba(250,250,250,0.20)' strokeWidth={1} vectorEffect='non-scaling-stroke' />
+        )}
+      </svg>
+    </div>
   )
 }
 
