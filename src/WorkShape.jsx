@@ -427,7 +427,7 @@ function Fingerprint({ dims, rangeLabel }) {
               <span className='label-s text-zinc-700'>{String(i + 1).padStart(2, '0')} · {d.label}</span>
               <div className='mt-1 flex items-baseline justify-between gap-2 min-w-0'>
                 <span className='figure text-[19px] text-zinc-200 tabular-nums'>{(d.value * 100).toFixed(0)}</span>
-                <span className='label-s text-zinc-800 text-right break-words'>{d.raw}</span>
+                <span className='label-s text-zinc-800 text-right break-words min-w-0'>{d.raw}</span>
               </div>
             </div>
           ))}
