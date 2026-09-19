@@ -105,7 +105,7 @@ export function AreaChart({
         )}
         {series.map((s, si) =>
           hover !== null ? (
-            <circle key={si} cx={x(hover)} cy={(1 - s.data[hover] / max) * (H - 18 - 12) + 6} r={3.5} fill="#0b0d10" stroke={s.color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+            <circle key={si} cx={x(hover)} cy={(1 - s.data[hover] / max) * (H - 18 - 12) + 6} r={3.5} fill="#131413" stroke={s.color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
           ) : null
         )}
       </svg>
@@ -138,7 +138,7 @@ export function AreaChart({
             exit={{ opacity: 0, y: 4 }}
             transition={{ duration: 0.14, ease: [0.23, 1, 0.32, 1] }}
           >
-            <div className="rounded-sm border border-white/10 bg-black/80 px-2 py-1 text-[10px] font-medium text-slate-200 backdrop-blur flex gap-3">
+            <div className="rounded-sm border border-white/10 bg-[#131413]/85 px-2 py-1 text-[10px] font-medium text-slate-200 backdrop-blur flex gap-3">
               <span className="text-slate-500">{labels[hover]}</span>
               {series.map((s) => (
                 <span key={s.label} style={{ color: s.color }} className="tabular-nums">

@@ -187,7 +187,7 @@ export function GrowthLine({ values, prior = null, height = 280, empty = false, 
         {hover != null && pts.cur[hover] && (
           <g>
             <line x1={pts.cur[hover].x} x2={pts.cur[hover].x} y1={0} y2={height} stroke='rgba(250,250,250,0.22)' strokeWidth={1} vectorEffect='non-scaling-stroke' />
-            <circle cx={pts.cur[hover].x} cy={pts.cur[hover].y} r={3.5} fill='#0a0a0a' stroke='rgba(250,250,250,0.85)' strokeWidth={1.5} vectorEffect='non-scaling-stroke' />
+            <circle cx={pts.cur[hover].x} cy={pts.cur[hover].y} r={3.5} fill='#131413' stroke='rgba(250,250,250,0.85)' strokeWidth={1.5} vectorEffect='non-scaling-stroke' />
           </g>
         )}
       </svg>
@@ -200,7 +200,7 @@ export function GrowthLine({ values, prior = null, height = 280, empty = false, 
       )}
       {hover != null && values[hover] != null && (
         <div className='pointer-events-none absolute left-0 right-0 top-0 flex justify-center'>
-          <div className='border border-zinc-800 bg-[#0a0a0a] px-2 py-1 text-[10px] tracking-[0.14em] text-zinc-300 tabular-nums'>
+          <div className='border border-zinc-800 bg-[var(--app-bg)] px-2 py-1 text-[10px] tracking-[0.14em] text-zinc-300 tabular-nums'>
             {values[hover] >= 0 ? '+' : '−'}{Math.abs(values[hover]).toLocaleString('en-US')}
             {prior && prior[hover] != null && (
               <span className='text-zinc-600'> · prior {prior[hover] >= 0 ? '+' : '−'}{Math.abs(prior[hover]).toLocaleString('en-US')}</span>

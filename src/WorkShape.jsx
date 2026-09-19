@@ -297,7 +297,7 @@ function Constellation({ spans, axis, repoFocus, setRepoFocus, langFocus, onHove
           </svg>
           {tip && (
             <div className='pointer-events-none absolute left-0 top-0 w-full'>
-              <div className='mx-auto w-max border border-zinc-800 bg-[#0a0a0a] px-3 py-2 text-[10px] tracking-[0.12em] text-zinc-400'>
+              <div className='mx-auto w-max border border-zinc-800 bg-[var(--app-bg)] px-3 py-2 text-[10px] tracking-[0.12em] text-zinc-400'>
                 <span className='text-zinc-200'>{tip.name}</span>
                 {tip.lang ? ` · ${tip.lang}` : ''} · {monthName(tip.first)} — {monthName(tip.last)} · {n0(tip.commits)} COMMITS · {n0(tip.churn)} CHURN · {n0(tip.activeDays)} DAYS
               </div>

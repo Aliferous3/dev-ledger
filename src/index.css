@@ -4,7 +4,8 @@
 }
 
 :root {
-  --bg: #0a0a0a;
+  --app-bg: #131413;
+  --bg: var(--app-bg);
   --ink: #fafafa;
   --muted: #a1a1aa;
   --faint: #3f3f46;
@@ -69,6 +70,10 @@
 @keyframes progress-shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
+}
+
+html {
+  background: var(--app-bg);
 }
 
 body {
@@ -182,18 +187,23 @@ body {
 /* geometry: cells/gaps are CSS vars so the field scales crisply per
    breakpoint — compact (<lg) first, then the right-field sizes. */
 .auth-matrix {
-  --cell: 7px;
+  --cell: 7.5px;
   --cgap: 3px;
   gap: var(--cgap);
 }
 
-@media (min-width: 640px) { .auth-matrix { --cell: 8px; } }
-@media (min-width: 768px) { .auth-matrix { --cell: 9px; } }
-@media (min-width: 1024px) { .auth-matrix { --cell: 8px; --cgap: 2.5px; } }
-@media (min-width: 1280px) { .auth-matrix { --cell: 10px; --cgap: 3.5px; } }
-@media (min-width: 1400px) { .auth-matrix { --cell: 11px; --cgap: 4px; } }
+@media (min-width: 640px) { .auth-matrix { --cell: 8.5px; } }
+@media (min-width: 768px) { .auth-matrix { --cell: 9.5px; } }
+@media (min-width: 1024px) { .auth-matrix { --cell: 9px; --cgap: 3px; } }
+@media (min-width: 1280px) { .auth-matrix { --cell: 11px; --cgap: 3.5px; } }
+@media (min-width: 1400px) { .auth-matrix { --cell: 12.5px; --cgap: 4px; } }
+@media (min-width: 1536px) { .auth-matrix { --cell: 14px; --cgap: 4.5px; } }
 
-@media (min-width: 1280px) { .auth-year-index > span { font-size: 10px; } }
+.auth-year-index > span { font-size: 9px; }
+@media (min-width: 768px) { .auth-year-index > span { font-size: 9.5px; } }
+@media (min-width: 1024px) { .auth-year-index > span { font-size: 10px; } }
+@media (min-width: 1280px) { .auth-year-index > span { font-size: 11px; } }
+@media (min-width: 1400px) { .auth-year-index > span { font-size: 12px; } }
 
 .auth-cell {
   position: relative;
@@ -216,6 +226,86 @@ body {
   filter: brightness(1.4) drop-shadow(0 0 5px rgba(232, 230, 223, 0.28));
   z-index: 2;
 }
+
+/* ————— login git topology —————
+   Edge draw uses pathLength-normalized dashoffset; node entrance animates
+   the independent `scale` property (not transform) so the fill-forwards
+   state never blocks the hover transform. */
+
+@keyframes topo-edge-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes topo-node-in {
+  to { opacity: 1; scale: 1; }
+}
+
+@keyframes topo-label {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.topo-edge {
+  stroke: #3f3f46;
+  stroke-width: 1;
+  fill: none;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: topo-edge-draw 0.4s cubic-bezier(0.19, 1, 0.22, 1) forwards;
+  transition: stroke 180ms ease;
+}
+
+.topo-edge-lit { stroke: #8a8a92; }
+
+.topo-node {
+  opacity: 0;
+  scale: 0.4;
+  animation: topo-node-in 0.35s cubic-bezier(0.19, 1, 0.22, 1) forwards;
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 180ms cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.topo-node:hover { transform: scale(1.35); }
+
+.topo-node-core {
+  fill: var(--app-bg);
+  stroke: #a1a1aa;
+  stroke-width: 1;
+  transition: stroke 180ms ease;
+}
+
+.topo-node:hover .topo-node-core { stroke: #e4e4e7; }
+
+.topo-guide {
+  stroke: #52525b;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.topo-node-ghost {
+  fill: none;
+  stroke: #71717a;
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+
+.topo-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  fill: #71717a;
+  opacity: 0;
+  animation: topo-label 1.7s ease-out forwards;
+  pointer-events: none;
+}
+
+/* slower, subtler cursor for the topology prompt line — offset from the
+   right-field terminal cursor */
+.auth-cursor-slow { animation-duration: 0.4s, 1.9s; }
 
 /* terminal cursor — hard blink, ~600ms per half-cycle, independent of cells */
 @keyframes auth-cursor-blink {
@@ -261,5 +351,17 @@ body {
   .auth-cursor {
     animation: none;
     opacity: 1;
+  }
+  .topo-node {
+    animation: none;
+    opacity: 1;
+    scale: 1;
+  }
+  .topo-edge {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .topo-label {
+    animation: none;
   }
 }

@@ -4,7 +4,7 @@
    index label centers on its band. */
 
 export const MATRIX_YEARS = [2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019]
-export const MATRIX_COLS = 26
+export const MATRIX_COLS = 24
 export const ROWS_PER_YEAR = 3
 export const MATRIX_ROWS = MATRIX_YEARS.length * ROWS_PER_YEAR
 
@@ -32,8 +32,8 @@ export function buildMatrix({
   years = MATRIX_YEARS.length,
   rowsPerYear = ROWS_PER_YEAR,
   assembleStart = 1.25,
-  colStep = 0.034,
-  rowStep = 0.004,
+  colStep = 0.036,
+  rowStep = 0.005,
 } = {}) {
   const rand = mulberry32(seed)
   const rows = years * rowsPerYear

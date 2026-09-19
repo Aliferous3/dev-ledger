@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { buildMatrix, MATRIX_YEARS, MATRIX_COLS, ROWS_PER_YEAR } from './loginMatrix'
+import GitTopology from './GitTopology'
 
 /* Production login — the supplied FINAL composition with the right field
    transformed into an archival coding-history matrix (deterministic,
@@ -22,6 +23,7 @@ const T = {
   subtitle: 1.15,
   gridFade: 1.2, yearBase: 1.25, yearStep: 0.05,
   terminal: [1.85, 2.0, 2.15], prompt: 2.3, cursorBlink: 2.45,
+  topo: 2.0,
   footIdx: 1.95, footLabel: 2.03, cta: 2.2,
 }
 
@@ -108,7 +110,7 @@ function Tick({ className, delay }) {
 function HistoryField({ withYears = true }) {
   return (
     <div className='anim-fade' style={{ animationDelay: `${T.gridFade}s` }} aria-hidden='true'>
-      <div className='flex items-start gap-2.5'>
+      <div className='flex items-start gap-2 lg:gap-1.5 xl:gap-2.5'>
         <div
           className='auth-matrix grid'
           style={{ gridTemplateColumns: `repeat(${MATRIX_COLS}, var(--cell))` }}
@@ -134,7 +136,7 @@ function HistoryField({ withYears = true }) {
             {MATRIX_YEARS.map((y, i) => (
               <span
                 key={y}
-                className='anim-fade mono flex items-center text-[9px] leading-none tracking-[0.14em] text-zinc-700'
+                className='anim-fade mono flex items-center text-[9px] leading-none tracking-[0.14em] text-zinc-600'
                 style={{
                   animationDelay: `${T.yearBase + i * T.yearStep}s`,
                   height: `calc(var(--cell) * ${ROWS_PER_YEAR} + var(--cgap) * ${ROWS_PER_YEAR - 1})`,
@@ -181,7 +183,7 @@ export default function Login() {
 
   return (
     <section
-      className={`relative h-screen min-h-[720px] w-full overflow-hidden bg-[#0a0a0a] text-zinc-100 antialiased selection:bg-zinc-100 selection:text-black ${exiting ? 'login-exit' : ''}`}
+      className={`relative h-screen min-h-[720px] w-full overflow-hidden bg-[var(--app-bg)] text-zinc-100 antialiased selection:bg-zinc-100 selection:text-black ${exiting ? 'login-exit' : ''}`}
     >
       <div className='relative h-full min-h-[720px]'>
         {/* masthead, above the upper datum */}
@@ -230,14 +232,23 @@ export default function Login() {
           <p className='figure mt-8 text-[19px] italic leading-relaxed tracking-normal text-zinc-400'>
             <RevealWords text='Your GitHub history, made legible.' delay={T.subtitle} stagger={0.06} />
           </p>
+          {/* interactive git topology — left field manipulates history,
+              right field observes it. Interactive at lg+, static motif
+              at md–lg, hidden below md. */}
+          <div className='mt-14 hidden lg:block lg:max-w-[380px] xl:max-w-[460px]'>
+            <GitTopology base={T.topo} />
+          </div>
           {/* compact history field below lg — the right column takes over at lg+ */}
           <div className='mt-12 max-w-[420px] lg:hidden'>
             <HistoryField />
+            <div className='anim-fade mt-10 hidden md:block' style={{ animationDelay: '2.4s' }}>
+              <GitTopology mini />
+            </div>
           </div>
         </div>
 
         {/* record field — hangs from V2 at lg+ */}
-        <div className='absolute right-[6vw] top-[16%] hidden w-[30%] pt-14 lg:block'>
+        <div className='absolute right-[6vw] top-[16%] hidden w-[32%] pl-2 pt-14 lg:block'>
           <HistoryField />
         </div>
 

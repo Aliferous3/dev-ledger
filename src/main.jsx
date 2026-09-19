@@ -269,7 +269,7 @@ function App() {
   const heatmapWeeks = useMemo(() => buildHeatmap(daily, heatmapCount, heatmapEnd), [daily, heatmapCount, heatmapEnd])
 
   if (me === undefined) {
-    return <div className='min-h-screen bg-[#0a0a0a]' />
+    return <div className='min-h-screen bg-[var(--app-bg)]' />
   }
   if (me === null) {
     return <Login />
@@ -322,9 +322,9 @@ function App() {
   const statusColor = { ready: '#34d399', loading: '#60a5fa', error: '#f87171', stale: '#fbbf24' }
 
   return (
-    <div className='min-h-screen bg-[#0a0a0a] text-zinc-400 antialiased selection:bg-zinc-100 selection:text-black'>
+    <div className='min-h-screen bg-[var(--app-bg)] text-zinc-400 antialiased selection:bg-zinc-100 selection:text-black'>
       <div className='mx-auto max-w-[1480px] px-6 lg:px-12 xl:px-16'>
-        <header ref={headerRef} className='relative z-[100] bg-[#0a0a0a] pt-10 lg:pt-12'>
+        <header ref={headerRef} className='relative z-[100] bg-[var(--app-bg)] pt-10 lg:pt-12'>
           <div className='flex flex-col lg:flex-row lg:items-baseline gap-6 lg:gap-10'>
             <div className='text-[28px] lg:text-[34px] font-light leading-none tracking-[-0.02em] text-zinc-100 figure' style={{ fontFamily: "'Iowan Old Style','Palatino Linotype','Georgia',serif" }}>work</div>
             <nav className='flex flex-wrap gap-7'>
@@ -509,7 +509,7 @@ function AccountMenu({ me, onSettings, onRefresh }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
-            className='absolute right-0 top-full mt-3 w-56 bg-[#0c0c0c] border border-zinc-800 shadow-2xl z-50'
+            className='absolute right-0 top-full mt-3 w-56 bg-[var(--app-bg)] border border-zinc-800 shadow-2xl z-50'
           >
             <div className='px-4 py-3 border-b border-zinc-900 text-[9px] uppercase tracking-[0.22em] text-zinc-700'>Signed in as @{login}</div>
             <button className={itemCls} onClick={() => { setOpen(false); onSettings() }}>Manage repositories</button>

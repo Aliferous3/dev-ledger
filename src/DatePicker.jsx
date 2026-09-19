@@ -156,7 +156,7 @@ export function DatePicker({ from, to, open, onClose, onApply, onClear }) {
       {open && (
         <motion.div
           ref={panelRef}
-          className='absolute right-0 top-full z-50 mt-2 border border-zinc-900 bg-[#0a0a0a] p-5 shadow-sm'
+          className='absolute right-0 top-full z-50 mt-2 border border-zinc-900 bg-[var(--app-bg)] p-5 shadow-sm'
           style={{ width: 'min(640px, calc(100vw - 32px))' }}
           initial={{ opacity: 0, y: -4, filter: 'blur(2px)' }}
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
