@@ -118,7 +118,23 @@ function Tick({ className, delay }) {
 function HistoryField({ withYears = true, tight = false }) {
   return (
     <div className='anim-fade' style={{ animationDelay: `${T.gridFade}s` }} aria-hidden='true'>
-      <div className='flex items-start gap-2 lg:gap-2 xl:gap-3'>
+      <div className='auth-matrix-wrap flex items-start gap-3 lg:gap-3.5 xl:gap-4'>
+        {withYears && (
+          <div className='auth-year-index hidden flex-col items-end min-[360px]:flex'>
+            {MATRIX_YEARS.map((y, i) => (
+              <span
+                key={y}
+                className='anim-fade mono flex items-center leading-none tracking-[0.14em] text-zinc-500'
+                style={{
+                  animationDelay: `${T.yearBase + i * T.yearStep}s`,
+                  height: `calc(var(--cell) * ${ROWS_PER_YEAR} + var(--cgap) * ${ROWS_PER_YEAR - 1})`,
+                }}
+              >
+                {y}
+              </span>
+            ))}
+          </div>
+        )}
         <div
           className='auth-matrix grid'
           style={{ gridTemplateColumns: `repeat(${MATRIX_COLS}, var(--cell))` }}
@@ -139,22 +155,6 @@ function HistoryField({ withYears = true, tight = false }) {
             />
           ))}
         </div>
-        {withYears && (
-          <div className='auth-year-index hidden flex-col min-[360px]:flex'>
-            {MATRIX_YEARS.map((y, i) => (
-              <span
-                key={y}
-                className='anim-fade mono flex items-center leading-none tracking-[0.14em] text-zinc-500'
-                style={{
-                  animationDelay: `${T.yearBase + i * T.yearStep}s`,
-                  height: `calc(var(--cell) * ${ROWS_PER_YEAR} + var(--cgap) * ${ROWS_PER_YEAR - 1})`,
-                }}
-              >
-                {y}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
       <div className={`auth-term mono ${tight ? 'mt-6' : 'mt-9'} text-zinc-500`}>
         <div><RevealLine delay={T.terminal[0]}>// commits become chronology</RevealLine></div>

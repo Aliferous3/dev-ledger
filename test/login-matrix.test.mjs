@@ -31,7 +31,7 @@ test('assembly sweep stays inside the master timeline grid phase', () => {
   for (const c of cells) {
     assert.ok(c.assembleDelay >= 1.25 && c.assembleDelay <= 2.2, `assemble ${c.assembleDelay} outside P4`)
     assert.ok(c.breatheDelay > c.assembleDelay, 'breathing starts after assembly')
-    assert.ok(c.breatheDur >= 5 && c.breatheDur <= 12, `breathe ${c.breatheDur}s outside 5–12s`)
+    assert.ok(c.breatheDur >= 3.5 && c.breatheDur <= 8, `breathe ${c.breatheDur}s outside 3.5–8s`)
   }
 })
 
@@ -44,4 +44,30 @@ test('delays are not synchronized — distinct phases per cell', () => {
 test('login page wires the real auth route', () => {
   const src = readFileSync(new URL('../src/Login.jsx', import.meta.url), 'utf8')
   assert.match(src, /href='\/api\/auth\/login'/)
+})
+
+test('year index renders left of the matrix (DOM order)', () => {
+  const src = readFileSync(new URL('../src/Login.jsx', import.meta.url), 'utf8')
+  const field = src.slice(src.indexOf('function HistoryField'), src.indexOf('export default'))
+  assert.ok(field.indexOf('auth-year-index') < field.indexOf("'auth-matrix grid'"), 'year index should precede the matrix')
+  assert.ok(field.includes('items-end'), 'year labels should right-align in their gutter')
+})
+
+test('breathing rests dark and excursions rise — lo < hi for every cell', () => {
+  const cells = buildMatrix()
+  for (const c of cells) {
+    assert.ok(c.lo < c.hi, `cell ${c.r}-${c.c} lo ${c.lo} !< hi ${c.hi}`)
+    assert.ok(c.lo <= 0.55, 'resting opacity should stay dark')
+    assert.ok(c.hi <= 1)
+  }
+  // peak intensity is seeded, not uniform — dark cells crest variably
+  const his = new Set(cells.filter((c) => c.level < 3).map((c) => c.hi))
+  assert.ok(his.size > 20, 'peak luminance should be seeded per cell')
+})
+
+test('structure unchanged — 24 continuous rows, 24 cols, same spacing vars', () => {
+  assert.equal(MATRIX_ROWS, 24)
+  assert.equal(MATRIX_COLS, 24)
+  const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+  assert.ok(css.includes('--cell') && css.includes('--cgap'), 'spacing vars preserved')
 })

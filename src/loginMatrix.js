@@ -24,7 +24,7 @@ function mulberry32(seed) {
 
 /* assembleStart/assembleStep position cells inside PHASE 4 of the master
    timeline (grid assembly ~1.25s → ~2.2s); breathe* values land each cell
-   in a 5–12s independent ambient cycle. Each year gets a seeded activity
+   in a 3.5–8s independent ambient cycle. Each year gets a seeded activity
    bias so some years read denser than others — irregular, not uniform. */
 export function buildMatrix({
   seed = 2026,
@@ -53,12 +53,15 @@ export function buildMatrix({
         bg: LEVEL_BG[level],
         assembleDelay: +(assembleStart + c * colStep + r * rowStep).toFixed(3),
         // breathing loop starts only after the cell has assembled
-        breatheDelay: +(assembleStart + c * colStep + r * rowStep + 0.6 + rand() * 4).toFixed(3),
-        breatheDur: +(5 + rand() * 7).toFixed(2),
-        // resting + breathing opacity band per level (bright cells move more)
-        lo: [0.92, 0.85, 0.72, 0.62, 0.55][level],
-        hi: 1,
-        glow: level === 4 ? 0.22 : 0,
+        breatheDelay: +(assembleStart + c * colStep + r * rowStep + 0.6 + rand() * 3.5).toFixed(3),
+        breatheDur: +(3.5 + rand() * 4.5).toFixed(2),
+        // cells rest dark and excursion to their peak — a coruscating field
+        // rather than a dimming one. Level-0 cells (~61%) stay nearly dormant
+        // so ~39% of the field is perceptibly moving at any moment; peaks are
+        // seeded per cell so crest heights vary, and bright cells stay sparse.
+        lo: [0.28, 0.26, 0.34, 0.42, 0.55][level],
+        hi: +([0.30 + rand() * 0.06, 0.44 + rand() * 0.14, 0.66 + rand() * 0.2, 1, 1][level]).toFixed(2),
+        glow: level === 4 ? 0.3 : level === 3 ? 0.14 : level === 2 ? 0.05 : 0,
       })
     }
   }

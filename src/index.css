@@ -180,27 +180,32 @@ body {
 }
 
 @keyframes auth-cell-breathe {
-  0%, 100% { opacity: var(--hi, 1); box-shadow: 0 0 0 rgba(240, 238, 230, 0); }
-  50% { opacity: var(--lo, 1); box-shadow: 0 0 7px rgba(240, 238, 230, var(--g, 0)); }
+  0%, 100% { opacity: var(--lo, 1); box-shadow: 0 0 0 rgba(240, 238, 230, 0); }
+  50% { opacity: var(--hi, 1); box-shadow: 0 0 7px rgba(240, 238, 230, var(--g, 0)); }
 }
 
 /* geometry: cells/gaps are CSS vars so the field scales crisply per
-   breakpoint — compact (<lg) first, then the right-field sizes. */
-.auth-matrix {
+   breakpoint — compact (<lg) first, then the right-field sizes. Vars live on
+   the wrap so the year index resolves the same band heights as the matrix. */
+.auth-matrix-wrap {
   --cell: 7.5px;
   --cgap: 3px;
+}
+.auth-matrix {
   gap: var(--cgap);
 }
 
-@media (min-width: 640px) { .auth-matrix { --cell: 8.5px; } }
-@media (min-width: 768px) { .auth-matrix { --cell: 9.5px; } }
-@media (min-width: 1024px) { .auth-matrix { --cell: 8.5px; --cgap: 3px; } }
-@media (min-width: 1280px) { .auth-matrix { --cell: 11px; --cgap: 3.5px; } }
-@media (min-width: 1400px) { .auth-matrix { --cell: 12px; --cgap: 4px; } }
-@media (min-width: 1536px) { .auth-matrix { --cell: 14px; --cgap: 4.5px; } }
+@media (min-width: 640px) { .auth-matrix-wrap { --cell: 8.5px; } }
+@media (min-width: 768px) { .auth-matrix-wrap { --cell: 9.5px; } }
+@media (min-width: 1024px) { .auth-matrix-wrap { --cell: 8.5px; --cgap: 3px; } }
+@media (min-width: 1280px) { .auth-matrix-wrap { --cell: 11px; --cgap: 3.5px; } }
+@media (min-width: 1400px) { .auth-matrix-wrap { --cell: 12px; --cgap: 4px; } }
+@media (min-width: 1536px) { .auth-matrix-wrap { --cell: 14px; --cgap: 4.5px; } }
 
 /* year labels — a structural component of the field, sized per breakpoint
-   against each year's three-row band */
+   against each year's three-row band. The column gap re-adds the trailing
+   grid gap so label pitch matches the continuous band pitch. */
+.auth-year-index { gap: var(--cgap); }
 .auth-year-index > span { font-size: 10px; letter-spacing: 0.14em; }
 @media (min-width: 768px) { .auth-year-index > span { font-size: 11.5px; } }
 @media (min-width: 1024px) { .auth-year-index > span { font-size: 12.5px; } }
