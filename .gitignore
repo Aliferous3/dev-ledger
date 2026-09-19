@@ -27,3 +27,7 @@ test-results/
 playwright-report/
 *.local
 dev-ledger-snapshot.json
+.qa/
+.*.mjs
+.dc-ref/
+.qa-cookie*
