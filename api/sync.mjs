@@ -36,7 +36,11 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const force = req.query?.force === '1'
     const result = await runSync(userId, { budgetMs: 45_000, force })
-    if (result?.status === 'syncing') {
+    // Only continue post-response when THIS request actually ran a slice
+    // that expired mid-work. Previously waitUntil fired on every 'syncing'
+    // response — including lock-hit early returns — so each pump poll spawned
+    // another concurrent runSync and cold bootstraps duplicated GitHub work.
+    if (result?.status === 'syncing' && result?.ran) {
       // Best-effort: keep ingesting after the response on runtimes that
       // support it; harmless when suspended — cursors make it resumable.
       waitUntil(runSync(userId, { budgetMs: 45_000, resume: true }).catch(() => {}))

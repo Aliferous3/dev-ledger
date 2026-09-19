@@ -312,7 +312,7 @@ function App() {
   const syncPct = Math.round((sync?.progress || 0) * 100)
   const building = (syncing || needsInstall) && !(dash?.repositories?.length)
 
-  const phaseLabel = { discover: 'Repos', metadata: 'Metadata', commits: 'History', pulls: 'PRs', range: 'Range' }
+  const phaseLabel = { discover: 'Discovering', metadata: 'Metadata', commits: 'History', pulls: 'PRs', range: 'Range', finalizing: 'Finalizing' }
   const syncDetail = sync?.detail
   const syncTooltip = syncDetail
     ? [
