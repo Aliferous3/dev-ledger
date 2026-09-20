@@ -24,8 +24,8 @@ export function LoginScreen() {
   const shown = reduced ? full : full.slice(0, typed);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-neutral-100 flex items-center justify-center px-4 sm:px-6 py-8 sm:py-12">
-      <div ref={ref} className="reveal relative w-full max-w-[1100px] border border-neutral-800 bg-black overflow-hidden glow-card">
+    <div className="min-h-screen bg-[#0a0a0a] text-neutral-100 px-3 sm:px-5 lg:px-6 py-4 sm:py-6">
+      <div ref={ref} className="reveal relative w-full min-h-[calc(100vh-2rem)] sm:min-h-[calc(100vh-3rem)] border border-neutral-800 bg-black overflow-hidden glow-card">
         {/* window chrome */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-900 bg-[#0e0e0e]">
           <div className="flex items-center gap-2">
