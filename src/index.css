@@ -1,552 +1,218 @@
 @import "tailwindcss";
-@plugin "daisyui" {
-  themes: business --default, night, dim;
-}
 
 :root {
-  --app-bg: #131413;
-  --bg: var(--app-bg);
-  --ink: #fafafa;
-  --muted: #a1a1aa;
-  --faint: #3f3f46;
-  --rule: #18181b;
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19);
-  --dur-fast: 180ms;
-  --dur-normal: 250ms;
-  --dur-slow: 650ms;
-  --dur-hero: 800ms;
-  --stagger-tight: 30ms;
-  --stagger-sm: 60ms;
-  --blur-sm: 3px;
-  color-scheme: dark;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(10px); filter: blur(var(--blur-sm)); }
-  to { opacity: 1; transform: translateY(0); filter: blur(0); }
-}
-
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes reveal-right {
-  from { clip-path: inset(0 100% 0 0); }
-  to { clip-path: inset(0 0 0 0); }
-}
-
-@keyframes draw-line {
-  from { stroke-dashoffset: var(--path-len); }
-  to { stroke-dashoffset: 0; }
-}
-
-@keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-2px); }
-  75% { transform: translateX(2px); }
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes check {
-  0% { transform: scale(0.6); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
-}
-
-@keyframes progress-shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  --bg: #0a0a0a;
+  --panel: #0d0d0d;
+  --line: #1c1c1c;
+  --line-strong: #2c2c2c;
+  --ink: #f5f5f5;
+  --ink-muted: #666666;
+  --ink-dim: #444444;
+  --accent: #d6ff3e;
+  --accent-rgb: 214, 255, 62;
 }
 
 html {
-  background: var(--app-bg);
+  background-color: #0a0a0a;
+  color: #f5f5f5;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-feature-settings: 'tnum' 1, 'zero' 1;
+  -webkit-font-smoothing: antialiased;
+  scroll-behavior: smooth;
 }
 
 body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
-  background: var(--bg);
-  color: var(--muted);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  background-color: #0a0a0a;
 }
 
-* { scrollbar-width: thin; }
-
-.figure {
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.03em;
-  font-family: 'Iowan Old Style', 'Palatino Linotype', 'Georgia', serif;
-}
-
-.label-s {
-  font-size: 9.5px;
-  font-weight: 500;
+/* Typography styles */
+.font-mono-tag {
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  letter-spacing: 0.3em;
-  color: #52525b;
+  font-size: 11px;
 }
 
-.rule { height: 1px; width: 100%; background: #18181b; }
-
-.mono { font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace; }
-
-.recharts-cartesian-grid-horizontal line,
-.recharts-cartesian-grid-vertical line { stroke: color-mix(in oklab, currentColor 10%, transparent); }
-
-.glass-card { background: color-mix(in oklab, var(--color-base-200) 86%, transparent); backdrop-filter: blur(18px); }
-
-.metric-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
-
-/* ————— login entrance motion (masked baseline reveals + rule draws) ————— */
-
-@keyframes auth-mask-rise {
-  from { transform: translateY(118%); }
-  to { transform: translateY(0); }
+.serif-hero {
+  font-family: 'Newsreader', 'EB Garamond', 'Instrument Serif', Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.02em;
 }
 
-@keyframes auth-rule-x {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
+/* Scanline overlay */
+.scanlines-overlay {
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%,
+    rgba(0, 0, 0, 0.25) 50%
+  );
+  background-size: 100% 4px;
+  pointer-events: none;
 }
 
-@keyframes auth-rule-y {
-  from { transform: scaleY(0); }
-  to { transform: scaleY(1); }
+/* CRT monitor subtle border vignette */
+.crt-vignette {
+  box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.7);
 }
 
-@keyframes auth-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* Marquee Ticker Track */
+@keyframes marquee-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 
-@keyframes auth-rise {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+.animate-ticker {
+  display: flex;
+  width: max-content;
+  animation: marquee-scroll 28s linear infinite;
 }
 
-.reveal-mask {
-  display: inline-block;
-  overflow: hidden;
-  vertical-align: bottom;
-  padding-bottom: 0.08em;
-  margin-bottom: -0.08em;
+.animate-ticker:hover {
+  animation-play-state: paused;
 }
 
-.reveal-inner {
-  display: inline-block;
-  transform: translateY(118%);
-  animation: auth-mask-rise 1.1s cubic-bezier(0.19, 1, 0.22, 1) forwards;
-  will-change: transform;
+/* Cursor blink */
+@keyframes terminal-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
 }
 
-.anim-fade,
-.anim-rise,
-.anim-rule-x,
-.anim-rule-y {
-  opacity: 0;
-  animation-duration: 1.3s;
-  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
-  animation-fill-mode: forwards;
+.terminal-cursor {
+  animation: terminal-blink 1s step-end infinite;
 }
 
-.anim-fade { animation-name: auth-fade; animation-duration: 1.6s; }
-.anim-rise { animation-name: auth-rise; }
-.anim-rule-x { animation-name: auth-rule-x, auth-fade; transform-origin: left center; animation-duration: 1.4s; }
-.anim-rule-y { animation-name: auth-rule-y, auth-fade; transform-origin: top center; animation-duration: 1.4s; }
-
-/* ————— login history field —————
-   Cells assemble once (P4 sweep), then breathe independently on 5–12s
-   cycles. Both are plain CSS — no per-frame React state. */
-
-@keyframes auth-cell-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* Pulsing dot */
+@keyframes pulse-lime {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.6;
+    box-shadow: 0 0 0 0 rgba(214, 255, 62, 0.7);
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 1;
+    box-shadow: 0 0 10px 2px rgba(214, 255, 62, 0.9);
+  }
 }
 
-@keyframes auth-cell-breathe {
-  0%, 100% { opacity: var(--lo, 1); box-shadow: 0 0 0 rgba(240, 238, 230, 0); }
-  50% { opacity: var(--hi, 1); box-shadow: 0 0 7px rgba(240, 238, 230, var(--g, 0)); }
+.lime-pulse {
+  animation: pulse-lime 1.8s infinite ease-in-out;
 }
 
-/* geometry: cells/gaps are CSS vars so the field scales crisply per
-   breakpoint — compact (<lg) first, then the right-field sizes. Vars live on
-   the wrap so the year index resolves the same band heights as the matrix. */
-.auth-matrix-wrap {
-  --cell: 7.5px;
-  --cgap: 3px;
-}
-.auth-matrix {
-  gap: var(--cgap);
+/* Glowing text and borders */
+.glow-lime-text {
+  text-shadow: 0 0 12px rgba(214, 255, 62, 0.6);
 }
 
-@media (min-width: 640px) { .auth-matrix-wrap { --cell: 8.5px; } }
-@media (min-width: 768px) { .auth-matrix-wrap { --cell: 9.5px; } }
-@media (min-width: 1024px) { .auth-matrix-wrap { --cell: 8.5px; --cgap: 3px; } }
-@media (min-width: 1280px) { .auth-matrix-wrap { --cell: 11px; --cgap: 3.5px; } }
-@media (min-width: 1400px) { .auth-matrix-wrap { --cell: 12px; --cgap: 4px; } }
-@media (min-width: 1536px) { .auth-matrix-wrap { --cell: 14px; --cgap: 4.5px; } }
-
-/* year labels — a structural component of the field, sized per breakpoint
-   against each year's three-row band. The column gap re-adds the trailing
-   grid gap so label pitch matches the continuous band pitch. */
-.auth-year-index { gap: var(--cgap); }
-.auth-year-index > span { font-size: 10px; letter-spacing: 0.14em; }
-@media (min-width: 768px) { .auth-year-index > span { font-size: 11.5px; } }
-@media (min-width: 1024px) { .auth-year-index > span { font-size: 12.5px; } }
-@media (min-width: 1280px) { .auth-year-index > span { font-size: 13.5px; } }
-@media (min-width: 1400px) { .auth-year-index > span { font-size: 14.5px; } }
-@media (min-width: 1536px) { .auth-year-index > span { font-size: 15.5px; } }
-
-/* right-field terminal annotation — substantial but secondary to the matrix */
-.auth-term { font-size: 10.5px; line-height: 2; }
-@media (min-width: 1024px) { .auth-term { font-size: 12px; line-height: 2.05; } }
-@media (min-width: 1400px) { .auth-term { font-size: 13px; } }
-@media (min-width: 1536px) { .auth-term { font-size: 14px; } }
-
-.auth-cell {
-  position: relative;
-  display: block;
-  width: var(--cell);
-  height: var(--cell);
-  opacity: 0;
-  animation-name: auth-cell-in, auth-cell-breathe;
-  animation-iteration-count: 1, infinite;
-  animation-fill-mode: forwards, none;
-  transition:
-    transform 180ms cubic-bezier(0.19, 1, 0.22, 1),
-    filter 180ms ease;
+.glow-lime-border {
+  box-shadow: 0 0 14px rgba(214, 255, 62, 0.35);
 }
 
-/* GitHub-like tactile enlargement — transform/filter only, so the seeded
-   breathing (opacity/box-shadow) keeps its phase underneath. */
-.auth-cell:hover {
-  transform: scale(1.45);
-  filter: brightness(1.4) drop-shadow(0 0 5px rgba(232, 230, 223, 0.28));
-  z-index: 2;
-}
-
-/* ————— login git topology —————
-   Edge draw uses pathLength-normalized dashoffset; node entrance animates
-   the independent `scale` property (not transform) so the fill-forwards
-   state never blocks the hover transform. */
-
-@keyframes topo-edge-draw {
-  to { stroke-dashoffset: 0; }
-}
-
-@keyframes topo-node-in {
-  to { opacity: 1; scale: 1; }
-}
-
-@keyframes topo-label {
-  0% { opacity: 0; }
-  15% { opacity: 1; }
-  70% { opacity: 1; }
-  100% { opacity: 0; }
-}
-
-.topo-edge {
-  stroke: #3f3f46;
-  stroke-width: 1;
-  fill: none;
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: topo-edge-draw 0.4s cubic-bezier(0.19, 1, 0.22, 1) forwards;
-  transition: stroke 180ms ease;
-}
-
-.topo-edge-lit { stroke: #8a8a92; }
-
-.topo-node {
-  opacity: 0;
-  scale: 0.4;
-  animation: topo-node-in 0.35s cubic-bezier(0.19, 1, 0.22, 1) forwards;
+/* Period Button */
+.terminal-period-btn {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  padding: 3px 7px;
+  border: 1px solid #222222;
+  color: #666666;
+  background: transparent;
+  transition: all 180ms ease;
   cursor: pointer;
-  transform-box: fill-box;
-  transform-origin: center;
-  transition:
-    transform 180ms cubic-bezier(0.19, 1, 0.22, 1),
-    filter 180ms ease;
+  text-transform: uppercase;
 }
 
-.topo-node:hover {
-  transform: scale(1.4);
-  filter: drop-shadow(0 0 4px rgba(232, 230, 223, 0.3));
+.terminal-period-btn:hover {
+  color: #f5f5f5;
+  border-color: #555555;
+  background: #141414;
 }
 
-/* source node briefly lit on commit/drag — communicates where the branch
-   was born without permanent labels */
-.topo-node-lit .topo-node-core { stroke: #f4f4f5; }
-
-.topo-svg { cursor: crosshair; }
-.topo-svg-dragging,
-.topo-svg-dragging .topo-node { cursor: grabbing; }
-
-.topo-hint {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 8.5px;
-  letter-spacing: 0.24em;
-  color: #52525b;
+.terminal-period-btn.active {
+  background: #f5f5f5;
+  color: #0a0a0a;
+  border-color: #f5f5f5;
+  font-weight: 600;
 }
 
-.topo-node-core {
-  fill: var(--app-bg);
-  stroke: #a1a1aa;
-  stroke-width: 1;
-  transition: stroke 180ms ease;
-}
-
-.topo-node:hover .topo-node-core { stroke: #e4e4e7; }
-
-.topo-guide {
-  stroke: #8a8a92;
-  stroke-width: 1;
-  stroke-dasharray: 4 3;
-}
-
-.topo-node-ghost {
-  fill: none;
-  stroke: #71717a;
-  stroke-width: 1;
-  stroke-dasharray: 2 2;
-}
-
-.topo-label {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 8px;
+/* Tab Underline for Navigation */
+.terminal-tab-btn {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
   letter-spacing: 0.18em;
-  fill: #71717a;
-  opacity: 0;
-  animation: topo-label 1.7s ease-out forwards;
-  pointer-events: none;
-}
-
-/* ————— terminal prompt buttons —————
-   Canonical action-control language: `> label █` — hairline rectangle on
-   transparent/#131413, mono lowercase, prompt is visual syntax only. */
-
-.tbtn {
-  --tb-border: rgba(232, 230, 223, 0.14);
-  --tb-label: #a1a1aa;
-  --tb-prompt: #71717a;
-  --tb-cursor: #d4d4d8;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55em;
-  padding: 0.62em 1.05em;
-  border: 1px solid var(--tb-border);
-  background: transparent;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
-  letter-spacing: 0.14em;
-  text-transform: lowercase;
-  line-height: 1;
-  color: var(--tb-label);
-  cursor: pointer;
-  transition:
-    border-color 190ms cubic-bezier(0.19, 1, 0.22, 1),
-    color 190ms cubic-bezier(0.19, 1, 0.22, 1),
-    background-color 190ms cubic-bezier(0.19, 1, 0.22, 1),
-    transform 190ms cubic-bezier(0.19, 1, 0.22, 1);
-}
-
-.tbtn-prompt { color: var(--tb-prompt); transition: color 190ms ease; }
-.tbtn-cursor { color: var(--tb-cursor); font-size: 0.85em; margin-left: 0.1em; }
-.tbtn-icon { width: 0.95em; height: 0.95em; margin-right: 0.15em; }
-
-.tbtn:hover {
-  --tb-border: rgba(232, 230, 223, 0.32);
-  --tb-label: #e4e4e7;
-  --tb-prompt: #d4d4d8;
-  background: rgba(232, 230, 223, 0.035);
-  transform: translateY(-1px);
-}
-
-.tbtn:active {
-  transform: translateY(0.5px);
-  background: rgba(232, 230, 223, 0.015);
-  --tb-label: #a1a1aa;
-}
-
-.tbtn:focus-visible {
-  outline: 1px solid rgba(212, 212, 216, 0.7);
-  outline-offset: 3px;
-  --tb-border: rgba(232, 230, 223, 0.45);
-}
-
-.tbtn-primary {
-  --tb-border: rgba(232, 230, 223, 0.3);
-  --tb-label: #d4d4d8;
-  --tb-prompt: #a1a1aa;
-  font-size: 11px;
-  padding: 0.9em 1.5em;
-}
-
-.tbtn-danger {
-  --tb-border: rgba(248, 113, 113, 0.28);
-  --tb-label: rgba(252, 165, 165, 0.85);
-  --tb-prompt: rgba(248, 113, 113, 0.9);
-  --tb-cursor: rgba(252, 165, 165, 0.8);
-}
-.tbtn-danger:hover {
-  --tb-border: rgba(248, 113, 113, 0.55);
-  --tb-label: #fecaca;
-  --tb-prompt: #f87171;
-  background: rgba(248, 113, 113, 0.05);
-}
-
-.tbtn-compact { font-size: 9.5px; padding: 0.55em 0.85em; }
-
-/* active/toggled instrument state (e.g. compare on) */
-.tbtn-active {
-  --tb-border: rgba(232, 230, 223, 0.4);
-  --tb-label: #e4e4e7;
-  --tb-prompt: #d4d4d8;
-  background: rgba(232, 230, 223, 0.05);
-}
-
-.tbtn-disabled,
-.tbtn:disabled,
-.tbtn[aria-disabled='true'] {
-  --tb-border: rgba(232, 230, 223, 0.08);
-  --tb-label: #52525b;
-  --tb-prompt: #3f3f46;
-  --tb-cursor: #52525b;
-  background: transparent;
-  transform: none;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
-.tbtn-cursor-blink { animation: auth-cursor-blink 1.2s step-end infinite; }
-
-/* paper-filled dominant CTA — terminal inversion on hover */
-.tbtn-solid {
-  --tb-border: #f2f2f0;
-  --tb-label: #131413;
-  --tb-prompt: #52525b;
-  --tb-cursor: #131413;
-  background: #f2f2f0;
-}
-.tbtn-solid:hover {
-  --tb-border: rgba(242, 242, 240, 0.65);
-  --tb-label: #f2f2f0;
-  --tb-prompt: #d4d4d8;
-  --tb-cursor: #f2f2f0;
-  background: #131413;
-}
-.tbtn-solid:active {
-  background: #131413;
-  --tb-label: #a1a1aa;
-  --tb-prompt: #71717a;
-  transform: translateY(0.5px);
-}
-
-.tbtn-lg {
-  font-size: 12.5px;
-  padding: 1.45em 2.6em;
-}
-
-/* icon-only control — square, quiet, same luminance grammar */
-.ticon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2em;
-  height: 2em;
-  font-size: 11px;
-  color: #71717a;
-  border: 1px solid transparent;
-  transition:
-    color 190ms cubic-bezier(0.19, 1, 0.22, 1),
-    border-color 190ms cubic-bezier(0.19, 1, 0.22, 1);
+  text-transform: uppercase;
+  color: #666666;
+  position: relative;
+  padding-bottom: 6px;
+  transition: color 220ms ease;
   cursor: pointer;
 }
-.ticon-bordered { border-color: rgba(232, 230, 223, 0.12); }
-.ticon:hover { color: #e4e4e7; border-color: rgba(232, 230, 223, 0.3); }
-.ticon:focus-visible { outline: 1px solid rgba(212, 212, 216, 0.7); outline-offset: 2px; }
-.ticon:disabled { color: #3f3f46; cursor: not-allowed; border-color: transparent; }
 
-/* terminal cursor — hard blink, ~600ms per half-cycle, independent of cells */
-@keyframes auth-cursor-blink {
-  0%, 48% { opacity: 1; }
-  49%, 100% { opacity: 0; }
+.terminal-tab-btn:hover {
+  color: #cccccc;
 }
 
-.auth-cursor {
-  display: inline-block;
-  opacity: 0;
-  animation-name: auth-fade, auth-cursor-blink;
-  animation-duration: 0.4s, 1.2s;
-  animation-timing-function: ease-out, step-end;
-  animation-iteration-count: 1, infinite;
-  animation-fill-mode: forwards, none;
+.terminal-tab-btn.active {
+  color: #f5f5f5;
 }
 
-/* exit treatment — the folio dims as one piece before OAuth navigation */
-.login-exit > div {
-  transition: opacity 180ms cubic-bezier(0.22, 1, 0.36, 1);
-  opacity: 0.25;
+.terminal-tab-btn.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1.5px;
+  background-color: #f5f5f5;
 }
 
-.login-exit .auth-cursor {
-  animation: none !important;
+.terminal-tab-btn.active-lime {
+  color: #d6ff3e;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .reveal-inner {
-    animation: none;
-    transform: none;
-  }
-  .anim-fade,
-  .anim-rise,
-  .anim-rule-x,
-  .anim-rule-y,
-  .auth-cell {
-    animation: none;
-    opacity: 1;
-    transform: none;
-    box-shadow: none;
-  }
-  .auth-cursor {
-    animation: none;
-    opacity: 1;
-  }
-  .topo-node {
-    animation: none;
-    opacity: 1;
-    scale: 1;
-  }
-  .topo-edge {
-    animation: none;
-    stroke-dashoffset: 0;
-  }
-  .topo-label {
-    animation: none;
-  }
-  .tbtn {
-    transition-duration: 0.01ms;
-  }
-  .tbtn:hover {
-    transform: none;
-  }
-  .tbtn-cursor-blink {
-    animation: none;
-  }
+.terminal-tab-btn.active-lime::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1.5px;
+  background-color: #d6ff3e;
+  box-shadow: 0 0 8px #d6ff3e;
+}
+
+/* Interactive cell transition */
+.grid-cell {
+  transition: transform 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.grid-cell:hover {
+  transform: scale(1.4);
+  z-index: 10;
+}
+
+/* Radar rotation */
+@keyframes radar-sweep {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.radar-sweep-arm {
+  transform-origin: center;
+  animation: radar-sweep 12s linear infinite;
+}
+
+/* Hide scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+::-webkit-scrollbar-thumb {
+  background: #222222;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #333333;
 }
