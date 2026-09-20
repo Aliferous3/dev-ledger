@@ -6,6 +6,7 @@ const SECTIONS = [
   { id: 'section-02', label: '02 FIELD' },
   { id: 'section-03', label: '03 INDEX' },
   { id: 'section-04', label: '04 ARCHIVE' },
+  { id: 'section-05', label: '05 ACTIVITY' },
 ];
 
 export function RightSidebarNav() {

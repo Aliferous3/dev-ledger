@@ -8,6 +8,7 @@ import { Section01Measure } from './components/Section01Measure';
 import { Section02Field } from './components/Section02Field';
 import { Section03Index } from './components/Section03Index';
 import { Section04Archive } from './components/Section04Archive';
+import { ActivityPage } from './components/ActivityPage';
 
 export default function App() {
   const [period, setPeriod] = useState<Period>('1Y');
@@ -63,6 +64,9 @@ export default function App() {
         <Section04Archive
           period={period}
         />
+
+        {/* 05 — ACTIVITY */}
+        <ActivityPage period={period} />
       </main>
 
       {/* Bottom Footer (matching reference bottom bar "END OF RECORD") */}
