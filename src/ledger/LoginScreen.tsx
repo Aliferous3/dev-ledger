@@ -55,20 +55,25 @@ export function LoginScreen() {
           <div className="absolute inset-0 terminal-grid-fine opacity-50 pointer-events-none" />
           <div className="relative text-center">
             <div className="mono-tag text-[10px] text-[#d6ff3e]">BODY OF WORK — THE DEVELOPER'S RECORD</div>
-            <h1 className="font-editorial font-light text-[clamp(2.8rem,7vw,5.5rem)] leading-none mt-3 shimmer-text">DEV LEDGER</h1>
+            <h1 className="font-editorial font-light text-[clamp(2.8rem,7vw,5.5rem)] leading-none mt-3">DEV LEDGER</h1>
             <p className="font-editorial italic text-neutral-400 mt-2">Your GitHub history, made legible.</p>
           </div>
 
-          <div className="relative border border-neutral-900 bg-[#0c0c0c]/80 p-4 md:p-6">
-            <div className="mono-tag text-[9px] text-neutral-500 mb-3 flex justify-between"><span>$ git log --graph --oneline</span><span className="text-[#d6ff3e]">PACKET ▸ FLOWING</span></div>
-            <BranchGraph layout="h" idPrefix="v2" />
-          </div>
+          <div className="relative grid lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-5 items-stretch">
+            <div className="relative min-w-0 border border-neutral-900 bg-[#0c0c0c]/80 p-4">
+              <div className="mono-tag text-[9px] text-neutral-500 mb-2 flex justify-between gap-3">
+                <span>$ git log --graph --oneline</span>
+                <span className="text-[#d6ff3e] shrink-0">PACKET ▸ FLOWING</span>
+              </div>
+              <BranchGraph layout="h" idPrefix="v2" />
+            </div>
 
-          <div className="relative border border-neutral-900 bg-[#0c0c0c]/80 p-4 md:p-6 overflow-hidden">
-            <div className="pointer-events-none absolute inset-0 overflow-hidden"><div className="scan-line-vert absolute left-0 right-0 h-1/4 bg-gradient-to-b from-transparent via-[#d6ff3e]/[0.06] to-transparent" /></div>
-            <div className="relative">
-              <LedgerBoxes hovered={hovered} setHovered={setHovered} cell={12} gap={4} />
-              <div className="mt-3"><BoxReadout hovered={hovered} /></div>
+            <div className="relative min-w-0 border border-neutral-900 bg-[#0c0c0c]/80 p-4 md:p-5 overflow-hidden">
+              <div className="pointer-events-none absolute inset-0 overflow-hidden"><div className="scan-line-vert absolute left-0 right-0 h-1/4 bg-gradient-to-b from-transparent via-[#d6ff3e]/[0.06] to-transparent" /></div>
+              <div className="relative h-full flex flex-col justify-center">
+                <LedgerBoxes hovered={hovered} setHovered={setHovered} cell={12} gap={4} />
+                <div className="mt-3"><BoxReadout hovered={hovered} /></div>
+              </div>
             </div>
           </div>
 
