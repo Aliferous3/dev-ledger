@@ -304,3 +304,11 @@ html, body, #root {
 @media (max-width: 767px) {
   #section-04 .grid-cols-12 { column-gap: 0; }
 }
+
+/* Keypad header — slow conic ring spin on the user avatar */
+@keyframes spin-slower {
+  to { transform: rotate(360deg); }
+}
+.spin-slower {
+  animation: spin-slower 9s linear infinite;
+}

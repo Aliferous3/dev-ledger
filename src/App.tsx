@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { Period } from './types';
+import { useBootTransition } from './transitions/BootLog';
 import { DATA_365 } from './store/metricsData';
 import { TerminalTickerHeader } from './components/TerminalTickerHeader';
 import { UtilityBar } from './components/UtilityBar';
@@ -15,6 +16,18 @@ export default function App() {
   const [period, setPeriod] = useState<Period>('1Y');
   const [crtOn, setCrtOn] = useState(false);
 
+  // One Boot Log transition shared by the keypad header and the right
+  // rail — a second nav surface can't double-fire while one is active.
+  const { firing, fire, overlay } = useBootTransition();
+  const navigate = useCallback(
+    (id: string, label: string) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      fire(label, () => el.scrollIntoView({ behavior: 'instant' as ScrollBehavior }));
+    },
+    [fire],
+  );
+
   // Compute live aggregates from data
   const netGrowth = 1756748;
   const totalCommits = 1421;
@@ -24,10 +37,12 @@ export default function App() {
       {/* System utility bar: live UTC clock · CRT toggle · sync status */}
       <UtilityBar crtOn={crtOn} onToggleCrt={() => setCrtOn((v) => !v)} />
 
-      {/* Sticky header: product bar + existing Dev Ledger marquee ticker */}
+      {/* Sticky header: keypad nav band + existing Dev Ledger marquee ticker */}
       <TerminalTickerHeader
         period={period}
         setPeriod={setPeriod}
+        navigate={navigate}
+        firing={firing}
         netGrowth={netGrowth}
         commits={totalCommits}
       />
@@ -41,7 +56,8 @@ export default function App() {
       )}
 
       {/* Floating right sidebar navigation tracking sections */}
-      <RightSidebarNav />
+      <RightSidebarNav navigate={navigate} />
+      {overlay}
 
       {/* Main Longitudinal Record Content */}
       <main className="flex-1 max-w-[1280px] w-full mx-auto px-6 md:px-12 py-12 md:py-16 space-y-32">
