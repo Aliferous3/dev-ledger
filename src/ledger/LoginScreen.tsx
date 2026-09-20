@@ -64,7 +64,7 @@ export function LoginScreen() {
             </div>
 
             <div className="relative overflow-hidden">
-              <p className="mb-3 whitespace-nowrap font-mono text-[22px] tracking-[0.035em] text-neutral-500">
+              <p className="mb-3 whitespace-nowrap font-mono text-[clamp(12px,1.15vw,22px)] tracking-[0.01em] text-neutral-500">
                 FROM YOUR FIRST COMMIT TO YOUR LATEST. TRACE WHAT YOU BUILT, WHEN YOU BUILT IT, AND HOW YOUR WORK CHANGED ALONG THE WAY.
               </p>
             </div>
