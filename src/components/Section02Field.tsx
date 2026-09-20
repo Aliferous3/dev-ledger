@@ -1,16 +1,19 @@
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Period } from '../types';
 import {
   weeks,
   DOW,
+  cells,
+  inPeriod,
+  computeStats,
   formatBytes,
+  formatNumber,
   languages,
   languageTotal,
   type DayCell,
 } from '../fieldData';
 import { CellTooltip } from '../field/Tooltip';
-import { FieldTransform } from '../field/FieldTransform';
 
 interface Props {
   period: Period;
@@ -28,7 +31,17 @@ export function Section02Field({ period }: Props) {
   const [hoverCell, setHoverCell] = useState<DayCell | null>(null);
   const [tipCoords, setTipCoords] = useState<{ cx: number; top: number; bottom: number } | null>(null);
   const [hoverLang, setHoverLang] = useState<string | null>(null);
-  const [transformOpen, setTransformOpen] = useState(false);
+  const [langOpen, setLangOpen] = useState(false);
+  // Language bar hover label — pixel position of the active segment's
+  // center within the bar wrapper, so the label rides directly above it.
+  const barWrapRef = useRef<HTMLDivElement>(null);
+  const [segTip, setSegTip] = useState<{ x: number; w: number } | null>(null);
+
+  // Six-stat strip reacts to the canonical global period.
+  const stats = useMemo(
+    () => computeStats(cells.filter((c) => inPeriod(c.date, period))),
+    [period],
+  );
 
   // Viewport-aware fixed placement: flip below near the top edge, shift
   // horizontally near the side edges. Rendered via portal so no ancestor
@@ -185,151 +198,193 @@ export function Section02Field({ period }: Props) {
         </div>
       </div>
 
-      {/* Six Prominent Statistics (matching exact values from Screenshot 2) */}
-      <div className="space-y-6 pt-2">
-        {/* Top 3 Primary Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
-          <div className="group cursor-default space-y-2">
-            <div className="font-editorial text-6xl md:text-7xl font-light text-neutral-100 transition-colors duration-200 group-hover:text-[#d6ff3e]">
-              1,421
+      {/* Six-stat strip — zip11 FieldC pattern, driven by the global
+          period via computeStats over the real day cells. */}
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-px bg-neutral-900 border border-neutral-900">
+        {[
+          ['COMMITS', stats.commits],
+          ['PULL_REQ', stats.prs],
+          ['ACTIVE', stats.activeDays],
+          ['MERGED', stats.merged],
+          ['STREAK', stats.streak],
+          ['REPOS', stats.repos],
+        ].map(([label, value]) => (
+          <div key={String(label)} className="bg-black px-3 py-5 group hover:bg-[#0a0a0a]">
+            <div className="text-[9px] mono-tag text-neutral-600 group-hover:text-[#d6ff3e] transition-colors">
+              {label}
             </div>
-            <div className="text-[10px] mono-tag text-neutral-500 tracking-[0.2em] group-hover:text-neutral-300">
-              COMMITS
-            </div>
-          </div>
-
-          <div className="group cursor-default space-y-2">
-            <div className="font-editorial text-6xl md:text-7xl font-light text-neutral-100 transition-colors duration-200 group-hover:text-[#d6ff3e]">
-              439
-            </div>
-            <div className="text-[10px] mono-tag text-neutral-500 tracking-[0.2em] group-hover:text-neutral-300">
-              PULL REQUESTS
+            <div className="mt-2 text-2xl text-neutral-100 tabular-nums tracking-tight group-hover:text-[#d6ff3e] transition-colors">
+              {formatNumber(value as number)}
             </div>
           </div>
-
-          <div className="group cursor-default space-y-2">
-            <div className="font-editorial text-6xl md:text-7xl font-light text-neutral-100 transition-colors duration-200 group-hover:text-[#d6ff3e]">
-              58
-            </div>
-            <div className="text-[10px] mono-tag text-neutral-500 tracking-[0.2em] group-hover:text-neutral-300">
-              ACTIVE DAYS
-            </div>
-          </div>
-        </div>
-
-        {/* Bottom 3 Secondary Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center pt-2">
-          <div className="group cursor-default space-y-1">
-            <div className="font-editorial text-3xl md:text-4xl font-light text-neutral-200 transition-colors duration-200 group-hover:text-[#d6ff3e]">
-              426
-            </div>
-            <div className="text-[9px] mono-tag text-neutral-500 tracking-[0.2em] group-hover:text-neutral-400">
-              MERGED PRS
-            </div>
-          </div>
-
-          <div className="group cursor-default space-y-1">
-            <div className="font-editorial text-3xl md:text-4xl font-light text-neutral-200 transition-colors duration-200 group-hover:text-[#d6ff3e]">
-              23
-            </div>
-            <div className="text-[9px] mono-tag text-neutral-500 tracking-[0.2em] group-hover:text-neutral-400">
-              LONGEST STREAK
-            </div>
-          </div>
-
-          <div className="group cursor-default space-y-1">
-            <div className="font-editorial text-3xl md:text-4xl font-light text-neutral-200 transition-colors duration-200 group-hover:text-[#d6ff3e]">
-              7
-            </div>
-            <div className="text-[9px] mono-tag text-neutral-500 tracking-[0.2em] group-hover:text-neutral-400">
-              REPOSITORIES
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Language Composition Bar */}
+      {/* Language Composition — segmented bar (zip11 FieldD). Hover shows a
+          lime label attached directly above the active segment; language
+          data is all-time (no period-filtered language feed exists). */}
       <div className="space-y-3 pt-6 border-t border-neutral-900/60">
         <div className="flex items-center justify-between text-[10px] mono-tag text-neutral-400">
           <span>LANGUAGE COMPOSITION</span>
-          <span className="text-neutral-500">C · 01</span>
+          <span className="flex items-center gap-4">
+            <span className="text-neutral-500">C · 01</span>
+            <button
+              type="button"
+              aria-expanded={langOpen}
+              aria-controls="lang-detail"
+              onClick={() => setLangOpen((v) => !v)}
+              className="text-neutral-500 hover:text-[#d6ff3e] transition-colors duration-200"
+            >
+              <span className="text-[#d6ff3e]">{langOpen ? '[-]' : '[+]'}</span>{' '}
+              {langOpen ? 'COLLAPSE' : 'TRANSFORM'}
+            </button>
+          </span>
         </div>
 
-        <div className="flex h-14 md:h-16 gap-[3px] bg-black/40 border border-neutral-900 p-1">
-          {languages.map((l) => {
-            const pct = (l.bytes / languageTotal) * 100;
-            const isHovered = hoverLang === l.name;
-            const isDim = hoverLang !== null && !isHovered;
+        <div ref={barWrapRef} className="relative mt-9">
+          {hoverLang &&
+            segTip &&
+            (() => {
+              const l = languages.find((x) => x.name === hoverLang)!;
+              const pct = (l.bytes / languageTotal) * 100;
+              // Tick stays pinned to the segment center; the text clamps
+              // independently inside the bar so edge segments can't push
+              // it outside the panel. ~90px half-width covers the longest
+              // "LANGUAGE · SIZE · PERCENT" readout.
+              const x = Math.min(Math.max(segTip.x, 92), Math.max(segTip.w - 92, 92));
+              return (
+                <>
+                  <div
+                    className="absolute bottom-full mb-1.5 z-20 pointer-events-none"
+                    style={{ left: segTip.x, transform: 'translateX(-50%)' }}
+                  >
+                    <div className="w-px h-4 bg-[#d6ff3e] mx-auto" />
+                  </div>
+                  <div
+                    className="absolute bottom-full mb-[22px] z-20 pointer-events-none"
+                    style={{ left: x, transform: 'translateX(-50%)' }}
+                  >
+                    <div className="text-[9px] mono-tag text-[#d6ff3e] whitespace-nowrap text-center">
+                      {l.name.toUpperCase()} · {formatBytes(l.bytes)} · {pct.toFixed(1)}%
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          <div className="flex h-14 md:h-16 gap-[3px]">
+            {languages.map((l) => {
+              const pct = (l.bytes / languageTotal) * 100;
+              const isHovered = hoverLang === l.name;
+              const isDim = hoverLang !== null && !isHovered;
+              const trackSeg = (el: HTMLElement | null) => {
+                if (!el || !barWrapRef.current) return;
+                const s = el.getBoundingClientRect();
+                const w = barWrapRef.current.getBoundingClientRect();
+                setSegTip({ x: s.left - w.left + s.width / 2, w: w.width });
+              };
+              return (
+                <button
+                  key={l.name}
+                  type="button"
+                  aria-label={`${l.name}: ${formatBytes(l.bytes)}, ${pct.toFixed(1)} percent`}
+                  onMouseEnter={(e) => {
+                    setHoverLang(l.name);
+                    trackSeg(e.currentTarget);
+                  }}
+                  onMouseLeave={() => {
+                    setHoverLang(null);
+                    setSegTip(null);
+                  }}
+                  onFocus={(e) => {
+                    setHoverLang(l.name);
+                    trackSeg(e.currentTarget);
+                  }}
+                  onBlur={() => {
+                    setHoverLang(null);
+                    setSegTip(null);
+                  }}
+                  className="relative cursor-pointer transition-all duration-150"
+                  style={{
+                    width: `${pct}%`,
+                    backgroundColor: isHovered ? '#d6ff3e' : '#f0f0f0',
+                    opacity: isDim ? 0.25 : 1,
+                    boxShadow: isHovered ? '0 0 14px rgba(214,255,62,0.6)' : 'none',
+                  }}
+                />
+              );
+            })}
+          </div>
+        </div>
 
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
+          {languages.map((l) => {
+            const on = hoverLang === l.name;
             return (
-              <div
+              <button
                 key={l.name}
+                type="button"
                 onMouseEnter={() => setHoverLang(l.name)}
                 onMouseLeave={() => setHoverLang(null)}
-                className="relative flex items-center overflow-hidden cursor-pointer transition-all duration-150"
-                style={{
-                  width: `${pct}%`,
-                  backgroundColor: isHovered ? '#d6ff3e' : '#f0f0f0',
-                  opacity: isDim ? 0.25 : 1,
-                  boxShadow: isHovered ? '0 0 14px rgba(214,255,62,0.6)' : 'none',
-                }}
+                onFocus={() => setHoverLang(l.name)}
+                onBlur={() => setHoverLang(null)}
+                className={`text-[10px] mono-tag transition-colors ${
+                  on ? 'text-[#d6ff3e]' : 'text-neutral-500 hover:text-neutral-300'
+                }`}
               >
-                {l.name === 'TypeScript' && (
-                  <span
-                    className={`pl-4 text-[10px] mono-tag font-medium transition-colors ${
-                      isHovered ? 'text-black' : 'text-neutral-500'
-                    }`}
-                  >
-                    TYPESCRIPT
-                  </span>
-                )}
-                {isHovered && l.name !== 'TypeScript' && (
-                  <span className="absolute inset-0 flex items-center justify-center text-[9px] mono-tag text-black font-semibold whitespace-nowrap px-1">
-                    {l.name}
-                  </span>
-                )}
-              </div>
+                <span
+                  className="inline-block w-2 h-2 mr-2 align-middle"
+                  style={{ background: on ? '#d6ff3e' : '#f4f4f4' }}
+                />
+                {l.name.toUpperCase()}
+                <span className="ml-2 text-neutral-600">{formatBytes(l.bytes)}</span>
+              </button>
             );
           })}
         </div>
 
-        <div className="flex items-start justify-between text-[10px] mono-tag text-neutral-500">
-          <span>
-            TypeScript <span className="text-neutral-300 ml-1">{formatBytes(languages[0].bytes)}</span>
-          </span>
-          <span>
-            {hoverLang && hoverLang !== 'TypeScript' ? hoverLang : 'Python'}{' '}
-            <span className="text-neutral-300 ml-1">
-              {formatBytes(
-                (hoverLang && languages.find((l) => l.name === hoverLang)?.bytes) ||
-                  languages[1].bytes,
-              )}
-            </span>
-          </span>
-        </div>
-      </div>
-
-      {/* Transform view — DESIGN.D card/stack render of the same field data.
-          Local disclosure only; collapsed by default, no page transition. */}
-      <div className="pt-2">
-        <button
-          type="button"
-          aria-expanded={transformOpen}
-          aria-controls="field-transform"
-          onClick={() => setTransformOpen((v) => !v)}
-          className="mono-tag text-[10px] text-neutral-500 hover:text-[#d6ff3e] transition-colors duration-200 flex items-center gap-2"
-        >
-          <span className="text-[#d6ff3e]">{transformOpen ? '[-]' : '[+]'}</span>
-          {transformOpen ? 'COLLAPSE' : 'EXPAND / TRANSFORM'}
-        </button>
+        {/* [B] LANGUAGE_COMPOSITION — terminal row/detail view (zip11
+            FieldC), same data + shared hoverLang cross-highlight. */}
         <div
-          id="field-transform"
-          className={`grid transition-all duration-500 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
-            transformOpen ? 'grid-rows-[1fr] opacity-100 mt-6' : 'grid-rows-[0fr] opacity-0'
+          id="lang-detail"
+          className={`grid transition-all duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
+            langOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
           }`}
         >
           <div className="overflow-hidden min-h-0">
-            {transformOpen && <FieldTransform period={period} />}
+            <div className="pt-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-[10px] mono-tag text-neutral-400">[B] LANGUAGE_COMPOSITION</div>
+                <div className="text-[10px] mono-tag text-neutral-500">C · 01</div>
+              </div>
+              <div className="font-mono text-[11px] leading-6 text-neutral-400 overflow-x-auto">
+                <div className="min-w-[420px]">
+                  {languages.map((l) => {
+                    const pct = l.bytes / languageTotal;
+                    const filled = Math.max(1, Math.round(pct * 48));
+                    const on = hoverLang === l.name;
+                    return (
+                      <div
+                        key={l.name}
+                        className="flex items-center gap-3 cursor-pointer"
+                        onMouseEnter={() => setHoverLang(l.name)}
+                        onMouseLeave={() => setHoverLang(null)}
+                      >
+                        <span className={`w-28 ${on ? 'text-[#d6ff3e]' : 'text-neutral-500'}`}>
+                          {l.name.toLowerCase()}
+                        </span>
+                        <span className={on ? 'text-[#d6ff3e]' : 'text-neutral-300'}>
+                          {'█'.repeat(filled)}
+                          <span className="text-neutral-800">{'░'.repeat(48 - filled)}</span>
+                        </span>
+                        <span className={`w-20 text-right ${on ? 'text-[#d6ff3e]' : 'text-neutral-600'}`}>
+                          {formatBytes(l.bytes)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -3,6 +3,8 @@ import type { Period } from '../types';
 import { REPOSITORIES } from '../store/metricsData';
 import { DASHBOARD, periodToRange } from '../ledgerData';
 import { HistoricalLanes } from '../retained/HistoricalLanes';
+import { ProjHtop } from '../projects/ProjHtop';
+import { useBootTransition } from '../transitions/BootLog';
 
 interface Props {
   period: Period;
@@ -21,6 +23,15 @@ export function Section03Index({ period }: Props) {
   const [hoverRepoId, setHoverRepoId] = useState<string | null>(null);
   const [hoverRing, setHoverRing] = useState<number | null>(null);
   const [zoom, setZoom] = useState(Z_FIT);
+  // Projects paging — Page 1 is the canonical repository directory, Page 2
+  // the process-monitor view. Page swaps are real view transitions and go
+  // through Boot Log; the swap happens while the screen is covered.
+  const [projPage, setProjPage] = useState<1 | 2>(1);
+  const { firing, fire, overlay } = useBootTransition();
+  const gotoProjPage = (p: 1 | 2) => {
+    if (p === projPage || firing) return;
+    fire(`projects / page 0${p}`, () => setProjPage(p));
+  };
 
   const activeId = hoverRepoId ?? selectedRepoId;
 
@@ -224,9 +235,16 @@ export function Section03Index({ period }: Props) {
         </div>
       </div>
 
-      {/* Repositories Table (matching exact data from Screenshot 3) */}
-      <div className="border border-neutral-900 divide-y divide-neutral-900 bg-black/40">
-        {REPOSITORIES.map((repo) => {
+      {/* PROJECTS — Page 1: canonical repository directory · Page 2:
+          LEDGER.TOP process monitor. One switcher, Boot Log between pages. */}
+      {projPage === 1 ? (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between text-[10px] mono-tag text-neutral-400">
+            <span>PROJECTS — AUTHORIZED GITHUB REPOSITORIES · RANKED BY MOMENTUM</span>
+            <ProjPager page={projPage} disabled={firing} onSelect={gotoProjPage} />
+          </div>
+          <div className="border border-neutral-900 divide-y divide-neutral-900 bg-black/40">
+            {REPOSITORIES.map((repo) => {
           const isSelected = activeId === repo.id;
           return (
             <div
@@ -285,7 +303,15 @@ export function Section03Index({ period }: Props) {
             </div>
           );
         })}
-      </div>
+          </div>
+        </div>
+      ) : (
+        <ProjHtop
+          period={period}
+          pager={<ProjPager page={projPage} disabled={firing} onSelect={gotoProjPage} />}
+        />
+      )}
+      {overlay}
 
       {/* Historical Lanes — retained Dev Ledger implementation (shared-axis
           scrub, observation markers and baseline readout are unchanged) */}
@@ -299,5 +325,40 @@ export function Section03Index({ period }: Props) {
         </div>
       </div>
     </section>
+  );
+}
+
+/* Compact page switcher — real buttons, keyboard operable, aria-current.
+   Page swaps route through Boot Log (handled by the parent). */
+function ProjPager({
+  page,
+  disabled,
+  onSelect,
+}: {
+  page: 1 | 2;
+  disabled: boolean;
+  onSelect: (p: 1 | 2) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1" role="group" aria-label="Projects pages">
+      {([1, 2] as const).map((p, i) => (
+        <span key={p} className="flex items-center gap-1">
+          {i > 0 && <span className="text-neutral-700 px-0.5">/</span>}
+          <button
+            type="button"
+            aria-current={page === p ? 'page' : undefined}
+            disabled={disabled}
+            onClick={() => onSelect(p)}
+            className={`mono-tag text-[10px] px-2 py-1 border transition-all disabled:opacity-40 ${
+              page === p
+                ? 'border-[#d6ff3e]/60 text-[#d6ff3e]'
+                : 'border-neutral-800 text-neutral-500 hover:text-[#d6ff3e] hover:border-[#d6ff3e]/40'
+            }`}
+          >
+            {String(p).padStart(2, '0')}
+          </button>
+        </span>
+      ))}
+    </div>
   );
 }
