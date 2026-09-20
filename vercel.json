@@ -1,0 +1,16 @@
+{
+  "buildCommand": "npm run build",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/:path*" },
+    { "source": "/(.*)", "destination": "/" }
+  ],
+  "functions": {
+    "api/sync.mjs": { "maxDuration": 60 },
+    "api/sync-range.mjs": { "maxDuration": 60 },
+    "api/cron/sync.mjs": { "maxDuration": 60 }
+  },
+  "crons": [
+    { "path": "/api/cron/sync", "schedule": "*/15 * * * *" }
+  ]
+}
