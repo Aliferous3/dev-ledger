@@ -63,8 +63,11 @@ export function LoginScreen() {
               <p className="font-editorial italic text-neutral-400 mt-2">Your GitHub history, made legible.</p>
             </div>
 
-            <div className="relative overflow-hidden">
-              <p className="mb-3 whitespace-nowrap font-mono text-[clamp(12px,1.15vw,22px)] tracking-[0.01em] text-neutral-500">
+            <div className="relative">
+              <p
+                className="mb-3 whitespace-nowrap font-mono text-neutral-500"
+                style={{ fontSize: 'clamp(10px, 0.9vw, 22px)', letterSpacing: 0 }}
+              >
                 FROM YOUR FIRST COMMIT TO YOUR LATEST. TRACE WHAT YOU BUILT, WHEN YOU BUILT IT, AND HOW YOUR WORK CHANGED ALONG THE WAY.
               </p>
             </div>
