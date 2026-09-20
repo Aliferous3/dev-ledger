@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Period } from '../types';
-import { REPOSITORIES } from '../store/metricsData';
-import { DASHBOARD, periodToRange } from '../ledgerData';
+import { useLedger } from '../store/live';
 import { formatBytes } from '../fieldData';
 
 /* ================================================================== */
@@ -28,6 +27,7 @@ interface Props {
 }
 
 export function ProjHtop({ period, pager }: Props) {
+  const { all, repos: REPOSITORIES, range } = useLedger();
   const [sel, setSel] = useState('D.01');
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -41,12 +41,11 @@ export function ProjHtop({ period, pager }: Props) {
   // are filtered to the period's range; momentum is a normalized blend
   // of commit and churn share within that window.
   const { rows, totals } = useMemo(() => {
-    const range = periodToRange(period);
     const fromM = range.from?.slice(0, 7) ?? '0000-00';
     const toM = range.to?.slice(0, 7) ?? '9999-99';
-    const idByName = new Map(DASHBOARD.repositories.map((r) => [r.name, r.id]));
+    const idByName = new Map(all.repositories.map((r) => [r.name, r.id]));
     const agg = new Map<string, { commits: number; days: number; churn: number }>();
-    for (const m of DASHBOARD.workShape.repoMonthly) {
+    for (const m of all.workShape.repoMonthly) {
       if (m.month < fromM || m.month > toM) continue;
       const a = agg.get(m.repository_id) ?? { commits: 0, days: 0, churn: 0 };
       a.commits += m.commits;
@@ -78,10 +77,10 @@ export function ProjHtop({ period, pager }: Props) {
         days: list.reduce((a, r) => a + r.days, 0),
       },
     };
-  }, [period]);
+  }, [range, all]);
 
   const momAvg = Math.round(rows.reduce((a, r) => a + r.momentum, 0) / Math.max(rows.length, 1));
-  const churnIo = Math.min(99, Math.round((totals.churn / Math.max(DASHBOARD.summary.allChurn, 1)) * 100));
+  const churnIo = Math.min(99, Math.round((totals.churn / Math.max(all.summary.allChurn, 1)) * 100));
   const stateCount = (s: string) => REPOSITORIES.filter((r) => r.status === s).length;
 
   return (

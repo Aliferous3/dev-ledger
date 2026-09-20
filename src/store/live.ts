@@ -1,0 +1,417 @@
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { DayData, Period, RepoItem } from '../types';
+import { DASHBOARD, OBS_START, periodToRange } from '../ledgerData';
+import {
+  END,
+  cells as fixtureCells,
+  cellsFromDaily,
+  languages as fixtureLanguages,
+  weeks as fixtureWeeks,
+  weeksFromCells,
+  type DayCell,
+  type Week,
+} from '../fieldData';
+import { fmtBytes, fmtCompact, LANGUAGES, type LangRow } from '../codeData';
+import { DATA_365, REPOSITORIES } from './metricsData';
+import {
+  RHYTHM_DAYS,
+  RHYTHM_HIGHLIGHTS,
+  RHYTHM_MATRIX,
+  RHYTHM_WINDOWS,
+} from '../activityData';
+
+/* Production data layer: the restored /api/dashboard endpoint returns the
+   exact shape the fixture DASHBOARD already models (the fixture was written
+   as a same-shaped stand-in). This module fetches the real payload, keeps
+   the module-level fixtures as the offline/unauthenticated fallback, and
+   normalizes everything into the shapes the sections consume — so no UI
+   component ever sees a raw API row. */
+
+export interface RepoRow {
+  id: string;
+  name: string;
+  path: string;
+  private: boolean;
+  fork: boolean;
+  archived: boolean;
+  primaryLanguage: string;
+  languageBytes: number;
+  commits: number;
+  sourceAdded: number;
+  sourceDeleted: number;
+  activeDays: number;
+  lastCommitAt: string | null;
+  lastCommit: string | null;
+  lastActivityAt: string | null;
+}
+
+export interface DashboardData {
+  generatedAt: string;
+  range: { from: string | null; to: string | null };
+  summary: {
+    repos: number;
+    commits: number;
+    sourceAdded: number;
+    sourceDeleted: number;
+    allAdded: number;
+    allDeleted: number;
+    allChurn: number;
+    activeDays: number;
+    longestStreak: number;
+    peakDayCommits: number;
+    languageBytes: number;
+  };
+  github: {
+    connected: boolean;
+    pullRequests: number;
+    mergedPrs: number;
+    revoked: boolean;
+  };
+  sync: {
+    status: string;
+    phase?: string;
+    progress: number;
+    detail?: unknown;
+    lastSyncedAt?: string | null;
+    error?: string | null;
+  };
+  rangeCoverage: { status: string; [k: string]: unknown };
+  repositories: RepoRow[];
+  languages: { language: string; code: number; files: number }[];
+  daily: { date: string; commits: number; added: number; deleted: number }[];
+  prsDaily: { date: string; opened: number; merged: number }[];
+  rhythm: { weekday: number; hour: number; commits: number; days: number }[];
+  workShape: {
+    repoLangs: Record<string, { language: string; bytes: number }[]>;
+    repoMonthly: {
+      repository_id: string;
+      month: string;
+      commits: number;
+      added: number;
+      deleted: number;
+      activeDays: number;
+    }[];
+    prMonthly?: { month: string; opened: number }[];
+    span: {
+      firstActive: string | null;
+      lastActive: string | null;
+      activeDays: number;
+      totalCommits: number;
+      totalAdded: number;
+      totalDeleted: number;
+    } | null;
+  };
+}
+
+export interface RhythmBundle {
+  // rows MON..SUN × 24 hours of commit counts
+  matrix: number[][];
+  days: { name: string; code: string; total: number; pct: number }[];
+  windows: { label: string; range: string; pct: number }[];
+  highlights: {
+    peakWeekday: string;
+    peakWeekdayTotal: number;
+    peakHour: string;
+    peakWindow: string;
+    weekdayShare: string;
+    weekendShare: string;
+  };
+}
+
+export interface LedgerStore {
+  /** true when /api/dashboard responded; false = bundled fixture fallback */
+  live: boolean;
+  /** payload scoped to the selected global period (?range=) */
+  dash: DashboardData;
+  /** all-time payload — structural data (field grid, archive span, lanes) */
+  all: DashboardData;
+  /** dense per-day series over the full observed window */
+  days: DayData[];
+  cells: DayCell[];
+  weeks: Week[];
+  repos: RepoItem[];
+  langs: { name: string; bytes: number }[];
+  langRows: LangRow[];
+  langTotal: number;
+  end: Date;
+  endIso: string;
+  allFromIso: string;
+  /** makeRange()-shaped range for the selected period over the real window */
+  range: { mode: string; from: string | null; to: string | null };
+  /** weekday×hour rhythm for the selected period */
+  rhythm: RhythmBundle;
+}
+
+const PERIOD_MODE: Record<Period, string> = {
+  '7D': '7d',
+  '30D': '30d',
+  '90D': '90d',
+  YTD: 'ytd',
+  '1Y': '1y',
+  ALL: 'all',
+};
+
+const DOW_ORDER = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const;
+
+function isoToday() {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+}
+
+async function fetchDashboard(mode: string): Promise<DashboardData | null> {
+  try {
+    const res = await fetch(`/api/dashboard?range=${mode}`, {
+      credentials: 'same-origin',
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as DashboardData;
+  } catch {
+    return null;
+  }
+}
+
+// dash_rhythm weekday is Postgres dow (0=SUN..6=SAT); matrix rows are MON..SUN.
+function rhythmFromRows(rows: DashboardData['rhythm']): RhythmBundle {
+  const matrix = Array.from({ length: 7 }, () => new Array<number>(24).fill(0));
+  const hourTotals = new Array<number>(24).fill(0);
+  for (const r of rows || []) {
+    const row = (r.weekday + 6) % 7;
+    const v = Number(r.commits) || 0;
+    matrix[row][r.hour] += v;
+    hourTotals[r.hour] += v;
+  }
+  const dayTotals = matrix.map((m) => m.reduce((a, b) => a + b, 0));
+  const total = Math.max(1, dayTotals.reduce((a, b) => a + b, 0));
+  const pct = (n: number) => Math.round((n / total) * 1000) / 10;
+
+  const days = DOW_ORDER.map((name, i) => ({
+    name,
+    code: name,
+    total: dayTotals[i],
+    pct: pct(dayTotals[i]),
+  }));
+
+  const windowSum = (a: number, b: number) =>
+    hourTotals.slice(a, b).reduce((x, y) => x + y, 0);
+  const windows = [
+    { label: 'NIGHT', range: '00:00–06:00', pct: pct(windowSum(0, 6)) },
+    { label: 'MORNING', range: '06:00–12:00', pct: pct(windowSum(6, 12)) },
+    { label: 'AFTERNOON', range: '12:00–18:00', pct: pct(windowSum(12, 18)) },
+    { label: 'EVENING', range: '18:00–24:00', pct: pct(windowSum(18, 24)) },
+  ];
+
+  let peakDayIdx = 0;
+  dayTotals.forEach((v, i) => {
+    if (v > dayTotals[peakDayIdx]) peakDayIdx = i;
+  });
+  let peakHourIdx = 0;
+  hourTotals.forEach((v, i) => {
+    if (v > hourTotals[peakHourIdx]) peakHourIdx = i;
+  });
+  // best sliding 3-hour window, matching the fixture's '18:00–21:00' format
+  let bestWin = 0;
+  let bestWinSum = -1;
+  for (let h = 0; h <= 21; h++) {
+    const s = hourTotals[h] + hourTotals[h + 1] + hourTotals[h + 2];
+    if (s > bestWinSum) {
+      bestWinSum = s;
+      bestWin = h;
+    }
+  }
+  const hh = (n: number) => `${String(n).padStart(2, '0')}:00`;
+  const weekdayTotal = dayTotals.slice(0, 5).reduce((a, b) => a + b, 0);
+
+  return {
+    matrix,
+    days,
+    windows,
+    highlights: {
+      peakWeekday: DOW_ORDER[peakDayIdx],
+      peakWeekdayTotal: dayTotals[peakDayIdx],
+      peakHour: hh(peakHourIdx),
+      peakWindow: `${hh(bestWin)}–${hh(bestWin + 3)}`,
+      weekdayShare: `${pct(weekdayTotal)}%`,
+      weekendShare: `${pct(total - weekdayTotal)}%`,
+    },
+  };
+}
+
+const FIXTURE_RHYTHM: RhythmBundle = {
+  matrix: RHYTHM_MATRIX,
+  days: RHYTHM_DAYS.map((d) => ({ ...d })),
+  windows: RHYTHM_WINDOWS.map((w) => ({ ...w })),
+  highlights: { ...RHYTHM_HIGHLIGHTS },
+};
+
+function daysFromDaily(
+  daily: DashboardData['daily'],
+  endIso: string,
+): DayData[] {
+  const byDate = new Map(daily.map((d) => [d.date, d]));
+  const startIso = daily[0]?.date ?? endIso;
+  const start = new Date(startIso + 'T00:00:00').getTime();
+  const end = new Date(endIso + 'T00:00:00').getTime();
+  if (start > end) return [];
+  const out: DayData[] = [];
+  let cum = 0;
+  for (let t = start, i = 0; t <= end; t += 86_400_000, i++) {
+    const d = new Date(t);
+    const p = (n: number) => String(n).padStart(2, '0');
+    const iso = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    const row = byDate.get(iso);
+    const added = row?.added ?? 0;
+    const deleted = row?.deleted ?? 0;
+    cum += added - deleted;
+    out.push({
+      date: iso,
+      dayIndex: i,
+      dailyChange: added - deleted,
+      cumulative: cum,
+      commits: row?.commits ?? 0,
+      added,
+      deleted,
+      active: (row?.commits ?? 0) > 0,
+    });
+  }
+  return out;
+}
+
+function repoStatus(r: RepoRow, endIso: string): RepoItem['status'] {
+  if (!r.commits) return 'DORMANT';
+  if (!r.lastCommitAt) return 'QUIET';
+  const days =
+    (new Date(endIso + 'T00:00:00').getTime() -
+      new Date(r.lastCommitAt).getTime()) /
+    86_400_000;
+  if (days <= 30) return 'ACTIVE';
+  if (days <= 90) return 'STEADY';
+  return 'QUIET';
+}
+
+function reposFromRows(rows: RepoRow[], endIso: string): RepoItem[] {
+  const maxCommits = Math.max(1, ...rows.map((r) => r.commits));
+  const n = rows.length;
+  return rows.map((r, i) => ({
+    // UI-facing id mirrors the fixture's D.NN codes so constellation coords,
+    // selection state and aria labels keep working unchanged.
+    id: `D.${String(i + 1).padStart(2, '0')}`,
+    code: `D.${String(i + 1).padStart(2, '0')}`,
+    name: r.name,
+    locked: r.private,
+    language: (r.primaryLanguage || '—').toUpperCase(),
+    status: repoStatus(r, endIso),
+    bytesStr: fmtCompact(r.languageBytes),
+    bytesNum: r.languageBytes,
+    commits: r.commits,
+    // Deterministic constellation placement: a fan like the fixture's
+    // 52°..144° spread, radius by commit share (sqrt-tempered).
+    angle: 50 + (i * 96) / Math.max(n - 1, 1),
+    radius: 0.18 + 0.62 * Math.sqrt(r.commits / maxCommits),
+  }));
+}
+
+const EXT_MAP: Record<string, string> = {
+  typescript: '.ts', javascript: '.js', python: '.py', css: '.css',
+  html: '.html', 'c++': '.cpp', c: '.c', 'c#': '.cs', java: '.java',
+  powershell: '.ps1', shell: '.sh', bash: '.sh', batchfile: '.bat',
+  json: '.json', markdown: '.md', go: '.go', rust: '.rs', ruby: '.rb',
+  dockerfile: 'Dockerfile',
+};
+
+function langRowsFrom(langs: { name: string; bytes: number }[]): LangRow[] {
+  const total = Math.max(1, langs.reduce((a, l) => a + l.bytes, 0));
+  return langs.map((l) => ({
+    name: l.name.toUpperCase(),
+    bytes: l.bytes,
+    size: fmtBytes(l.bytes),
+    pct: Math.round((l.bytes / total) * 1000) / 10,
+    ext: EXT_MAP[l.name.toLowerCase()] ?? `.${l.name.toLowerCase().replace(/[^a-z0-9]+/g, '')}`,
+  }));
+}
+
+const FIXTURE: DashboardData = DASHBOARD as DashboardData;
+
+function fixtureStore(period: Period): LedgerStore {
+  const endIso = '2026-09-20';
+  return {
+    live: false,
+    dash: FIXTURE,
+    all: FIXTURE,
+    days: DATA_365,
+    cells: fixtureCells,
+    weeks: fixtureWeeks,
+    repos: REPOSITORIES,
+    langs: fixtureLanguages.map((l) => ({ name: l.name, bytes: l.bytes })),
+    langRows: LANGUAGES,
+    langTotal: fixtureLanguages.reduce((a, l) => a + l.bytes, 0),
+    end: END,
+    endIso,
+    allFromIso: OBS_START,
+    range: periodToRange(period),
+    rhythm: FIXTURE_RHYTHM,
+  };
+}
+
+export function useDashboardStore(period: Period): LedgerStore {
+  const mode = PERIOD_MODE[period];
+  const [payloads, setPayloads] = useState<Partial<Record<string, DashboardData>>>({});
+  const requested = useRef(new Set<string>());
+
+  // Fetch the period-scoped payload on every period change (backend respects
+  // the range) and the all-time payload once for structural views.
+  useEffect(() => {
+    const modes = mode === 'all' ? ['all'] : [mode, 'all'];
+    for (const m of modes) {
+      if (requested.current.has(m)) continue;
+      requested.current.add(m);
+      fetchDashboard(m).then((d) => {
+        if (d) setPayloads((p) => ({ ...p, [m]: d }));
+      });
+    }
+  }, [mode]);
+
+  const live = payloads.all != null || payloads[mode] != null;
+  const all = payloads.all ?? FIXTURE;
+  const dash = payloads[mode] ?? all;
+
+  return useMemo<LedgerStore>(() => {
+    if (!live) return fixtureStore(period);
+
+    const endIso =
+      all.daily[all.daily.length - 1]?.date ??
+      all.workShape.span?.lastActive ??
+      all.range.to ??
+      isoToday();
+    const allFromIso =
+      all.daily[0]?.date ?? all.workShape.span?.firstActive ?? endIso;
+    const cells = cellsFromDaily(all.daily, all.prsDaily, endIso);
+    const langs = all.languages.map((l) => ({ name: l.language, bytes: l.code }));
+
+    return {
+      live: true,
+      dash,
+      all,
+      days: daysFromDaily(all.daily, endIso),
+      cells,
+      weeks: weeksFromCells(cells),
+      repos: reposFromRows(all.repositories, endIso),
+      langs,
+      langRows: langRowsFrom(langs),
+      langTotal: langs.reduce((a, l) => a + l.bytes, 0),
+      end: new Date(endIso + 'T00:00:00'),
+      endIso,
+      allFromIso,
+      range: periodToRange(period, endIso, allFromIso),
+      rhythm: rhythmFromRows(dash.rhythm),
+    };
+  }, [live, all, dash, period]);
+}
+
+export const LedgerContext = createContext<LedgerStore | null>(null);
+
+export function useLedger(): LedgerStore {
+  const store = useContext(LedgerContext);
+  if (!store) return fixtureStore('1Y'); // standalone render → fixture fallback
+  return store;
+}

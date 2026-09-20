@@ -187,7 +187,44 @@ function buildCells(): DayCell[] {
 
 export const cells: DayCell[] = buildCells();
 
-export const weeks: Week[] = (() => {
+// Dense day cells from real /api/dashboard telemetry: `daily` is sparse
+// (one row per active day), `prsDaily` carries opened counts. Cells are
+// emitted for every calendar day from the first observed day through
+// `endIso` so the FIELD matrix keeps its continuous GitHub-style shape.
+export function cellsFromDaily(
+  daily: { date: string; commits: number; added: number; deleted: number }[],
+  prsDaily: { date: string; opened: number }[],
+  endIso: string,
+): DayCell[] {
+  const byDate = new Map(daily.map((d) => [d.date, d]));
+  const prsByDate = new Map(prsDaily.map((p) => [p.date, p.opened]));
+  const first = daily[0]?.date ?? endIso;
+  const start = new Date(first + 'T00:00:00');
+  const end = new Date(endIso + 'T00:00:00');
+  if (start.getTime() > end.getTime()) return [];
+  const out: DayCell[] = [];
+  const baseDow = start.getDay();
+  for (let t = start.getTime(), i = 0; t <= end.getTime(); t += DAY_MS, i++) {
+    const date = new Date(t);
+    const isoStr = iso(date);
+    const d = byDate.get(isoStr);
+    const commits = d?.commits ?? 0;
+    out.push({
+      date,
+      iso: isoStr,
+      dayOfWeek: date.getDay(),
+      weekIndex: Math.floor((i + baseDow) / 7),
+      commits,
+      added: d?.added ?? 0,
+      deleted: d?.deleted ?? 0,
+      prs: prsByDate.get(isoStr) ?? 0,
+      intensity: intensityOf(commits),
+    });
+  }
+  return out;
+}
+
+export function weeksFromCells(cells: DayCell[]): Week[] {
   const maxWeek = cells[cells.length - 1]?.weekIndex ?? 0;
   const list: Week[] = [];
   const seenMonth = new Set<string>();
@@ -209,7 +246,9 @@ export const weeks: Week[] = (() => {
     list.push({ index: w, days, monthLabel });
   }
   return list;
-})();
+}
+
+export const weeks: Week[] = weeksFromCells(cells);
 
 export const languages = [
   { name: 'TypeScript', bytes: 8_300_000 },
@@ -223,9 +262,11 @@ export const languages = [
 
 export const languageTotal = languages.reduce((a, l) => a + l.bytes, 0);
 
-export function inPeriod(d: Date, period: Period): boolean {
+// `end` defaults to the fixture window edge; live data passes the last
+// observed day so period math tracks the real telemetry horizon.
+export function inPeriod(d: Date, period: Period, end: Date = END): boolean {
   const t = d.getTime();
-  const e = END.getTime();
+  const e = end.getTime();
   switch (period) {
     case '7D':
       return t >= e - 6 * DAY_MS;
@@ -234,33 +275,35 @@ export function inPeriod(d: Date, period: Period): boolean {
     case '90D':
       return t >= e - 89 * DAY_MS;
     case 'YTD':
-      return d.getFullYear() === END.getFullYear();
+      return d.getFullYear() === end.getFullYear();
     case '1Y':
+      return t >= e - 364 * DAY_MS && t <= e;
     case 'ALL':
     default:
-      return t >= START.getTime() && t <= e;
+      return t <= e;
   }
 }
 
-export function periodRange(period: Period): [Date, Date] {
+export function periodRange(period: Period, end: Date = END): [Date, Date] {
   switch (period) {
     case '7D':
-      return [addDays(END, -6), END];
+      return [addDays(end, -6), end];
     case '30D':
-      return [addDays(END, -29), END];
+      return [addDays(end, -29), end];
     case '90D':
-      return [addDays(END, -89), END];
+      return [addDays(end, -89), end];
     case 'YTD':
-      return [new Date(END.getFullYear(), 0, 1), END];
+      return [new Date(end.getFullYear(), 0, 1), end];
     case '1Y':
+      return [addDays(end, -364), end];
     case 'ALL':
     default:
-      return [START, END];
+      return [START, end];
   }
 }
 
-export function periodDayCount(period: Period) {
-  const [a, b] = periodRange(period);
+export function periodDayCount(period: Period, end: Date = END) {
+  const [a, b] = periodRange(period, end);
   return Math.round((b.getTime() - a.getTime()) / DAY_MS) + 1;
 }
 
@@ -274,7 +317,7 @@ export type FieldStats = {
   span: number;
 };
 
-export function computeStats(visible: DayCell[]): FieldStats {
+export function computeStats(visible: DayCell[], repoCount = 7): FieldStats {
   const commits = visible.reduce((a, c) => a + c.commits, 0);
   const prs = visible.reduce((a, c) => a + c.prs, 0);
   const activeDays = visible.filter((c) => c.commits > 0).length;
@@ -303,7 +346,7 @@ export function computeStats(visible: DayCell[]): FieldStats {
     activeDays,
     merged,
     streak,
-    repos: 7,
+    repos: repoCount,
     span: visible.length,
   };
 }

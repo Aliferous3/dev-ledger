@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { Period } from './types';
 import { useBootTransition } from './transitions/BootLog';
-import { DATA_365 } from './store/metricsData';
+import { LedgerContext, useDashboardStore } from './store/live';
 import { TerminalTickerHeader } from './components/TerminalTickerHeader';
 import { UtilityBar } from './components/UtilityBar';
 import { RightSidebarNav } from './components/RightSidebarNav';
@@ -28,11 +28,18 @@ export default function App() {
     [fire],
   );
 
-  // Compute live aggregates from data
-  const netGrowth = 1756748;
-  const totalCommits = 1421;
+  // Live production telemetry (or the bundled fixture when /api/dashboard is
+  // unreachable — e.g. vite-only dev). `dash` is scoped to the global period.
+  const ledger = useDashboardStore(period);
+  const netGrowth = ledger.dash.summary.sourceAdded - ledger.dash.summary.sourceDeleted;
+  const totalCommits = ledger.dash.summary.commits;
+  const span = ledger.all.workShape.span;
+  const spanLabel = span?.firstActive && span?.lastActive
+    ? `${monthYear(span.firstActive)} — ${monthYear(span.lastActive)}`
+    : 'JAN 2024 — SEP 2026'; // fixture fallback
 
   return (
+    <LedgerContext.Provider value={ledger}>
     <div className="min-h-screen bg-[#0a0a0a] text-neutral-100 flex flex-col selection:bg-[#d6ff3e]/30 selection:text-white">
       {/* System utility bar: live UTC clock · CRT toggle · sync status */}
       <UtilityBar crtOn={crtOn} onToggleCrt={() => setCrtOn((v) => !v)} />
@@ -64,7 +71,7 @@ export default function App() {
         {/* 01 — MEASURE */}
         <Section01Measure
           period={period}
-          daysData={DATA_365}
+          daysData={ledger.days}
         />
 
         {/* 02 — FIELD */}
@@ -94,7 +101,7 @@ export default function App() {
         <div className="flex items-center gap-3">
           <span className="text-neutral-400">END OF RECORD</span>
           <span className="text-neutral-700">·</span>
-          <span>LONGITUDINAL TELEMETRY [JAN 2024 — SEP 2026]</span>
+          <span>LONGITUDINAL TELEMETRY [{spanLabel}]</span>
         </div>
 
         <div className="flex items-center gap-4">
@@ -107,5 +114,11 @@ export default function App() {
         </div>
       </footer>
     </div>
+    </LedgerContext.Provider>
   );
+}
+
+const MONTH_SHORT = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+function monthYear(iso: string) {
+  return `${MONTH_SHORT[parseInt(iso.slice(5, 7), 10) - 1]} ${iso.slice(0, 4)}`;
 }

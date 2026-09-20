@@ -1,16 +1,23 @@
 import { useState } from 'react';
-import { LANGUAGES, type LangRow } from '../codeData';
+import type { LangRow } from '../codeData';
 
 /* Language treemap — Attachment 1 mosaic from CodeTreemap (CODE.03).
    Every tile carries name + size, including the small strip; tiles are
    keyboard-focusable and focus mirrors the hover state. Layout reflows:
    big tile full-width on mobile, mid pair halves, small strip wraps. */
-export function LanguageTreemap() {
+export function LanguageTreemap({ langs }: { langs: LangRow[] }) {
   const [hov, setHov] = useState<string | null>(null);
-  const big = LANGUAGES[0];
-  const mid = LANGUAGES.slice(1, 3);
-  const small = LANGUAGES.slice(3);
-  const hovLang = hov ? LANGUAGES.find((l) => l.name === hov) : null;
+  const big = langs[0];
+  const mid = langs.slice(1, 3);
+  const small = langs.slice(3);
+  const hovLang = hov ? langs.find((l) => l.name === hov) : null;
+
+  if (!big)
+    return (
+      <div className="mono-tag text-[9px] text-neutral-600">
+        NO LANGUAGE TELEMETRY — RESOLVES AFTER FIRST SYNC
+      </div>
+    );
 
   return (
     <div className="space-y-4">
@@ -19,7 +26,7 @@ export function LanguageTreemap() {
         <span className={hovLang ? 'text-[#d6ff3e]' : 'text-neutral-600'}>
           {hovLang
             ? `${hovLang.name} · ${hovLang.size} · ${hovLang.pct}%`
-            : `${LANGUAGES.length} LANGUAGES`}
+            : `${langs.length} LANGUAGES`}
         </span>
       </div>
 

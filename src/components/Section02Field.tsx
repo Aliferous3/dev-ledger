@@ -2,17 +2,14 @@ import { useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Period } from '../types';
 import {
-  weeks,
   DOW,
-  cells,
   inPeriod,
   computeStats,
   formatBytes,
   formatNumber,
-  languages,
-  languageTotal,
   type DayCell,
 } from '../fieldData';
+import { useLedger } from '../store/live';
 import { CellTooltip } from '../field/Tooltip';
 
 interface Props {
@@ -28,6 +25,9 @@ const TIP_H = 130;
 const TIP_GAP = 10;
 
 export function Section02Field({ period }: Props) {
+  // Live telemetry cells/weeks/languages from the dashboard store — falls
+  // back to the bundled fixtures when the API is unreachable.
+  const { cells, weeks, langs: languages, langTotal: languageTotal, end, all } = useLedger();
   const [hoverCell, setHoverCell] = useState<DayCell | null>(null);
   const [tipCoords, setTipCoords] = useState<{ cx: number; top: number; bottom: number } | null>(null);
   const [hoverLang, setHoverLang] = useState<string | null>(null);
@@ -39,8 +39,12 @@ export function Section02Field({ period }: Props) {
 
   // Six-stat strip reacts to the canonical global period.
   const stats = useMemo(
-    () => computeStats(cells.filter((c) => inPeriod(c.date, period))),
-    [period],
+    () =>
+      computeStats(
+        cells.filter((c) => inPeriod(c.date, period, end)),
+        all.summary.repos,
+      ),
+    [period, cells, end, all],
   );
 
   // Viewport-aware fixed placement: flip below near the top edge, shift

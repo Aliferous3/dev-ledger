@@ -1,13 +1,8 @@
 import { useMemo } from 'react';
 import type { Period } from '../types';
-import { cells, inPeriod } from '../fieldData';
-import { DASHBOARD, periodToRange } from '../ledgerData';
-import {
-  LANGUAGES,
-  LANGUAGE_TOTAL_BYTES,
-  fmtBytes,
-  fmtCompact,
-} from '../codeData';
+import { inPeriod } from '../fieldData';
+import { useLedger } from '../store/live';
+import { fmtBytes, fmtCompact } from '../codeData';
 import { CodeHeader, type CodeTotals } from '../code/CodeHeader';
 import { LanguageTreemap } from '../code/LanguageTreemap';
 import { GrowthCurve, type GrowthPoint } from '../code/GrowthCurve';
@@ -26,17 +21,23 @@ interface Props {
 
 // Month-granularity range test: a repoMonthly row ('YYYY-MM') counts when
 // its month intersects the global period window.
-function monthInRange(month: string, period: Period): boolean {
-  const { from, to } = periodToRange(period);
+function monthInRange(
+  month: string,
+  range: { from: string | null; to: string | null },
+): boolean {
+  const { from, to } = range;
   if (from && month < from.slice(0, 7)) return false;
   if (to && month > to.slice(0, 7)) return false;
   return true;
 }
 
 export function CodePage({ period }: Props) {
-  // Line-change telemetry: same fieldData day-cells FIELD/Activity read.
+  // Live telemetry: day-cells, language corpus and repoMonthly all come
+  // from the dashboard store (fixture fallback when the API is offline).
+  const { cells, end, all, range, langRows } = useLedger();
+  // Line-change telemetry: same day-cells FIELD/Activity read.
   const lineStats = useMemo(() => {
-    const vis = cells.filter((c) => inPeriod(c.date, period));
+    const vis = cells.filter((c) => inPeriod(c.date, period, end));
     let added = 0;
     let deleted = 0;
     let activeDays = 0;
@@ -46,10 +47,11 @@ export function CodePage({ period }: Props) {
       if (c.commits > 0) activeDays++;
     }
     return { added, deleted, net: added - deleted, churn: added + deleted, activeDays };
-  }, [period]);
+  }, [cells, period, end]);
 
+  const langTotal = langRows.reduce((a, l) => a + l.bytes, 0);
   const totals: CodeTotals = {
-    sourceBytes: fmtBytes(LANGUAGE_TOTAL_BYTES), // working-tree snapshot
+    sourceBytes: fmtBytes(langTotal), // working-tree snapshot
     linesAdded: lineStats.added,
     linesDeleted: lineStats.deleted,
     netLines: lineStats.net,
@@ -59,10 +61,10 @@ export function CodePage({ period }: Props) {
   // Project churn is repo-attributed monthly telemetry — filtered to the
   // global period at month granularity (repoMonthly has no finer grain).
   const projects = useMemo<ProjectRow[]>(() => {
-    const monthly = DASHBOARD.workShape.repoMonthly.filter((m) =>
-      monthInRange(m.month, period),
+    const monthly = all.workShape.repoMonthly.filter((m) =>
+      monthInRange(m.month, range),
     );
-    return DASHBOARD.repositories.map((r) => {
+    return all.repositories.map((r) => {
       const rows = monthly.filter((m) => m.repository_id === r.id);
       return {
         name: r.name,
@@ -70,13 +72,13 @@ export function CodePage({ period }: Props) {
         churn: rows.reduce((a, m) => a + m.added + m.deleted, 0),
       };
     });
-  }, [period]);
+  }, [all, range]);
 
   // Cumulative net-lines growth across the period's active months.
   const growth = useMemo<GrowthPoint[]>(() => {
     const byMonth = new Map<string, number>();
-    for (const m of DASHBOARD.workShape.repoMonthly) {
-      if (!monthInRange(m.month, period)) continue;
+    for (const m of all.workShape.repoMonthly) {
+      if (!monthInRange(m.month, range)) continue;
       byMonth.set(m.month, (byMonth.get(m.month) ?? 0) + m.added - m.deleted);
     }
     let cum = 0;
@@ -87,7 +89,7 @@ export function CodePage({ period }: Props) {
         const mi = parseInt(month.slice(5, 7), 10) - 1;
         return { label: MONTH_NAMES[mi], value: cum };
       });
-  }, [period]);
+  }, [all, range]);
 
   const intel = useMemo<IntelMetric[]>(() => {
     const { added, deleted, net, churn, activeDays } = lineStats;
@@ -141,10 +143,10 @@ export function CodePage({ period }: Props) {
   return (
     <section id="section-06" className="relative scroll-mt-28 space-y-12">
       {/* 1 — Source composition header + totals */}
-      <CodeHeader totals={totals} langCount={LANGUAGES.length} />
+      <CodeHeader totals={totals} langCount={langRows.length} />
 
-      {/* 2 — Language treemap mosaic (all 10 languages, name + size each) */}
-      <LanguageTreemap />
+      {/* 2 — Language treemap mosaic (name + size per language) */}
+      <LanguageTreemap langs={langRows} />
 
       {/* 3 — Analysis row: growth curve | bytes/churn project table */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 pt-6 border-t border-neutral-900">

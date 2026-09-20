@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { Period, MetricKey, DayData } from '../types';
 import { MonthBins } from './MonthBins';
+import { useLedger } from '../store/live';
 
 interface Props {
   period: Period;
@@ -15,18 +16,25 @@ const TABS: { key: MetricKey; label: string; heroLabel: string }[] = [
   { key: 'COMMITS', label: 'COMMITS', heroLabel: 'COMMITS' },
 ];
 
-export function Section01Measure({ period, daysData }: Props) {
+export function Section01Measure({ daysData }: Props) {
   const [activeTab, setActiveTab] = useState<MetricKey>('GROWTH');
+  // Canonical period → ISO range (fixture window or live telemetry horizon).
+  const { range, all } = useLedger();
+  const metaFrom = range.from ?? all.workShape.span?.firstActive ?? '—';
+  const metaTo = range.to ?? all.workShape.span?.lastActive ?? '—';
+  const topLang = all.languages[0]?.language ?? '—';
 
-  // Filter days by period
-  const filteredDays = useMemo(() => {
-    const total = daysData.length;
-    if (period === '7D') return daysData.slice(total - 7);
-    if (period === '30D') return daysData.slice(total - 30);
-    if (period === '90D') return daysData.slice(total - 90);
-    if (period === 'YTD') return daysData.slice(Math.max(0, total - 263));
-    return daysData; // 1Y or ALL
-  }, [daysData, period]);
+  // Filter days by period — date-bounded so the full live history can feed
+  // the series without breaking 7D/30D/YTD semantics.
+  const filteredDays = useMemo(
+    () =>
+      daysData.filter(
+        (d) =>
+          (!range.from || d.date >= range.from) &&
+          (!range.to || d.date <= range.to),
+      ),
+    [daysData, range],
+  );
 
   // Hero value follows the active metric tab over the filtered range
   const heroValue = useMemo(() => {
@@ -77,13 +85,13 @@ export function Section01Measure({ period, daysData }: Props) {
 
         {/* Sub-Metadata Strip */}
         <div className="pt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[10px] mono-tag text-neutral-500">
-          <span>2025-09-21 — 2026-09-20</span>
+          <span>{metaFrom} — {metaTo}</span>
           <span className="text-neutral-700">·</span>
-          <span>SOURCE BYTES <span className="text-neutral-300">10.0 MB</span></span>
+          <span>SOURCE BYTES <span className="text-neutral-300">{(all.summary.languageBytes / 1_000_000).toFixed(1)} MB</span></span>
           <span className="text-neutral-700">·</span>
-          <span>7 REPOSITORIES</span>
+          <span>{all.summary.repos} REPOSITORIES</span>
           <span className="text-neutral-700">·</span>
-          <span className="text-neutral-300">TYPESCRIPT</span>
+          <span className="text-neutral-300">{topLang.toUpperCase()}</span>
         </div>
 
         {/* Interactive Metric Navigation Tabs */}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { RHYTHM_DAYS, RHYTHM_MATRIX, getRhythmLevel } from '../activityData';
+import { getRhythmLevel } from '../activityData';
+import type { RhythmBundle } from '../store/live';
 import { usePrefersReducedMotion } from '../ledger/shared';
 
 const BLOCKS = ['·', '░', '▒', '▓', '█'] as const;
@@ -8,7 +9,7 @@ const BLOCKS = ['·', '░', '▒', '▓', '█'] as const;
    (Design 02). The probe sweep is independent of the radar's dial focus:
    this is a telemetry sweep cursor, the radar is a manual inspector.
    Under prefers-reduced-motion the probe starts paused. */
-export function RhythmStream() {
+export function RhythmStream({ rhythm }: { rhythm: RhythmBundle }) {
   const reduced = usePrefersReducedMotion();
   const [probeHour, setProbeHour] = useState<number>(18);
   const [runningSweep, setRunningSweep] = useState(() => !reduced);
@@ -56,12 +57,12 @@ export function RhythmStream() {
           </div>
 
           {/* Matrix rows with ASCII block chars */}
-          {RHYTHM_DAYS.map((d, dIdx) => (
+          {rhythm.days.map((d, dIdx) => (
             <div key={d.name} className="grid grid-cols-[40px_1fr_40px] items-center gap-2">
               <span className="mono-tag text-[9px] text-neutral-500">{d.name}</span>
               <div className="grid grid-cols-24 gap-[1px]">
                 {Array.from({ length: 24 }).map((_, h) => {
-                  const val = RHYTHM_MATRIX[dIdx][h];
+                  const val = rhythm.matrix[dIdx][h];
                   const level = getRhythmLevel(val);
                   const isProbe = h === probeHour;
                   return (
@@ -101,7 +102,7 @@ export function RhythmStream() {
       {/* Live log strip */}
       <div className="flex items-center justify-between mono-tag text-[9px] text-neutral-600 border border-neutral-900 bg-neutral-950 p-2">
         <span className="text-[#d6ff3e]">{logLine}</span>
-        <span>PEAK: SAT 18:00 (56c)</span>
+        <span>PEAK: {rhythm.highlights.peakWeekday} {rhythm.highlights.peakHour} ({rhythm.highlights.peakWeekdayTotal}c)</span>
       </div>
     </div>
   );

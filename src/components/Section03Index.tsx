@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import type { Period } from '../types';
-import { REPOSITORIES } from '../store/metricsData';
-import { DASHBOARD, periodToRange } from '../ledgerData';
+import { useLedger } from '../store/live';
 import { HistoricalLanes } from '../retained/HistoricalLanes';
 import { ProjHtop } from '../projects/ProjHtop';
 import { useBootTransition } from '../transitions/BootLog';
@@ -19,6 +18,9 @@ const Z_STEP = 0.1;
 const Z_FIT = 0.8;
 
 export function Section03Index({ period }: Props) {
+  // Live repositories (constellation + project directory) and the
+  // period-scoped lane series — fixture fallback when the API is offline.
+  const { dash, repos: REPOSITORIES, range } = useLedger();
   const [selectedRepoId, setSelectedRepoId] = useState<string>('D.01');
   const [hoverRepoId, setHoverRepoId] = useState<string | null>(null);
   const [hoverRing, setHoverRing] = useState<number | null>(null);
@@ -164,7 +166,13 @@ export function Section03Index({ period }: Props) {
                 'D.07': { x: cx - 40, y: cy + 50 },  // Dormant solo node
               };
 
-              const pt = coords[repo.id] || { x: cx, y: cy };
+              // Beyond the seven hand-placed fixture nodes, fall back to
+              // the repo's polar angle/radius so extra live repositories
+              // still scatter deterministically on the radar.
+              const pt = coords[repo.id] || {
+                x: cx + Math.cos((repo.angle * Math.PI) / 180) * repo.radius * 140,
+                y: cy + Math.sin((repo.angle * Math.PI) / 180) * repo.radius * 140,
+              };
               const isSelected = activeId === repo.id;
 
               return (
@@ -318,9 +326,9 @@ export function Section03Index({ period }: Props) {
       <div className="space-y-4 pt-4">
         <div className="relative bg-black/60 border border-neutral-900 p-6 select-none">
           <HistoricalLanes
-            daily={DASHBOARD.daily}
-            prsDaily={DASHBOARD.prsDaily}
-            range={periodToRange(period)}
+            daily={dash.daily}
+            prsDaily={dash.prsDaily}
+            range={range}
           />
         </div>
       </div>

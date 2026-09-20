@@ -1,4 +1,12 @@
 {
   "buildCommand": "npm run build",
-  "framework": "vite"
+  "framework": "vite",
+  "functions": {
+    "api/sync.mjs": { "maxDuration": 60 },
+    "api/sync-range.mjs": { "maxDuration": 60 },
+    "api/cron/sync.mjs": { "maxDuration": 60 }
+  },
+  "crons": [
+    { "path": "/api/cron/sync", "schedule": "*/15 * * * *" }
+  ]
 }

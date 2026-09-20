@@ -1,4 +1,4 @@
-import { RHYTHM_WINDOWS, RHYTHM_HIGHLIGHTS } from '../activityData';
+import type { RhythmBundle } from '../store/live';
 
 /* Circadian radar body — extracted from ActivityRadar (Design 04) minus
    its internal page header. The active hour is owned by ActivityPage:
@@ -8,10 +8,12 @@ export function CircadianRadar({
   activeHour,
   onHover,
   onSelect,
+  rhythm,
 }: {
   activeHour: number;
   onHover: (h: number | null) => void;
   onSelect: (h: number) => void;
+  rhythm: RhythmBundle;
 }) {
   // 24 hours around the dial: hour 00 at top (-90°), 06 right, 12 bottom, 18 left
   const cx = 220;
@@ -164,7 +166,7 @@ export function CircadianRadar({
         <div className="mono-tag text-[9px] text-neutral-400">CIRCADIAN DISTRIBUTION</div>
 
         <div className="space-y-3">
-          {RHYTHM_WINDOWS.map((w) => (
+          {rhythm.windows.map((w) => (
             <div
               key={w.label}
               className="p-3 border border-neutral-900 bg-black/60 hover:border-neutral-700 transition-colors"
@@ -184,8 +186,8 @@ export function CircadianRadar({
         <div className="p-4 border border-neutral-800 bg-[#0e0e0e] mono-tag text-[9px] text-neutral-400 space-y-1">
           <div className="text-[#d6ff3e] font-semibold">// PEAK CADENCE LOCATED</div>
           <div>
-            {RHYTHM_HIGHLIGHTS.peakWeekday} {RHYTHM_HIGHLIGHTS.peakWindow} UTC ACCOUNTS FOR{' '}
-            {RHYTHM_WINDOWS[3]?.pct}% OF ALL ENGINE COMMITS.
+            {rhythm.highlights.peakWeekday} {rhythm.highlights.peakWindow} UTC ACCOUNTS FOR{' '}
+            {rhythm.windows[3]?.pct}% OF ALL ENGINE COMMITS.
           </div>
         </div>
       </div>

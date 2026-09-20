@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import type { Period } from '../types';
 import {
-  cells,
   inPeriod,
   MONTHS,
   type DayCell,
 } from '../fieldData';
+import { useLedger } from '../store/live';
 import { ActivityHeader } from '../activity/ActivityHeader';
 import { ActivityExtremes, type ExtremeRow } from '../activity/ActivityExtremes';
 import { CircadianRadar } from '../activity/CircadianRadar';
@@ -39,9 +39,13 @@ export function ActivityPage({ period }: Props) {
   const [hoveredSlice, setHoveredSlice] = useState<number | null>(null);
   const activeHour = hoveredSlice ?? selectedHour;
 
+  // Live day-cells + weekday×hour rhythm from the dashboard store —
+  // fixture fallback when the API is unreachable.
+  const { cells, end, rhythm } = useLedger();
+
   // All date-addressable data derives from the same day-cell telemetry the
   // FIELD matrix reads, filtered by the canonical global period.
-  const dayCells = useMemo(() => cells.filter((c) => inPeriod(c.date, period)), [period]);
+  const dayCells = useMemo(() => cells.filter((c) => inPeriod(c.date, period, end)), [cells, period, end]);
 
   const totalCommits = useMemo(
     () => dayCells.reduce((a, c) => a + c.commits, 0),
@@ -132,7 +136,7 @@ export function ActivityPage({ period }: Props) {
         desc: `${fmtCompact(churn.added + churn.deleted)} churn recorded`,
       });
     return list.slice(0, 4);
-  }, []);
+  }, [cells]);
 
   const activeMonths = useMemo(
     () =>
@@ -147,7 +151,7 @@ export function ActivityPage({ period }: Props) {
     <section id="section-05" className="relative scroll-mt-28 space-y-12">
       {/* 1 — Page header: radar-style composition (lime eyebrow, serif
           title, mono sub) with the shared dial-focus readout on the right. */}
-      <ActivityHeader activeHour={activeHour} totalCommits={totalCommits} />
+      <ActivityHeader activeHour={activeHour} totalCommits={totalCommits} rhythm={rhythm} />
 
       {/* 2 — Extremes specification table (Blueprint source, real values) */}
       <ActivityExtremes rows={extremes} />
@@ -157,10 +161,11 @@ export function ActivityPage({ period }: Props) {
         activeHour={activeHour}
         onHover={setHoveredSlice}
         onSelect={setSelectedHour}
+        rhythm={rhythm}
       />
 
       {/* 4 — CRT RHYTHM_STREAM ASCII matrix (own probe sweep) */}
-      <RhythmStream />
+      <RhythmStream rhythm={rhythm} />
 
       {/* 5 — Three mini charts, real period-filtered data */}
       <ActivityCharts months={months} weekdays={weekdays} />

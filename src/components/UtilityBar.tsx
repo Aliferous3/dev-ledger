@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLedger } from '../store/live';
 
 // System utility bar — sparse hairline row above the main header.
 // LEFT: live UTC clock · CENTER/RIGHT: CRT scanlines toggle · RIGHT: sync status.
@@ -15,6 +16,16 @@ export function UtilityBar({
   onToggleCrt: () => void;
 }) {
   const [time, setTime] = useState(utcNow);
+  const { dash, live } = useLedger();
+  // Live sync state from /api/dashboard — fixture mode reports SYNCED.
+  const syncing = live && dash.sync.status === 'syncing';
+  const syncLabel = syncing
+    ? `SYNCING ${Math.round((dash.sync.progress ?? 0) * 100)}%`
+    : live && dash.sync.status === 'revoked'
+      ? 'GITHUB REVOKED'
+      : live && dash.sync.status === 'error'
+        ? 'SYNC ERROR'
+        : 'ALL OBS. SYNCED';
 
   useEffect(() => {
     const id = setInterval(() => setTime(utcNow()), 1000);
@@ -46,8 +57,8 @@ export function UtilityBar({
 
         {/* RIGHT — sync status */}
         <span className="flex items-center gap-1.5 text-neutral-500 whitespace-nowrap">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#d6ff3e] pulse-dot" />
-          ALL OBS. SYNCED
+          <span className={`inline-block w-1.5 h-1.5 rounded-full pulse-dot ${syncing ? 'bg-amber-400' : 'bg-[#d6ff3e]'}`} />
+          {syncLabel}
         </span>
       </div>
     </div>

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import type { Period, ArchiveTab } from '../types';
-import { MIGRATION_CARDS } from '../store/metricsData';
-import { DASHBOARD, ARCHIVE_RANGE } from '../ledgerData';
+import { useLedger } from '../store/live';
 import { useShapeDerived, Strata, Lifecycle, Fingerprint, WorkSpan } from '../retained/WorkShape';
 import { useBootTransition } from '../transitions/BootLog';
 
@@ -17,6 +16,10 @@ const ARCHIVE_TABS: ArchiveTab[] = [
   'F · 05 SPAN',
 ];
 
+const MYY = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+const monthLabel = (ym: string) =>
+  `${MYY[parseInt(ym.slice(5, 7), 10) - 1]} ${ym.slice(0, 4)}`;
+
 export function Section04Archive({ period }: Props) {
   const [activeTab, setActiveTab] = useState<ArchiveTab>('F · 01 FINGERPRINT');
   const { firing, fire, overlay } = useBootTransition();
@@ -24,8 +27,18 @@ export function Section04Archive({ period }: Props) {
   const [hoverM, setHoverM] = useState<number | null>(null);
   const [repoFocus, setRepoFocus] = useState<string | null>(null);
   const [langFocus, setLangFocus] = useState<string | null>(null);
-  const derived = useShapeDerived(DASHBOARD, ARCHIVE_RANGE);
+  // The archive is an all-time view — it consumes the unscoped payload over
+  // the full observed span regardless of the global period pill.
+  const { all, allFromIso, endIso } = useLedger();
+  const derived = useShapeDerived(all, { mode: 'all', from: allFromIso, to: endIso });
   const rangeLabel = `PERIOD · ${period}`;
+  // Dominant-repo migration runs, live from repoMonthly (fixture fallback
+  // reproduces the previous MIGRATION_CARDS content).
+  const migrations = (derived?.runs ?? []).map((r: any) => ({
+    name: r.name,
+    duration: `${r.months} MO`,
+    span: r.from === r.to ? monthLabel(r.from) : `${monthLabel(r.from)} — ${monthLabel(r.to)}`,
+  }));
 
   return (
     <section id="section-04" className="relative scroll-mt-28 space-y-10">
@@ -39,7 +52,7 @@ export function Section04Archive({ period }: Props) {
         </div>
         <div className="flex flex-col items-end gap-2.5">
           <div className="text-[11px] mono-tag text-neutral-400">
-            ARCHIVAL RECORD · JAN 2024 — SEP 2026
+            ARCHIVAL RECORD · {monthLabel(allFromIso)} — {monthLabel(endIso)}
           </div>
         </div>
       </div>
@@ -129,12 +142,17 @@ export function Section04Archive({ period }: Props) {
         <div className="space-y-6">
           <div className="flex items-center justify-between text-[10px] mono-tag text-neutral-400">
             <span>WORK MIGRATION — DOMINANT REPOSITORY PER MONTH, IN SEQUENCE</span>
-            <span className="text-neutral-500">4 TRANSITIONS · F · 04</span>
+            <span className="text-neutral-500">{migrations.length} TRANSITIONS · F · 04</span>
           </div>
 
           <div className="bg-black/40 border border-neutral-900 p-6 md:p-8 space-y-8">
+            {migrations.length === 0 ? (
+              <div className="text-[9px] mono-tag text-neutral-600">
+                INSUFFICIENT STORED HISTORY — MIGRATION RESOLVES ONCE COMMIT DATA EXISTS
+              </div>
+            ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {MIGRATION_CARDS.map((card, i) => (
+              {migrations.map((card, i) => (
                 <div
                   key={i}
                   className="border border-neutral-900 bg-neutral-950/60 p-6 space-y-2 hover:border-[#d6ff3e]/50 transition-colors"
@@ -149,6 +167,7 @@ export function Section04Archive({ period }: Props) {
                 </div>
               ))}
             </div>
+            )}
 
             <div className="pt-4 border-t border-neutral-900 text-[9px] mono-tag text-neutral-500">
               SHARED = SECOND REPOSITORY ≥ 30% OF THE MONTH'S COMMITS

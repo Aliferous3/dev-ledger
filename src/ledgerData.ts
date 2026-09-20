@@ -212,11 +212,15 @@ export const DASHBOARD = {
 };
 
 const FIELD_END = '2026-09-20';
-const FIELD_START = '2025-09-21';
 
-// ZIP period label → a makeRange()-shaped range over the fixture window.
-export function periodToRange(period: Period): { mode: string; from: string | null; to: string | null } {
-  const end = FIELD_END;
+// ZIP period label → a makeRange()-shaped range. `endIso` defaults to the
+// fixture window edge; live data passes the real last-observed day.
+export function periodToRange(
+  period: Period,
+  endIso: string = FIELD_END,
+  allFromIso: string = OBS_START,
+): { mode: string; from: string | null; to: string | null } {
+  const end = endIso;
   const shift = (days: number) => {
     const d = new Date(end + 'T00:00:00Z');
     d.setUTCDate(d.getUTCDate() - days);
@@ -226,10 +230,10 @@ export function periodToRange(period: Period): { mode: string; from: string | nu
     case '7D': return { mode: '7d', from: shift(6), to: end };
     case '30D': return { mode: '30d', from: shift(29), to: end };
     case '90D': return { mode: '90d', from: shift(89), to: end };
-    case 'YTD': return { mode: 'ytd', from: '2026-01-01', to: end };
-    case 'ALL': return { mode: 'all', from: OBS_START, to: OBS_END };
+    case 'YTD': return { mode: 'ytd', from: `${end.slice(0, 4)}-01-01`, to: end };
+    case 'ALL': return { mode: 'all', from: allFromIso, to: end };
     case '1Y':
-    default: return { mode: '1y', from: FIELD_START, to: end };
+    default: return { mode: '1y', from: shift(364), to: end };
   }
 }
 

@@ -1,4 +1,4 @@
-import { RHYTHM_HIGHLIGHTS } from '../activityData';
+import type { RhythmBundle } from '../store/live';
 
 /* Page header — Attachment 2 composition (lime eyebrow, serif title, mono
    sub, divider) with the DIAL FOCUS readout bound to the shared radar
@@ -6,11 +6,13 @@ import { RHYTHM_HIGHLIGHTS } from '../activityData';
 export function ActivityHeader({
   activeHour,
   totalCommits,
+  rhythm,
 }: {
   activeHour: number;
   totalCommits: number;
+  rhythm: RhythmBundle;
 }) {
-  const [pwStart, pwEnd] = RHYTHM_HIGHLIGHTS.peakWindow.split('–').map((s) => parseInt(s, 10));
+  const [pwStart, pwEnd] = rhythm.highlights.peakWindow.split('–').map((s) => parseInt(s, 10));
   const inPeak = activeHour >= pwStart && activeHour <= pwEnd;
 
   return (
