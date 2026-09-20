@@ -8,7 +8,7 @@ import { LedgerBoxes, BoxReadout, GithubButton, useReveal, usePrefersReducedMoti
    full-viewport page. CTA wires to the real /api/auth/login OAuth flow. */
 const TYPE_LINES = ['> ledger --init', '// commits become chronology', '// chronology becomes a body of work', '> connect github --live'];
 
-export function LoginScreen() {
+export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
   const [hovered, setHovered] = useState<GridCell | null>(null);
   const [typed, setTyped] = useState(0);
   const ref = useReveal<HTMLDivElement>();
@@ -24,7 +24,7 @@ export function LoginScreen() {
   const shown = reduced ? full : full.slice(0, typed);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-neutral-100 px-3 sm:px-5 lg:px-6 py-4 sm:py-6">
+    <div className="login-scale min-h-screen bg-[#0a0a0a] text-neutral-100 px-3 sm:px-5 lg:px-6 py-4 sm:py-6">
       {/* faint phosphor atmosphere bleeding into the black grid — restrained */}
       <div
         aria-hidden
@@ -76,7 +76,7 @@ export function LoginScreen() {
                 className="font-mono whitespace-nowrap max-md:whitespace-normal"
                 style={{ fontSize: 'clamp(11px, 1.7cqw, 22px)', letterSpacing: '-0.1em' }}
               >
-                <span className="hl">FROM YOUR FIRST COMMIT TO YOUR LATEST. TRACE WHAT YOU BUILT, WHEN YOU BUILT IT, AND HOW YOUR WORK CHANGED ALONG THE WAY.</span>
+                FROM YOUR FIRST COMMIT TO YOUR LATEST. TRACE WHAT YOU BUILT, WHEN YOU BUILT IT, AND HOW YOUR WORK CHANGED ALONG THE WAY.
               </p>
             </div>
 
@@ -94,7 +94,7 @@ export function LoginScreen() {
 
             <div className="grid md:grid-cols-[1fr_auto] gap-6 items-end">
               <pre className="font-mono text-[12px] leading-6 text-neutral-400 whitespace-pre-wrap min-h-[96px]">{shown}<span className="type-caret text-[#d6ff3e]">▌</span></pre>
-              <GithubButton />
+              <GithubButton onLogin={onLogin} />
             </div>
           </div>
         </div>
