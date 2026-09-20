@@ -56,7 +56,7 @@ export function LoginScreen() {
         <div className="relative p-6 md:p-10">
           <div className="absolute inset-0 terminal-grid-fine opacity-50 pointer-events-none" />
 
-          <div className="relative mx-auto w-full max-w-[1100px] space-y-8">
+          <div className="relative mx-auto w-full max-w-[1500px] space-y-8">
             <div className="relative text-center">
               <div className="mono-tag text-[10px] text-[#d6ff3e]">BODY OF WORK — THE DEVELOPER'S RECORD</div>
               <h1 className="font-editorial font-light text-[clamp(2.8rem,7vw,5.5rem)] leading-none mt-3">DEV LEDGER</h1>
@@ -64,7 +64,7 @@ export function LoginScreen() {
             </div>
 
             <div className="relative overflow-hidden">
-              <p className="mb-3 whitespace-nowrap font-mono text-[22px] tracking-[0.12em] text-neutral-500">
+              <p className="mb-3 whitespace-nowrap font-mono text-[22px] tracking-[0.035em] text-neutral-500">
                 FROM YOUR FIRST COMMIT TO YOUR LATEST. TRACE WHAT YOU BUILT, WHEN YOU BUILT IT, AND HOW YOUR WORK CHANGED ALONG THE WAY.
               </p>
             </div>
