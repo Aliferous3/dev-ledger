@@ -11,6 +11,7 @@ export default async function handler(req, res) {
   url.searchParams.set('client_id', github.clientId)
   url.searchParams.set('redirect_uri', redirectUri)
   url.searchParams.set('state', state)
+  url.searchParams.set('prompt', 'select_account')
   res.writeHead(302, { Location: url.toString() })
   res.end()
 }

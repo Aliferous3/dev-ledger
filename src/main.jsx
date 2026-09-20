@@ -10,6 +10,11 @@ import { Term } from './TermTooltip'
 import { makeRange, rangeQuery, rangeDays, readInitialRange, readStoredRange, rangeFromSearch, makeCompareRange, DEFAULT_RANGE_MODE } from './range'
 import { useReducedMotion } from './motion'
 import { Curtain, useCurtainTransition } from './CurtainTransition'
+import { initSmoothScroll, destroySmoothScroll, scrollToTop } from './scroll'
+import Login from './Login'
+import { TerminalButton, TerminalIconButton } from './TerminalButton'
+import SyncInstrument from './SyncInstrument'
+import 'lenis/dist/lenis.css'
 import './index.css'
 
 const nav = ['overview', 'projects', 'activity', 'code']
@@ -58,6 +63,16 @@ function App() {
     view, target, requestView, transitioning, phase,
     direction: curtainDir, onCovered, onRevealed,
   } = useCurtainTransition({ views: nav, initial: 'overview' })
+
+  // One inertial scroll engine for the whole app — no-op under reduced
+  // motion or on coarse-pointer devices, where native scrolling stays.
+  useEffect(() => {
+    initSmoothScroll()
+    return () => destroySmoothScroll()
+  }, [])
+
+  // Primary tab navigation lands at the top of the new view.
+  useEffect(() => { scrollToTop(true) }, [view])
 
   useEffect(() => { rangeRef.current = range }, [range])
   useEffect(() => {
@@ -256,10 +271,10 @@ function App() {
   const heatmapWeeks = useMemo(() => buildHeatmap(daily, heatmapCount, heatmapEnd), [daily, heatmapCount, heatmapEnd])
 
   if (me === undefined) {
-    return <div className='min-h-screen bg-[#0a0a0a]' />
+    return <div className='min-h-screen bg-[var(--app-bg)]' />
   }
   if (me === null) {
-    return <Landing onStart={() => (window.location.href = '/api/auth/login')} />
+    return <Login />
   }
 
   const syncing = sync && SYNCING.has(sync.status)
@@ -309,11 +324,11 @@ function App() {
   const statusColor = { ready: '#34d399', loading: '#60a5fa', error: '#f87171', stale: '#fbbf24' }
 
   return (
-    <div className='min-h-screen bg-[#0a0a0a] text-zinc-400 antialiased selection:bg-zinc-100 selection:text-black'>
+    <div className='min-h-screen bg-[var(--app-bg)] text-zinc-400 antialiased selection:bg-zinc-100 selection:text-black'>
       <div className='mx-auto max-w-[1480px] px-6 lg:px-12 xl:px-16'>
-        <header ref={headerRef} className='relative z-[100] bg-[#0a0a0a] pt-10 lg:pt-12'>
+        <header ref={headerRef} className='relative z-[100] bg-[var(--app-bg)] pt-10 lg:pt-12'>
           <div className='flex flex-col lg:flex-row lg:items-baseline gap-6 lg:gap-10'>
-            <div className='text-[28px] lg:text-[34px] font-light leading-none tracking-[-0.02em] text-zinc-100 figure' style={{ fontFamily: "'Iowan Old Style','Palatino Linotype','Georgia',serif" }}>work</div>
+            <div className='whitespace-nowrap text-[28px] lg:text-[34px] font-light leading-none tracking-[-0.02em] text-zinc-100 figure' style={{ fontFamily: "'Iowan Old Style','Palatino Linotype','Georgia',serif" }}>Dev Ledger</div>
             <nav className='flex flex-wrap gap-7'>
               {nav.map((id) => (
                 <button
@@ -366,11 +381,11 @@ function App() {
                   <span className='text-zinc-800 normal-case tracking-[0.08em]'>{s.text}</span>
                 </Term>
               ))}
-              <button
+              <TerminalIconButton
                 onClick={refresh}
                 disabled={refreshing}
-                className='group text-zinc-700 hover:text-zinc-400 transition-colors disabled:opacity-40'
-                title='Sync with GitHub'
+                label='Sync with GitHub'
+                className='w-auto h-auto'
               >
                 <AnimatePresence mode='wait'>
                   <motion.div
@@ -400,8 +415,16 @@ function App() {
                     />
                   </motion.div>
                 </AnimatePresence>
-              </button>
+              </TerminalIconButton>
               <AccountMenu me={me} onSettings={() => setSettingsOpen(true)} onRefresh={refresh} />
+              <a
+                href='https://github.com/Aliferous3'
+                target='_blank'
+                rel='noopener noreferrer'
+                className='text-[9.5px] uppercase tracking-[0.2em] text-zinc-800 transition-colors hover:text-zinc-500'
+              >
+                DEVELOPED BY NOAMAN ALI ↗
+              </a>
             </div>
           </div>
           <div className='mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3'>
@@ -453,6 +476,7 @@ function App() {
             </>
           )}
         </main>
+        <SyncInstrument sync={sync} />
       </div>
     </div>
   )
@@ -496,23 +520,23 @@ function AccountMenu({ me, onSettings, onRefresh }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
-            className='absolute right-0 top-full mt-3 w-56 bg-[#0c0c0c] border border-zinc-800 shadow-2xl z-50'
+            className='absolute right-0 top-full mt-3 w-56 bg-[var(--app-bg)] border border-zinc-800 shadow-2xl z-50'
           >
             <div className='px-4 py-3 border-b border-zinc-900 text-[9px] uppercase tracking-[0.22em] text-zinc-700'>Signed in as @{login}</div>
-            <button className={itemCls} onClick={() => { setOpen(false); onSettings() }}>Manage repositories</button>
-            <button className={itemCls} onClick={() => { setOpen(false); onRefresh() }}>Refresh GitHub</button>
-            <a className={itemCls} href='/api/auth/logout'>Sign out</a>
+            <button className={itemCls} onClick={() => { setOpen(false); onSettings() }}><span className='mr-2 text-zinc-700' aria-hidden='true'>&gt;</span>Manage repositories</button>
+            <button className={itemCls} onClick={() => { setOpen(false); onRefresh() }}><span className='mr-2 text-zinc-700' aria-hidden='true'>&gt;</span>Refresh GitHub</button>
+            <a className={itemCls} href='/api/auth/logout'><span className='mr-2 text-zinc-700' aria-hidden='true'>&gt;</span>Sign out</a>
             <div className='border-t border-zinc-900'>
               {confirmDelete ? (
                 <div className='px-4 py-3'>
                   <div className='text-[9px] uppercase tracking-[0.18em] text-red-400/90'>Delete all Dev Ledger data?</div>
-                  <div className='mt-2 flex gap-3'>
-                    <button onClick={deleteData} className='text-[9px] uppercase tracking-[0.18em] text-red-300 hover:text-red-200'>Confirm</button>
-                    <button onClick={() => setConfirmDelete(false)} className='text-[9px] uppercase tracking-[0.18em] text-zinc-600 hover:text-zinc-400'>Cancel</button>
+                  <div className='mt-3 flex gap-2.5'>
+                    <TerminalButton variant='danger' compact cursor='none' onClick={deleteData}>confirm</TerminalButton>
+                    <TerminalButton variant='secondary' compact cursor='none' onClick={() => setConfirmDelete(false)}>cancel</TerminalButton>
                   </div>
                 </div>
               ) : (
-                <button className={`${itemCls} text-red-500/70 hover:text-red-400`} onClick={() => setConfirmDelete(true)}>Delete my data</button>
+                <button className={`${itemCls} text-red-500/70 hover:text-red-400`} onClick={() => setConfirmDelete(true)}><span className='mr-2 text-red-500/50' aria-hidden='true'>!</span>Delete my data</button>
               )}
             </div>
           </motion.div>
@@ -529,10 +553,9 @@ function RevokedBanner() {
         <div className='text-[10px] uppercase tracking-[0.24em] text-zinc-500'>GitHub access revoked</div>
         <div className='mt-2 text-[13px] text-zinc-400'>Dev Ledger can no longer reach your GitHub data. Historical analytics remain until you delete your account.</div>
       </div>
-      <a href='/api/auth/login' className='inline-flex items-center gap-2 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-zinc-900 bg-zinc-100 hover:bg-white transition-colors self-start'>
-        <Icon icon='octicon:mark-github-16' className='h-4 w-4' />
-        Reconnect GitHub
-      </a>
+      <TerminalButton variant='primary' href='/api/auth/login' icon='octicon:mark-github-16' className='self-start'>
+        reconnect github
+      </TerminalButton>
     </div>
   )
 }
@@ -545,10 +568,9 @@ function InstallBanner({ appSlug }) {
         <div className='text-[10px] uppercase tracking-[0.24em] text-zinc-500'>Connect repositories</div>
         <div className='mt-2 text-[13px] text-zinc-400'>Authorize Dev Ledger on GitHub — all repositories or a selected set. Read-only.</div>
       </div>
-      <a href={href} className='inline-flex items-center gap-2 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-zinc-900 bg-zinc-100 hover:bg-white transition-colors self-start'>
-        <Icon icon='octicon:mark-github-16' className='h-4 w-4' />
-        Authorize on GitHub
-      </a>
+      <TerminalButton variant='primary' href={href} icon='octicon:mark-github-16' className='self-start'>
+        authorize on github
+      </TerminalButton>
     </div>
   )
 }
@@ -596,14 +618,15 @@ function CoverageNotice({ coverage, empty, onSync, syncing, outside }) {
         )}
       </div>
       {(showSyncButton || showCheckButton) && (
-        <button
+        <TerminalButton
+          variant='secondary'
           onClick={onSync}
+          loading={syncing}
+          loadingLabel='syncing'
           disabled={syncing}
-          className='inline-flex items-center gap-2 border border-zinc-800 px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-colors disabled:opacity-40'
         >
-          <Icon icon={syncing ? 'ph:spinner' : 'ph:arrows-clockwise'} className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? 'Syncing' : showCheckButton ? 'Check outside repositories' : 'Sync this range'}
-        </button>
+          {showCheckButton ? 'check outside repositories' : 'sync this range'}
+        </TerminalButton>
       )}
     </div>
   )
@@ -619,20 +642,19 @@ function Settings({ me, dash, onClose }) {
           <div className='label-s'>Repositories</div>
           <div className='mt-2 text-[11px] uppercase tracking-[0.22em] text-zinc-600'>GitHub-authorized access · managed on GitHub</div>
         </div>
-        <button onClick={onClose} className='text-[10px] uppercase tracking-[0.2em] text-zinc-600 hover:text-zinc-300 transition-colors'>← Back</button>
+        <TerminalButton variant='secondary' compact cursor='none' onClick={onClose}>back</TerminalButton>
       </div>
 
       <div className='mt-8 flex flex-wrap gap-3'>
         {installs.map((i) => (
-          <a key={i.id} href={i.url} target='_blank' rel='noreferrer' className='inline-flex items-center gap-2 border border-zinc-800 px-4 py-2.5 text-[10px] uppercase tracking-[0.18em] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-colors'>
-            <Icon icon='octicon:gear-16' className='h-3.5 w-3.5' />
-            {i.account ? `Edit access · ${i.account}` : 'Edit access on GitHub'}
-          </a>
+          <TerminalButton key={i.id} variant='secondary' href={i.url} target='_blank' rel='noreferrer' icon='octicon:gear-16' cursor='none'>
+            {i.account ? `edit access · ${i.account}` : 'edit access on github'}
+          </TerminalButton>
         ))}
         {!installs.length && me?.appSlug && (
-          <a href={`https://github.com/apps/${me.appSlug}/installations/new`} target='_blank' rel='noreferrer' className='inline-flex items-center gap-2 border border-zinc-800 px-4 py-2.5 text-[10px] uppercase tracking-[0.18em] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-colors'>
-            Install on GitHub
-          </a>
+          <TerminalButton variant='secondary' href={`https://github.com/apps/${me.appSlug}/installations/new`} target='_blank' rel='noreferrer' cursor='none'>
+            install on github
+          </TerminalButton>
         )}
       </div>
 
@@ -659,31 +681,5 @@ function Settings({ me, dash, onClose }) {
   )
 }
 
-
-function Landing({ onStart }) {
-  return (
-    <div className='min-h-screen bg-[#0a0a0a] text-zinc-400 antialiased selection:bg-zinc-100 selection:text-black flex items-center justify-center px-6'>
-      <div className='max-w-md text-center'>
-        <div className='text-[12px] uppercase tracking-[0.3em] text-zinc-600 mb-6'>work</div>
-        <h1 className='text-[38px] lg:text-[48px] font-light leading-[0.95] tracking-[-0.03em] text-zinc-100 figure'>BODY OF WORK</h1>
-        <p className='mt-6 text-[13px] leading-relaxed tracking-[-0.01em] text-zinc-500'>
-          Your GitHub history, made legible.
-        </p>
-        <div className='mt-10'>
-          <button
-            onClick={onStart}
-            className='inline-flex items-center gap-2.5 px-5 py-3 text-[11px] uppercase tracking-[0.2em] text-zinc-900 bg-zinc-100 hover:bg-white transition-colors'
-          >
-            <Icon icon='octicon:mark-github-16' className='h-4 w-4' />
-            Continue with GitHub
-          </button>
-        </div>
-        <div className='mt-12 text-[10px] uppercase tracking-[0.26em] text-zinc-700 leading-loose'>
-          Commits. Projects. Languages. Momentum.<br />One continuous record.
-        </div>
-      </div>
-    </div>
-  )
-}
 
 createRoot(document.getElementById('root')).render(<App />)

@@ -169,7 +169,7 @@ export function ContributionField({ weeks, title, sub, gutter = false }) {
       <AnimatePresence>
         {hover && (
           <motion.div
-            className='fixed z-50 border border-zinc-800 bg-[#0a0a0a] p-3 shadow-sm pointer-events-none'
+            className='fixed z-50 border border-zinc-800 bg-[var(--app-bg)] p-3 shadow-sm pointer-events-none'
             style={tooltipStyle}
             initial={{ opacity: 0, y: 4, filter: 'blur(2px)' }}
             animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}

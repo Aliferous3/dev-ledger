@@ -13,7 +13,7 @@ function Tooltip({ id, term, definition, formula, note, style }) {
     <motion.div
       id={id}
       role='tooltip'
-      className='fixed z-[9999] border border-zinc-800 bg-[#0a0a0a] px-4 py-3 shadow-sm text-left'
+      className='fixed z-[9999] border border-zinc-800 bg-[var(--app-bg)] px-4 py-3 shadow-sm text-left'
       style={{ ...style, maxWidth: MAX_W, width: 'max-content' }}
       initial={{ opacity: 0, y: 4, filter: 'blur(2px)' }}
       animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}

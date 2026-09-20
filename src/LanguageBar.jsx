@@ -36,7 +36,7 @@ export function LanguageBar({ languages, onHover, activeLang }) {
         return (
           <motion.div
             key={l.language}
-            className='group relative flex items-end overflow-hidden border-r border-[#0a0a0a] last:border-r-0'
+            className='group relative flex items-end overflow-hidden border-r border-[#131413] last:border-r-0'
             initial={{ width: 0 }}
             animate={{ width: `${pct}%` }}
             onMouseEnter={() => onHover?.(l.language)}
