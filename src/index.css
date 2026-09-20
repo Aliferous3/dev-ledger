@@ -1,46 +1,169 @@
 @import "tailwindcss";
 
-:root {
-  --bg: #0a0a0a;
-  --panel: #0d0d0d;
-  --line: #1c1c1c;
-  --line-strong: #2c2c2c;
-  --ink: #f5f5f5;
-  --ink-muted: #666666;
-  --ink-dim: #444444;
-  --accent: #d6ff3e;
-  --accent-rgb: 214, 255, 62;
+@theme {
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-serif: 'Newsreader', 'Instrument Serif', Georgia, serif;
+  --color-accent: #d6ff3e;
+  --color-terminal-bg: #0a0a0a;
 }
 
-html {
-  background-color: #0a0a0a;
+html, body, #root {
+  background: #0a0a0a;
   color: #f5f5f5;
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   font-feature-settings: 'tnum' 1, 'zero' 1;
   -webkit-font-smoothing: antialiased;
-  scroll-behavior: smooth;
 }
 
-body {
-  overflow-x: hidden;
-  background-color: #0a0a0a;
+.font-editorial {
+  font-family: 'Newsreader', 'Instrument Serif', Georgia, serif;
+  font-feature-settings: 'cv01', 'cv02';
 }
 
-/* Typography styles */
-.font-mono-tag {
-  font-family: 'JetBrains Mono', monospace;
-  letter-spacing: 0.16em;
+/* Subtle scanline grid background */
+.terminal-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* Monospace uppercase tags */
+.mono-tag {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  font-size: 11px;
 }
 
-.serif-hero {
-  font-family: 'Newsreader', 'EB Garamond', 'Instrument Serif', Georgia, serif;
-  font-weight: 400;
-  letter-spacing: -0.02em;
+/* Tab underline */
+.tab-underline {
+  position: relative;
+  transition: color 200ms ease;
+}
+.tab-underline::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -9px;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 300ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.tab-underline:hover::after,
+.tab-underline.active::after {
+  transform: scaleX(1);
 }
 
-/* Scanline overlay */
+/* Marquee track */
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.marquee-track {
+  animation: marquee 24s linear infinite;
+}
+.marquee-track:hover {
+  animation-play-state: paused;
+}
+
+/* Blinking cursor */
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.cursor-blink {
+  animation: blink 1.05s step-end infinite;
+}
+
+/* Pulse dot */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.35); box-shadow: 0 0 8px rgba(214, 255, 62, 0.6); }
+}
+.pulse-dot {
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+/* CRT sweep */
+@keyframes sweep {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(400%); }
+}
+.scan-line-vert {
+  animation: sweep 4s ease-in-out infinite;
+}
+
+@keyframes sweep-h {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(500%); }
+}
+.scan-line-horiz {
+  animation: sweep-h 3.6s ease-in-out infinite;
+}
+
+/* Glow effects */
+.glow-lime {
+  text-shadow: 0 0 10px rgba(214, 255, 62, 0.65);
+}
+.box-glow-lime {
+  box-shadow: 0 0 16px rgba(214, 255, 62, 0.25), inset 0 0 0 1px rgba(214, 255, 62, 0.4);
+}
+
+/* Tooltip arrow */
+.tooltip-arrow::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 8px;
+  height: 8px;
+  background: #d6ff3e;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+::-webkit-scrollbar-thumb {
+  background: #222;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #333;
+}
+
+/* ------------------------------------------------------------------ */
+/* Retained Dev Ledger elements — existing ticker + Quiet Instrument   */
+/* typography for the preserved figures/lanes.                          */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --app-bg: #0a0a0a;
+}
+
+/* Existing moving telemetry ticker — canonical marquee (28s, hover-pause) */
+@keyframes marquee-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-ticker {
+  display: flex;
+  width: max-content;
+  animation: marquee-scroll 28s linear infinite;
+}
+.animate-ticker:hover {
+  animation-play-state: paused;
+}
+
+/* CRT scanline overlay (toggled by the utility bar) */
 .scanlines-overlay {
   background: linear-gradient(
     rgba(18, 16, 16, 0) 50%,
@@ -49,170 +172,37 @@ body {
   background-size: 100% 4px;
   pointer-events: none;
 }
-
-/* CRT monitor subtle border vignette */
 .crt-vignette {
   box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.7);
 }
 
-/* Marquee Ticker Track */
-@keyframes marquee-scroll {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+/* Quiet Instrument typography used by retained components */
+.figure {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  font-family: 'Newsreader', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
 }
-
-.animate-ticker {
-  display: flex;
-  width: max-content;
-  animation: marquee-scroll 28s linear infinite;
+.label-s {
+  font-size: 9.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  color: #52525b;
 }
+.mono { font-family: 'JetBrains Mono', 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace; }
 
-.animate-ticker:hover {
-  animation-play-state: paused;
-}
-
-/* Cursor blink */
-@keyframes terminal-blink {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
-}
-
-.terminal-cursor {
-  animation: terminal-blink 1s step-end infinite;
-}
-
-/* Pulsing dot */
-@keyframes pulse-lime {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.6;
-    box-shadow: 0 0 0 0 rgba(214, 255, 62, 0.7);
-  }
-  50% {
-    transform: scale(1.3);
-    opacity: 1;
-    box-shadow: 0 0 10px 2px rgba(214, 255, 62, 0.9);
+/* Reduced motion — flatten animation for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
-.lime-pulse {
-  animation: pulse-lime 1.8s infinite ease-in-out;
-}
-
-/* Glowing text and borders */
-.glow-lime-text {
-  text-shadow: 0 0 12px rgba(214, 255, 62, 0.6);
-}
-
-.glow-lime-border {
-  box-shadow: 0 0 14px rgba(214, 255, 62, 0.35);
-}
-
-/* Period Button */
-.terminal-period-btn {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 0.15em;
-  padding: 3px 7px;
-  border: 1px solid #222222;
-  color: #666666;
-  background: transparent;
-  transition: all 180ms ease;
-  cursor: pointer;
-  text-transform: uppercase;
-}
-
-.terminal-period-btn:hover {
-  color: #f5f5f5;
-  border-color: #555555;
-  background: #141414;
-}
-
-.terminal-period-btn.active {
-  background: #f5f5f5;
-  color: #0a0a0a;
-  border-color: #f5f5f5;
-  font-weight: 600;
-}
-
-/* Tab Underline for Navigation */
-.terminal-tab-btn {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: #666666;
-  position: relative;
-  padding-bottom: 6px;
-  transition: color 220ms ease;
-  cursor: pointer;
-}
-
-.terminal-tab-btn:hover {
-  color: #cccccc;
-}
-
-.terminal-tab-btn.active {
-  color: #f5f5f5;
-}
-
-.terminal-tab-btn.active::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 1.5px;
-  background-color: #f5f5f5;
-}
-
-.terminal-tab-btn.active-lime {
-  color: #d6ff3e;
-}
-
-.terminal-tab-btn.active-lime::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 1.5px;
-  background-color: #d6ff3e;
-  box-shadow: 0 0 8px #d6ff3e;
-}
-
-/* Interactive cell transition */
-.grid-cell {
-  transition: transform 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
-}
-
-.grid-cell:hover {
-  transform: scale(1.4);
-  z-index: 10;
-}
-
-/* Radar rotation */
-@keyframes radar-sweep {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.radar-sweep-arm {
-  transform-origin: center;
-  animation: radar-sweep 12s linear infinite;
-}
-
-/* Hide scrollbars */
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-::-webkit-scrollbar-track {
-  background: #0a0a0a;
-}
-::-webkit-scrollbar-thumb {
-  background: #222222;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #333333;
+/* Mobile: retained 12-col figure grids stack vertically below md — zero the
+   column gaps so the fixed gap total can't push past the viewport. */
+@media (max-width: 767px) {
+  #section-04 .grid-cols-12 { column-gap: 0; }
 }
