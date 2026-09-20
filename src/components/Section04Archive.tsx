@@ -3,6 +3,7 @@ import type { Period, ArchiveTab } from '../types';
 import { MIGRATION_CARDS } from '../store/metricsData';
 import { DASHBOARD, ARCHIVE_RANGE } from '../ledgerData';
 import { useShapeDerived, Strata, Lifecycle, Fingerprint, WorkSpan } from '../retained/WorkShape';
+import { useBootTransition } from '../transitions/BootLog';
 
 interface Props {
   period: Period;
@@ -19,6 +20,7 @@ const ARCHIVE_TABS: ArchiveTab[] = [
 
 export function Section04Archive({ period, setPeriod }: Props) {
   const [activeTab, setActiveTab] = useState<ArchiveTab>('F · 01 FINGERPRINT');
+  const { firing, fire, overlay } = useBootTransition();
   // Interaction state shared by the retained figures (hover month / repo focus)
   const [hoverM, setHoverM] = useState<number | null>(null);
   const [repoFocus, setRepoFocus] = useState<string | null>(null);
@@ -72,7 +74,7 @@ export function Section04Archive({ period, setPeriod }: Props) {
             return (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab)}
+                onClick={() => { if (!firing && tab !== activeTab) fire(tab, () => setActiveTab(tab)); }}
                 className={`tab-underline py-1 transition-colors duration-200 ${
                   active
                     ? 'active text-neutral-100 font-semibold'
@@ -186,6 +188,7 @@ export function Section04Archive({ period, setPeriod }: Props) {
           )}
         </div>
       )}
+      {overlay}
     </section>
   );
 }

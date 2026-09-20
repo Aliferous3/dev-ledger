@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useBootTransition } from '../transitions/BootLog';
 
 const SECTIONS = [
   { id: 'section-01', label: '01 MEASURE' },
@@ -9,6 +10,7 @@ const SECTIONS = [
 
 export function RightSidebarNav() {
   const [active, setActive] = useState('section-01');
+  const { firing, fire, overlay } = useBootTransition();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -25,11 +27,11 @@ export function RightSidebarNav() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const scrollTo = (id: string) => {
+  const scrollTo = (id: string, label: string) => {
     const el = document.getElementById(id);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
+    if (!el) return;
+    // Boot Log covers the swap, then reveals the destination section.
+    fire(label, () => el.scrollIntoView({ behavior: 'instant' as ScrollBehavior }));
   };
 
   return (
@@ -43,7 +45,7 @@ export function RightSidebarNav() {
         return (
           <button
             key={sec.id}
-            onClick={() => scrollTo(sec.id)}
+            onClick={() => !firing && scrollTo(sec.id, sec.label)}
             className={`group flex items-center gap-2 py-1 transition-all duration-200 ${
               isActive
                 ? 'text-[#d6ff3e] font-medium'
@@ -59,6 +61,7 @@ export function RightSidebarNav() {
           </button>
         );
       })}
+      {overlay}
     </aside>
   );
 }

@@ -286,6 +286,18 @@ html, body, #root {
   transform: translateY(-3px);
 }
 
+/* Canonical text highlight — dark translucent olive backing, bright
+   foreground, tight rectangular fit (Screenshot 1 reference). */
+.hl {
+  background: rgba(214, 255, 62, 0.16);
+  color: #eef7cf;
+  padding: 0.02em 0.14em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+::selection { background: rgba(214, 255, 62, 0.22); color: #f8ffdd; }
+
 /* Reduced motion — flatten animation for accessibility */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

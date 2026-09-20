@@ -25,6 +25,12 @@ export function LoginScreen() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-neutral-100 px-3 sm:px-5 lg:px-6 py-4 sm:py-6">
+      {/* faint phosphor atmosphere bleeding into the black grid — restrained */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0"
+        style={{ background: 'radial-gradient(ellipse 75% 45% at 50% 22%, rgba(214,255,62,0.05), transparent 70%)' }}
+      />
       <div ref={ref} className="reveal relative w-full min-h-[calc(100vh-2rem)] sm:min-h-[calc(100vh-3rem)] border border-neutral-800 bg-black overflow-hidden glow-card">
         {/* window chrome — deliberately full width */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-900 bg-[#0e0e0e]">
@@ -53,7 +59,7 @@ export function LoginScreen() {
         </div>
 
         {/* all login content below the top chrome/ticker lives in one centered container */}
-        <div className="relative p-6 md:p-10">
+        <div className="relative p-6 md:p-10" style={{ containerType: 'inline-size' }}>
           <div className="absolute inset-0 terminal-grid-fine opacity-50 pointer-events-none" />
 
           <div className="relative mx-auto w-full max-w-[1180px] min-w-0 space-y-8">
@@ -63,12 +69,14 @@ export function LoginScreen() {
               <p className="font-editorial italic text-neutral-400 mt-2">Your GitHub history, made legible.</p>
             </div>
 
-            <div className="relative w-full min-w-0" style={{ containerType: 'inline-size' }}>
+            {/* mission line — full content width, 22px single line on desktop,
+                cqw-scaled only on narrow viewports */}
+            <div className="relative min-w-0 w-[100cqw] ml-[calc((100%-100cqw)/2)] text-center">
               <p
-                className="mb-3 w-full whitespace-nowrap font-mono text-neutral-500"
-                style={{ fontSize: 'clamp(9px, 1.25cqw, 22px)', letterSpacing: 0 }}
+                className="font-mono whitespace-nowrap max-md:whitespace-normal"
+                style={{ fontSize: 'clamp(11px, 1.7cqw, 22px)', letterSpacing: '-0.1em' }}
               >
-                FROM YOUR FIRST COMMIT TO YOUR LATEST. TRACE WHAT YOU BUILT, WHEN YOU BUILT IT, AND HOW YOUR WORK CHANGED ALONG THE WAY.
+                <span className="hl">FROM YOUR FIRST COMMIT TO YOUR LATEST. TRACE WHAT YOU BUILT, WHEN YOU BUILT IT, AND HOW YOUR WORK CHANGED ALONG THE WAY.</span>
               </p>
             </div>
 
@@ -78,7 +86,6 @@ export function LoginScreen() {
             </div>
 
             <div className="relative border border-neutral-900 bg-[#0c0c0c]/80 p-4 md:p-6 overflow-hidden">
-              <div className="pointer-events-none absolute inset-0 overflow-hidden"><div className="scan-line-vert absolute left-0 right-0 h-1/4 bg-gradient-to-b from-transparent via-[#d6ff3e]/[0.06] to-transparent" /></div>
               <div className="relative">
                 <LedgerBoxes hovered={hovered} setHovered={setHovered} cell={12} gap={4} />
                 <div className="mt-3"><BoxReadout hovered={hovered} /></div>

@@ -36,3 +36,6 @@ api/qa-session.mjs
 
 # local build cache
 .vite/
+
+.vercel
+.env*
