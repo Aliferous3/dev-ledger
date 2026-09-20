@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App";
 import { LoginScreen } from "./ledger/LoginScreen";
-import { BootLogOverlay } from "./transitions/BootLog";
+import { BootLogOverlay, BootLogPreloader } from "./transitions/BootLog";
 
 type AuthState = "loading" | "out" | "in";
 
@@ -33,15 +33,18 @@ function Gate() {
   }, []);
 
   if (auth === "loading") {
+    return <BootLogPreloader label="auth · checking session" />;
+  }
+  if (auth === "out") {
     return (
-      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
-        <span className="mono-tag text-[10px] text-neutral-600">
-          <span className="text-[#d6ff3e]">●</span> AUTH — CHECKING SESSION
-        </span>
-      </div>
+      <LoginScreen
+        onLogin={import.meta.env.DEV ? () => {
+          setAuth("in");
+          setBooting(true);
+        } : undefined}
+      />
     );
   }
-  if (auth === "out") return <LoginScreen />;
   return (
     <>
       {appMounted && <App />}
