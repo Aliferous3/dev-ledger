@@ -289,14 +289,6 @@ html, body, #root {
 /* Selection highlight only — no permanent background on unselected text. */
 ::selection { background: rgba(214, 255, 62, 0.22); color: #f8ffdd; }
 
-/* Login study scale: render the whole Console Stack 20% smaller while
-   compensating width/height so it still occupies the viewport. */
-.login-scale {
-  zoom: 0.8;
-  width: 125%;
-  min-height: 125vh;
-}
-
 /* Reduced motion — flatten animation for accessibility */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
