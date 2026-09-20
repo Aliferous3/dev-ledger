@@ -31,3 +31,5 @@ dev-ledger-snapshot.json
 .qa/
 .*.mjs
 .qa-cookie*
+.arena/
+api/qa-session.mjs

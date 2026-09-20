@@ -13,6 +13,7 @@ import { Curtain, useCurtainTransition } from './CurtainTransition'
 import { initSmoothScroll, destroySmoothScroll, scrollToTop } from './scroll'
 import Login from './Login'
 import { TerminalButton, TerminalIconButton } from './TerminalButton'
+import SyncInstrument from './SyncInstrument'
 import 'lenis/dist/lenis.css'
 import './index.css'
 
@@ -327,7 +328,7 @@ function App() {
       <div className='mx-auto max-w-[1480px] px-6 lg:px-12 xl:px-16'>
         <header ref={headerRef} className='relative z-[100] bg-[var(--app-bg)] pt-10 lg:pt-12'>
           <div className='flex flex-col lg:flex-row lg:items-baseline gap-6 lg:gap-10'>
-            <div className='text-[28px] lg:text-[34px] font-light leading-none tracking-[-0.02em] text-zinc-100 figure' style={{ fontFamily: "'Iowan Old Style','Palatino Linotype','Georgia',serif" }}>work</div>
+            <div className='whitespace-nowrap text-[28px] lg:text-[34px] font-light leading-none tracking-[-0.02em] text-zinc-100 figure' style={{ fontFamily: "'Iowan Old Style','Palatino Linotype','Georgia',serif" }}>Dev Ledger</div>
             <nav className='flex flex-wrap gap-7'>
               {nav.map((id) => (
                 <button
@@ -416,6 +417,14 @@ function App() {
                 </AnimatePresence>
               </TerminalIconButton>
               <AccountMenu me={me} onSettings={() => setSettingsOpen(true)} onRefresh={refresh} />
+              <a
+                href='https://github.com/Aliferous3'
+                target='_blank'
+                rel='noopener noreferrer'
+                className='text-[9.5px] uppercase tracking-[0.2em] text-zinc-800 transition-colors hover:text-zinc-500'
+              >
+                DEVELOPED BY NOAMAN ALI ↗
+              </a>
             </div>
           </div>
           <div className='mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3'>
@@ -467,6 +476,7 @@ function App() {
             </>
           )}
         </main>
+        <SyncInstrument sync={sync} />
       </div>
     </div>
   )

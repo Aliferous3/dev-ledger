@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 // Covers lifecycle classification, era boundaries, language strata, migration
 // runs, and the fingerprint normalization contract.
 
-const { monthIdx, idxMonth, buildRepoSpans, buildEras, buildLangStrata, buildMigration, buildFingerprint } =
+const { monthIdx, idxMonth, buildRepoSpans, buildLangStrata, buildMigration, buildFingerprint } =
   await import('../src/shape.js')
 
 const REPOS = [
@@ -53,34 +53,6 @@ test('buildRepoSpans: sorted by churn desc, churn = added + deleted', () => {
   )
   assert.equal(spans[0].id, 'r2')
   assert.equal(spans[0].churn, 1000)
-})
-
-test('buildEras: dominant-repo shift that persists opens a new era', () => {
-  const monthly = [
-    M('r1', '2024-01', 10), M('r1', '2024-02', 10), M('r1', '2024-03', 10),
-    M('r2', '2024-04', 10), M('r2', '2024-05', 10),
-  ]
-  const eras = buildEras(monthly, new Map(REPOS.map((r) => [r.id, r])), spanIdx('2024-01', '2024-05'))
-  assert.equal(eras.length, 2)
-  assert.equal(eras[0].dominantRepo, 'alpha')
-  assert.equal(eras[1].dominantRepo, 'beta')
-  assert.equal(eras[0].cls, 'CONCENTRATED') // 100% in one repo
-})
-
-test('buildEras: one-month flare does not end an era', () => {
-  const monthly = [
-    M('r1', '2024-01', 10), M('r1', '2024-02', 10),
-    M('r2', '2024-03', 10), // flare — next month reverts
-    M('r1', '2024-04', 10),
-  ]
-  const eras = buildEras(monthly, new Map(REPOS.map((r) => [r.id, r])), spanIdx('2024-01', '2024-04'))
-  assert.equal(eras.length, 1)
-})
-
-test('buildEras: >=3-month silence splits eras', () => {
-  const monthly = [M('r1', '2024-01', 5), M('r1', '2024-06', 5)]
-  const eras = buildEras(monthly, new Map(REPOS.map((r) => [r.id, r])), spanIdx('2024-01', '2024-06'))
-  assert.equal(eras.length, 2)
 })
 
 test('buildLangStrata: per-month presence share of active repos', () => {

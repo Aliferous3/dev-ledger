@@ -9,7 +9,6 @@ import {
   idxMonth,
   monthName,
   buildRepoSpans,
-  buildEras,
   buildLangStrata,
   buildMigration,
   buildFingerprint,
@@ -28,7 +27,7 @@ const Head = ({ label, coord, right }) => (
     <Lbl>{label}</Lbl>
     <div className='flex items-center gap-5'>
       {right}
-      <Coord>{coord}</Coord>
+      {coord && <Coord>{coord}</Coord>}
     </div>
   </div>
 )
@@ -42,57 +41,10 @@ function arc(cx, cy, r, sweep) {
   return `M ${cx + r * Math.cos(a0)} ${cy + r * Math.sin(a0)} A ${r} ${r} 0 ${sweep > 180 ? 1 : 0} 1 ${cx + r * Math.cos(a1)} ${cy + r * Math.sin(a1)}`
 }
 
-/* ------------------------------ F · 01 ERAS ------------------------------ */
-
-function Eras({ eras, axis, hoverM }) {
-  const total = Math.max(axis.last - axis.first + 1, 1)
-  return (
-    <div>
-      <Head
-        label='Development Eras — segmentation by dominant focus'
-        coord='F · 01'
-        right={<span className='label-s text-zinc-800 hidden md:inline'>{eras.length} ERAS OBSERVED</span>}
-      />
-      <div className='relative mt-8'>
-        {hoverM != null && (
-          <div className='absolute top-0 bottom-0 w-px bg-zinc-500/40 pointer-events-none' style={{ left: `${((hoverM - axis.first) / total) * 100}%` }} />
-        )}
-        <div className='flex border-t border-b border-zinc-900 overflow-x-auto'>
-          {eras.map((e, i) => {
-            // coverage runs to the next era's opening (or the axis end) so
-            // silent months remain part of the era they belong to
-            const coverEnd = i < eras.length - 1 ? monthIdx(eras[i + 1].from) : axis.last + 1
-            const months = Math.max(coverEnd - monthIdx(e.from), 1)
-            return (
-              <div
-                key={i}
-                className={`min-w-[58px] overflow-hidden py-4 shrink-0 ${i ? 'border-l border-zinc-900 pl-4' : 'pr-4'}`}
-                style={{ width: `${(months / total) * 100}%` }}
-                title={`${e.from} — ${e.to} · ${n0(e.commits)} commits · ${e.repoCount} repos`}
-              >
-                <span className='label-s block whitespace-nowrap text-zinc-700'>ERA {String(i + 1).padStart(2, '0')}</span>
-                <span className='figure mt-1 block truncate text-[15px] text-zinc-300'>{e.cls}</span>
-                <span className='label-s mt-1 block text-zinc-800 whitespace-nowrap'>
-                  {monthName(e.from)} — {monthName(e.to)}
-                </span>
-                <span className='label-s mt-1 hidden lg:block text-zinc-800 truncate'>
-                  {e.dominantRepo} · {Math.round(e.topShare * 100)}%
-                </span>
-              </div>
-            )
-          })}
-        </div>
-        <p className='label-s mt-3 text-zinc-800'>
-          Boundary = new dominant repository held ≥2 months, or resumption after ≥3 silent months
-        </p>
-      </div>
-    </div>
-  )
-}
 
 /* ----------------------- F · 02 LANGUAGE SUCCESSION ----------------------- */
 
-function Strata({ strata, axis, langFocus, onHoverLang, hoverM, setHoverM }) {
+export function Strata({ strata, axis, langFocus, onHoverLang, hoverM, setHoverM }) {
   const langs = strata.order.slice(0, 8)
   const total = Math.max(axis.last - axis.first + 1, 1)
   const monthList = useMemo(() => {
@@ -154,7 +106,7 @@ function Strata({ strata, axis, langFocus, onHoverLang, hoverM, setHoverM }) {
 
 /* -------------- F · 03 REPOSITORY LIFECYCLE + RETURN MAP ----------------- */
 
-function Lifecycle({ spans, axis, hoverM, repoFocus, setRepoFocus }) {
+export function Lifecycle({ spans, axis, hoverM, repoFocus, setRepoFocus }) {
   const total = Math.max(axis.last - axis.first + 1, 1)
   const rows = spans.slice(0, 12)
   const H = 34
@@ -230,9 +182,9 @@ function Lifecycle({ spans, axis, hoverM, repoFocus, setRepoFocus }) {
   )
 }
 
-/* ------------------------ F · 04 PROJECT CONSTELLATION ------------------- */
+/* --------------------- PROJECT CONSTELLATION (INDEX) --------------------- */
 
-function Constellation({ spans, axis, repoFocus, setRepoFocus, langFocus, onHoverLang }) {
+export function Constellation({ spans, axis, repoFocus, setRepoFocus, langFocus, onHoverLang, compact = false }) {
   const [tip, setTip] = useState(null)
   const nodes = useMemo(() => {
     const top = spans.slice(0, 24)
@@ -266,12 +218,12 @@ function Constellation({ spans, axis, repoFocus, setRepoFocus, langFocus, onHove
     <div>
       <Head
         label='Project Constellation — position by temporal center, banded by language'
-        coord='F · 04'
+        coord={compact ? 'C · 02' : null}
         right={<span className='label-s text-zinc-800 hidden md:inline'>{nodes.pts.length} NODES · {nodes.links.length} TRACES</span>}
       />
       <Fade className='mt-8'>
         <div className='relative border-t border-b border-zinc-900'>
-          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio='xMidYMid meet' className='w-full' style={{ height: 'auto', maxHeight: 340 }}>
+          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio='xMidYMid meet' className='w-full' style={{ height: 'auto', maxHeight: compact ? 190 : 340 }}>
             {nodes.links.map(([a, b, shared], i) => (
               <line
                 key={i}
@@ -304,23 +256,25 @@ function Constellation({ spans, axis, repoFocus, setRepoFocus, langFocus, onHove
             </div>
           )}
         </div>
-        <p className='label-s mt-3 text-zinc-800'>
-          Node area ∝ language bytes · brightness = recency · trace = ≥2 months of concurrent activity · rows = primary-language bands
-        </p>
+        {!compact && (
+          <p className='label-s mt-3 text-zinc-800'>
+            Node area ∝ language bytes · brightness = recency · trace = ≥2 months of concurrent activity · rows = primary-language bands
+          </p>
+        )}
       </Fade>
     </div>
   )
 }
 
-/* --------------------------- F · 05 WORK MIGRATION ------------------------ */
+/* --------------------------- F · 04 WORK MIGRATION ------------------------ */
 
-function Migration({ runs }) {
+export function Migration({ runs }) {
   const shown = runs.slice(-18)
   return (
     <div>
       <Head
         label='Work Migration — dominant repository per month, in sequence'
-        coord='F · 05'
+        coord='F · 04'
         right={<span className='label-s text-zinc-800 hidden md:inline'>{runs.length} TRANSITIONS</span>}
       />
       <div className='mt-8 flex border-t border-b border-zinc-900 overflow-x-auto'>
@@ -345,16 +299,16 @@ function Migration({ runs }) {
   )
 }
 
-/* ------------- F · 06 CREATION ↔ REVISION + CHANGE DENSITY --------------- */
+/* ---------------- CREATION ↔ REVISION + CHANGE DENSITY ------------------- */
 
-function Continuum({ added, deleted, prevAdded, prevDeleted, compare, commits, activeDays }) {
+export function Continuum({ added, deleted, prevAdded, prevDeleted, compare, commits, activeDays }) {
   const churn = added + deleted
   const pos = churn ? added / churn : 0.5
   const prevChurn = prevAdded + prevDeleted
   const prevPos = prevChurn ? prevAdded / prevChurn : null
   return (
     <div>
-      <Head label='Creation ↔ Revision — share of churn that is additive' coord='F · 06' />
+      <Head label='Creation ↔ Revision — share of churn that is additive' coord={null} />
       <div className='mt-10 relative'>
         <div className='flex justify-between label-s text-zinc-600'>
           <span>CREATION</span>
@@ -384,16 +338,16 @@ function Continuum({ added, deleted, prevAdded, prevDeleted, compare, commits, a
   )
 }
 
-/* ------------------------ F · 07 DEVELOPMENT FINGERPRINT ------------------ */
+/* ------------------------ F · 01 DEVELOPMENT FINGERPRINT ------------------ */
 
-function Fingerprint({ dims, rangeLabel }) {
+export function Fingerprint({ dims, rangeLabel }) {
   const reduced = useReducedMotion()
   const cx = 170, cy = 170
   return (
     <div>
       <Head
         label='Development Fingerprint — structural signature of the selected period'
-        coord='F · 07'
+        coord='F · 01'
         right={<span className='label-s text-zinc-800'>{rangeLabel}</span>}
       />
       <div className='mt-8 grid grid-cols-12 gap-x-8 gap-y-8 items-center'>
@@ -418,17 +372,14 @@ function Fingerprint({ dims, rangeLabel }) {
                 </g>
               )
             })}
-            <text x={cx} y={cy + 4} textAnchor='middle' fill='#52525b' fontSize={11} letterSpacing={3} className='label-s'>{rangeLabel}</text>
           </svg>
         </Fade>
-        <div className='col-span-12 md:col-span-7 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 min-w-0'>
+        <div className='col-span-12 md:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-x-12 lg:gap-x-14 min-w-0'>
           {dims.map((d, i) => (
-            <div key={d.key} className={`py-3 border-t border-zinc-900 min-w-0 ${i % 3 ? 'lg:border-l lg:border-zinc-900 lg:pl-5' : ''}`}>
+            <div key={d.key} className={`py-6 border-t border-zinc-900 min-w-0 ${i % 3 ? 'sm:border-l sm:border-zinc-900 sm:pl-7' : ''}`}>
               <span className='label-s text-zinc-700'>{String(i + 1).padStart(2, '0')} · {d.label}</span>
-              <div className='mt-1 flex items-baseline justify-between gap-2 min-w-0'>
-                <span className='figure text-[19px] text-zinc-200 tabular-nums'>{(d.value * 100).toFixed(0)}</span>
-                <span className='label-s text-zinc-800 text-right break-words min-w-0'>{d.raw}</span>
-              </div>
+              <div className='mt-3 figure text-[clamp(24px,1.9vw,30px)] font-light leading-none text-zinc-100 tabular-nums'>{(d.value * 100).toFixed(0)}</div>
+              <div className='mt-2 label-s leading-relaxed text-zinc-600'>{d.raw}</div>
             </div>
           ))}
         </div>
@@ -437,9 +388,9 @@ function Fingerprint({ dims, rangeLabel }) {
   )
 }
 
-/* --------------------------- F · 08 BODY OF WORK SPAN --------------------- */
+/* --------------------------- F · 05 BODY OF WORK SPAN --------------------- */
 
-function WorkSpan({ span, spans, languages }) {
+export function WorkSpan({ span, spans, languages }) {
   if (!span) return null
   const months = span.firstActive && span.lastActive
     ? Math.max(monthIdx(span.lastActive.slice(0, 7)) - monthIdx(span.firstActive.slice(0, 7)) + 1, 1)
@@ -460,7 +411,7 @@ function WorkSpan({ span, spans, languages }) {
   ]
   return (
     <div>
-      <Head label='Body of Work Span — archival record' coord='F · 08' />
+      <Head label='Body of Work Span — archival record' coord='F · 05' />
       <div className='mt-8 grid grid-cols-2 lg:grid-cols-4 border-t border-zinc-900'>
         {rows.map(([k, v], i) => (
           <div key={k} className={`py-5 border-b border-zinc-900 ${i % 2 ? 'border-l border-zinc-900 pl-5' : 'pr-5'} ${i % 4 ? 'lg:border-l lg:pl-5' : 'lg:border-l-0 lg:pl-0 lg:pr-5'}`}>
@@ -475,12 +426,12 @@ function WorkSpan({ span, spans, languages }) {
 
 /* --------------------------------- REGION -------------------------------- */
 
-export default function Shape({ data, range, compare, compareData, rangeLabel, langFocus, onHoverLang, repoFocus, setRepoFocus }) {
-  const [hoverM, setHoverM] = useState(null)
+/* Shared derivation — the scroll Overview's archive/index chapters consume
+   the same stored-history model as the stacked Shape layout. */
+export function useShapeDerived(data, range) {
   const s = data?.summary || {}
   const gh = data?.github || {}
-
-  const derived = useMemo(() => {
+  return useMemo(() => {
     const ws = data?.workShape
     if (!ws?.repoMonthly?.length) return null
     const repos = data?.repositories || []
@@ -498,7 +449,7 @@ export default function Shape({ data, range, compare, compareData, rangeLabel, l
     return {
       axis,
       spans,
-      eras: buildEras(ws.repoMonthly, repoById, spanIdxs),
+
       strata: buildLangStrata(ws.repoMonthly, repoLangs),
       runs: buildMigration(ws.repoMonthly, repoById, spanIdxs),
       dims: buildFingerprint({
@@ -526,6 +477,12 @@ export default function Shape({ data, range, compare, compareData, rangeLabel, l
       return f ? Math.max(Math.round((t - f) / 86400000) + 1, 1) : 365
     }
   }, [data, range, s.commits, s.sourceAdded, s.sourceDeleted, s.activeDays, gh.pullRequests])
+}
+
+export default function Shape({ data, range, compare, compareData, rangeLabel, langFocus, onHoverLang, repoFocus, setRepoFocus }) {
+  const [hoverM, setHoverM] = useState(null)
+  const s = data?.summary || {}
+  const derived = useShapeDerived(data, range)
 
   if (!derived) {
     return (
@@ -552,8 +509,6 @@ export default function Shape({ data, range, compare, compareData, rangeLabel, l
         <Coord>{monthName(idxMonth(derived.axis.first))} — {monthName(idxMonth(derived.axis.last))}</Coord>
       </div>
 
-      <Rise><Eras eras={derived.eras} axis={derived.axis} hoverM={hoverM} /></Rise>
-      <DrawHR className='my-12' />
       <Rise><Strata strata={derived.strata} axis={derived.axis} langFocus={langFocus} onHoverLang={onHoverLang} hoverM={hoverM} setHoverM={setHoverM} /></Rise>
       <DrawHR className='my-12' />
       <Rise><Lifecycle spans={derived.spans} axis={derived.axis} hoverM={hoverM} repoFocus={repoFocus} setRepoFocus={setRepoFocus} /></Rise>
