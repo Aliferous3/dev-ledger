@@ -56,17 +56,17 @@ export function LoginScreen() {
         <div className="relative p-6 md:p-10">
           <div className="absolute inset-0 terminal-grid-fine opacity-50 pointer-events-none" />
 
-          <div className="relative mx-auto w-full max-w-[1500px] space-y-8">
+          <div className="relative mx-auto w-full max-w-[1180px] min-w-0 space-y-8">
             <div className="relative text-center">
               <div className="mono-tag text-[10px] text-[#d6ff3e]">BODY OF WORK — THE DEVELOPER'S RECORD</div>
               <h1 className="font-editorial font-light text-[clamp(2.8rem,7vw,5.5rem)] leading-none mt-3">DEV LEDGER</h1>
               <p className="font-editorial italic text-neutral-400 mt-2">Your GitHub history, made legible.</p>
             </div>
 
-            <div className="relative">
+            <div className="relative w-full min-w-0" style={{ containerType: 'inline-size' }}>
               <p
-                className="mb-3 whitespace-nowrap font-mono text-neutral-500"
-                style={{ fontSize: 'clamp(10px, 0.9vw, 22px)', letterSpacing: 0 }}
+                className="mb-3 w-full whitespace-nowrap font-mono text-neutral-500"
+                style={{ fontSize: 'clamp(9px, 1.25cqw, 22px)', letterSpacing: 0 }}
               >
                 FROM YOUR FIRST COMMIT TO YOUR LATEST. TRACE WHAT YOU BUILT, WHEN YOU BUILT IT, AND HOW YOUR WORK CHANGED ALONG THE WAY.
               </p>
