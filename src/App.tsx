@@ -46,26 +46,22 @@ export default function App() {
         {/* 01 — MEASURE */}
         <Section01Measure
           period={period}
-          setPeriod={setPeriod}
           daysData={DATA_365}
         />
 
         {/* 02 — FIELD */}
         <Section02Field
           period={period}
-          setPeriod={setPeriod}
         />
 
         {/* 03 — INDEX */}
         <Section03Index
           period={period}
-          setPeriod={setPeriod}
         />
 
         {/* 04 — ARCHIVE (The Shape of Your Work) */}
         <Section04Archive
           period={period}
-          setPeriod={setPeriod}
         />
       </main>
 

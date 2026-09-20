@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { useReducedMotion } from './motion'
-import { useScrubIndex, ScrubMark, ScrubReadout, ScrubValue, SCRUB_TOUCH } from './GraphScrub'
+import { useScrubIndex, ScrubReadout, ScrubValue, SCRUB_TOUCH } from './GraphScrub'
 import { smoothPath } from './primitives'
 import { monthName } from './shape'
 
@@ -66,12 +66,11 @@ function monthlyBuckets(series, pick) {
   return [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => ({ k, v }))
 }
 
-// One historical lane: scroll-drawn path + shared scrub interaction. Each lane
-// is its own row so the pointer target, guide, and readout stay colocated.
-function LaneChart({ lane, height, sep, draw }) {
+// One historical lane: scroll-drawn path; scrub state is owned by the parent
+// so a single shared X resolves the same observation on every lane.
+function LaneChart({ lane, height, sep, draw, hover, snapFrac }) {
   const reduced = useReducedMotion()
   const vals = lane.buckets.map((b) => b.v)
-  const { hover, frac, snapFrac, bind } = useScrubIndex(vals.length)
   const max = Math.max(...vals, 1) * 1.12
   const pts = useMemo(
     () =>
@@ -84,7 +83,7 @@ function LaneChart({ lane, height, sep, draw }) {
   )
   const path = smoothPath(pts)
   return (
-    <div className={`relative ${sep ? 'border-t border-zinc-900' : ''}`} style={{ height, ...SCRUB_TOUCH }} {...bind}>
+    <div className={`relative ${sep ? 'border-t border-zinc-900' : ''}`} style={{ height }}>
       <svg viewBox={`0 0 ${LANE_W} ${height}`} className='block h-full w-full' preserveAspectRatio='none'>
         {draw ? (
           <motion.path key={path} d={path} fill='none' stroke='rgba(250,250,250,0.82)' strokeWidth={1.1} vectorEffect='non-scaling-stroke' style={{ pathLength: draw }} />
@@ -102,8 +101,16 @@ function LaneChart({ lane, height, sep, draw }) {
             transition={{ duration: 1.3, ease: [0.33, 1, 0.4, 1] }}
           />
         )}
-        {frac != null && (
-          <ScrubMark guideX={frac * LANE_W} x={pts[hover]?.x} y={pts[hover]?.y} height={height} />
+        {hover != null && pts[hover] && (
+          <circle
+            cx={pts[hover].x}
+            cy={pts[hover].y}
+            r={3.5}
+            fill='#0a0a0a'
+            stroke='#d6ff3e'
+            strokeWidth={1.5}
+            vectorEffect='non-scaling-stroke'
+          />
         )}
       </svg>
       {hover != null && lane.buckets[hover] && (
@@ -126,6 +133,9 @@ export function HistoricalLanes({ daily, prsDaily, range, draw = null }) {
     ]
   }, [series, range])
   const laneH = 44
+  // One shared pointer position resolves the same index across COMMITS /
+  // PULL REQUESTS / NET LINES — the lime guide spans all three lanes.
+  const { hover, frac, snapFrac, bind } = useScrubIndex(lanes[0]?.buckets.length ?? 0)
   return (
     <div>
       <div className='mb-3 flex items-baseline justify-between'>
@@ -140,10 +150,16 @@ export function HistoricalLanes({ daily, prsDaily, range, draw = null }) {
             </div>
           ))}
         </div>
-        <div className='relative flex-1'>
+        <div className='relative flex-1 cursor-crosshair' style={SCRUB_TOUCH} {...bind}>
           {lanes.map((l, i) => (
-            <LaneChart key={l.label} lane={l} height={laneH} sep={i > 0} draw={draw} />
+            <LaneChart key={l.label} lane={l} height={laneH} sep={i > 0} draw={draw} hover={hover} snapFrac={snapFrac} />
           ))}
+          {frac != null && (
+            <div
+              className='pointer-events-none absolute top-0 bottom-0 w-px bg-[#d6ff3e] opacity-60'
+              style={{ left: `${frac * 100}%` }}
+            />
+          )}
         </div>
       </div>
       <div className='mt-2 flex justify-between border-t border-zinc-900 pt-2 font-mono text-[9px] text-zinc-700'>

@@ -6,12 +6,21 @@ import { HistoricalLanes } from '../retained/HistoricalLanes';
 
 interface Props {
   period: Period;
-  setPeriod: (p: Period) => void;
 }
 
-export function Section03Index({ period, setPeriod }: Props) {
+// Constellation zoom — the outer ring (r=160 at cy=180) exceeds the 320px
+// viewBox, so FIT scales the chart layer about its center until the full
+// ring system is visible. Zoom applies to the SVG group only.
+const Z_MIN = 0.6;
+const Z_MAX = 1.6;
+const Z_STEP = 0.1;
+const Z_FIT = 0.8;
+
+export function Section03Index({ period }: Props) {
   const [selectedRepoId, setSelectedRepoId] = useState<string>('D.01');
   const [hoverRepoId, setHoverRepoId] = useState<string | null>(null);
+  const [hoverRing, setHoverRing] = useState<number | null>(null);
+  const [zoom, setZoom] = useState(Z_FIT);
 
   const activeId = hoverRepoId ?? selectedRepoId;
 
@@ -20,35 +29,15 @@ export function Section03Index({ period, setPeriod }: Props) {
   const cx = 320;
   const cy = 180;
   const radarRadii = [40, 80, 120, 160];
+  const clampZoom = (z: number) => Math.min(Z_MAX, Math.max(Z_MIN, Math.round(z * 100) / 100));
 
   return (
     <section id="section-03" className="relative scroll-mt-28 space-y-12">
-      {/* Top Breadcrumb & Period Selector */}
+      {/* Top Breadcrumb — the global period selector lives in the sticky header */}
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-900 pb-4">
         <div className="flex items-center gap-3 text-[11px] mono-tag text-neutral-300">
           <span className="text-[#d6ff3e] font-semibold">[03] INDEX</span>
           <span className="text-[#d6ff3e] cursor-blink">_</span>
-        </div>
-        <div className="flex flex-col items-end gap-2.5">
-          <div className="text-[11px] mono-tag text-neutral-400">
-            SEP 21, 2025 — SEP 20, 2026
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] mono-tag text-neutral-500">PERIOD</span>
-            {(['7D', '30D', '90D', 'YTD', '1Y', 'ALL'] as Period[]).map((p) => (
-              <button
-                key={p}
-                onClick={() => setPeriod(p)}
-                className={`text-[9px] mono-tag px-2 py-0.5 border transition-all ${
-                  period === p
-                    ? 'bg-[#d6ff3e] text-black border-[#d6ff3e] font-semibold'
-                    : 'border-neutral-800 text-neutral-400 hover:text-neutral-200'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -63,11 +52,48 @@ export function Section03Index({ period, setPeriod }: Props) {
           {/* Subtle CRT background grid */}
           <div className="pointer-events-none absolute inset-0 terminal-grid opacity-25" />
 
+          {/* Zoom controls — scale the chart layer only, centered on the
+              constellation. FIT restores the full ring system. */}
+          <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 mono-tag text-[9px]">
+            <button
+              onClick={() => setZoom((z) => clampZoom(z - Z_STEP))}
+              disabled={zoom <= Z_MIN}
+              aria-label="Zoom out"
+              className="px-2 py-0.5 border border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-600 disabled:opacity-30 transition-all"
+            >
+              −
+            </button>
+            <span className="px-1.5 py-0.5 border border-neutral-800 text-neutral-500 tabular-nums w-[52px] text-center">
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              onClick={() => setZoom((z) => clampZoom(z + Z_STEP))}
+              disabled={zoom >= Z_MAX}
+              aria-label="Zoom in"
+              className="px-2 py-0.5 border border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-600 disabled:opacity-30 transition-all"
+            >
+              +
+            </button>
+            <button
+              onClick={() => setZoom(Z_FIT)}
+              aria-label="Fit constellation"
+              className={`px-2 py-0.5 border transition-all ${
+                zoom === Z_FIT
+                  ? 'border-[#d6ff3e]/50 text-[#d6ff3e]'
+                  : 'border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-600'
+              }`}
+            >
+              FIT
+            </button>
+          </div>
+
           <svg
             viewBox="0 0 640 320"
             className="w-full h-full max-w-[800px]"
           >
-            {/* Concentric rings */}
+            <g transform={`translate(${cx} ${cy}) scale(${zoom}) translate(${-cx} ${-cy})`}>
+            {/* Concentric rings — hover brightens only the pointed band via a
+                wide transparent hit circle; the visible ring stays thin. */}
             {radarRadii.map((r, i) => (
               <circle
                 key={i}
@@ -75,9 +101,28 @@ export function Section03Index({ period, setPeriod }: Props) {
                 cy={cy}
                 r={r}
                 fill="none"
-                stroke="#222"
-                strokeWidth="1"
+                stroke={hoverRing === i ? '#d6ff3e' : '#222'}
+                strokeWidth={hoverRing === i ? 1.4 : 1}
                 strokeDasharray={i % 2 === 1 ? '3,4' : undefined}
+                opacity={hoverRing === null ? 1 : hoverRing === i ? 1 : 0.45}
+                style={{
+                  transition: 'stroke 150ms ease, opacity 150ms ease',
+                  filter: hoverRing === i ? 'drop-shadow(0 0 6px rgba(214,255,62,0.5))' : 'none',
+                }}
+              />
+            ))}
+            {radarRadii.map((r, i) => (
+              <circle
+                key={`hit-${i}`}
+                cx={cx}
+                cy={cy}
+                r={r}
+                fill="none"
+                stroke="transparent"
+                strokeWidth={14}
+                style={{ pointerEvents: 'stroke' }}
+                onMouseEnter={() => setHoverRing(i)}
+                onMouseLeave={() => setHoverRing(null)}
               />
             ))}
 
@@ -168,6 +213,7 @@ export function Section03Index({ period, setPeriod }: Props) {
                 </g>
               );
             })}
+            </g>
           </svg>
 
           {/* Bottom HUD bar inside constellation */}

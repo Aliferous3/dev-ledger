@@ -3,7 +3,6 @@ import type { Period, MetricKey, DayData } from '../types';
 
 interface Props {
   period: Period;
-  setPeriod: (p: Period) => void;
   daysData: DayData[];
 }
 
@@ -15,7 +14,7 @@ const TABS: { key: MetricKey; label: string; heroLabel: string }[] = [
   { key: 'COMMITS', label: 'COMMITS', heroLabel: 'COMMITS' },
 ];
 
-export function Section01Measure({ period, setPeriod, daysData }: Props) {
+export function Section01Measure({ period, daysData }: Props) {
   const [activeTab, setActiveTab] = useState<MetricKey>('GROWTH');
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
@@ -104,32 +103,12 @@ export function Section01Measure({ period, setPeriod, daysData }: Props) {
 
   return (
     <section id="section-01" className="relative scroll-mt-28 space-y-12">
-      {/* Top Section Breadcrumb & Period Selector */}
+      {/* Top Section Breadcrumb — the global period selector lives in the
+          sticky header and drives every section */}
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-900 pb-4">
         <div className="flex items-center gap-3 text-[11px] mono-tag text-neutral-300">
           <span className="text-[#d6ff3e] font-semibold">[01] MEASURE</span>
           <span className="text-[#d6ff3e] cursor-blink">_</span>
-        </div>
-        <div className="flex flex-col items-end gap-2.5">
-          <div className="text-[11px] mono-tag text-neutral-400">
-            SEP 21, 2025 — SEP 20, 2026
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] mono-tag text-neutral-500">PERIOD</span>
-            {(['7D', '30D', '90D', 'YTD', '1Y', 'ALL'] as Period[]).map((p) => (
-              <button
-                key={p}
-                onClick={() => setPeriod(p)}
-                className={`text-[9px] mono-tag px-2 py-0.5 border transition-all ${
-                  period === p
-                    ? 'bg-[#d6ff3e] text-black border-[#d6ff3e] font-semibold'
-                    : 'border-neutral-800 text-neutral-400 hover:text-neutral-200'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 

@@ -7,7 +7,6 @@ import { useBootTransition } from '../transitions/BootLog';
 
 interface Props {
   period: Period;
-  setPeriod: (p: Period) => void;
 }
 
 const ARCHIVE_TABS: ArchiveTab[] = [
@@ -18,7 +17,7 @@ const ARCHIVE_TABS: ArchiveTab[] = [
   'F · 05 SPAN',
 ];
 
-export function Section04Archive({ period, setPeriod }: Props) {
+export function Section04Archive({ period }: Props) {
   const [activeTab, setActiveTab] = useState<ArchiveTab>('F · 01 FINGERPRINT');
   const { firing, fire, overlay } = useBootTransition();
   // Interaction state shared by the retained figures (hover month / repo focus)
@@ -41,22 +40,6 @@ export function Section04Archive({ period, setPeriod }: Props) {
         <div className="flex flex-col items-end gap-2.5">
           <div className="text-[11px] mono-tag text-neutral-400">
             ARCHIVAL RECORD · JAN 2024 — SEP 2026
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] mono-tag text-neutral-500">PERIOD</span>
-            {(['7D', '30D', '90D', 'YTD', '1Y', 'ALL'] as Period[]).map((p) => (
-              <button
-                key={p}
-                onClick={() => setPeriod(p)}
-                className={`text-[9px] mono-tag px-2 py-0.5 border transition-all ${
-                  period === p
-                    ? 'bg-[#d6ff3e] text-black border-[#d6ff3e] font-semibold'
-                    : 'border-neutral-800 text-neutral-400 hover:text-neutral-200'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
           </div>
         </div>
       </div>

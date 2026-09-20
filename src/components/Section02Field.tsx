@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Period } from '../types';
 import {
   weeks,
@@ -9,47 +10,48 @@ import {
   type DayCell,
 } from '../fieldData';
 import { CellTooltip } from '../field/Tooltip';
+import { FieldTransform } from '../field/FieldTransform';
 
 interface Props {
   period: Period;
-  setPeriod: (p: Period) => void;
 }
 
 const BLOCKS = ['·', '░', '▒', '▓', '█'] as const;
 
-export function Section02Field({ period, setPeriod }: Props) {
+/* Tooltip geometry for the portal HUD — estimated from CellTooltip's
+   min-w/padding so it can flip/shift before hitting viewport edges. */
+const TIP_W = 190;
+const TIP_H = 130;
+const TIP_GAP = 10;
+
+export function Section02Field({ period }: Props) {
   const [hoverCell, setHoverCell] = useState<DayCell | null>(null);
-  const [tipCoords, setTipCoords] = useState<{ x: number; y: number } | null>(null);
+  const [tipCoords, setTipCoords] = useState<{ cx: number; top: number; bottom: number } | null>(null);
   const [hoverLang, setHoverLang] = useState<string | null>(null);
+  const [transformOpen, setTransformOpen] = useState(false);
+
+  // Viewport-aware fixed placement: flip below near the top edge, shift
+  // horizontally near the side edges. Rendered via portal so no ancestor
+  // overflow can clip it.
+  const tipStyle = (() => {
+    if (!tipCoords) return null;
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
+    const x = Math.min(Math.max(tipCoords.cx, TIP_W / 2 + 8), vw - TIP_W / 2 - 8);
+    const flipBelow = tipCoords.top - TIP_H - TIP_GAP < 8;
+    return {
+      left: x,
+      top: flipBelow ? tipCoords.bottom + TIP_GAP : tipCoords.top - TIP_GAP,
+      transform: flipBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+    };
+  })();
 
   return (
     <section id="section-02" className="relative scroll-mt-28 space-y-12">
-      {/* Top Breadcrumb & Period Selector */}
+      {/* Top Breadcrumb — the global period selector lives in the sticky header */}
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-900 pb-4">
         <div className="flex items-center gap-3 text-[11px] mono-tag text-neutral-300">
           <span className="text-[#d6ff3e] font-semibold">[02] FIELD</span>
           <span className="text-[#d6ff3e] cursor-blink">_</span>
-        </div>
-        <div className="flex flex-col items-end gap-2.5">
-          <div className="text-[11px] mono-tag text-neutral-400">
-            SEP 21, 2025 — SEP 20, 2026
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] mono-tag text-neutral-500">PERIOD</span>
-            {(['7D', '30D', '90D', 'YTD', '1Y', 'ALL'] as Period[]).map((p) => (
-              <button
-                key={p}
-                onClick={() => setPeriod(p)}
-                className={`text-[9px] mono-tag px-2 py-0.5 border transition-all ${
-                  period === p
-                    ? 'bg-[#d6ff3e] text-black border-[#d6ff3e] font-semibold'
-                    : 'border-neutral-800 text-neutral-400 hover:text-neutral-200'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -75,9 +77,9 @@ export function Section02Field({ period, setPeriod }: Props) {
             setTipCoords(null);
           }}
         >
-          {/* CRT scan sweep line */}
-          <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-30">
-            <div className="scan-line-horiz absolute top-0 bottom-0 w-1/3 bg-gradient-to-r from-transparent via-[#d6ff3e]/10 to-transparent" />
+          {/* CRT phantom sweep — slightly brighter but still atmospheric */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-45">
+            <div className="scan-line-horiz absolute top-0 bottom-0 w-1/3 bg-gradient-to-r from-transparent via-[#d6ff3e]/[0.16] to-transparent" />
           </div>
 
           <div className="flex gap-2 min-w-[720px]">
@@ -116,13 +118,11 @@ export function Section02Field({ period, setPeriod }: Props) {
                         key={cell.iso}
                         onMouseEnter={(e) => {
                           setHoverCell(cell);
-                          const root = e.currentTarget.closest('.relative') as HTMLElement;
-                          if (!root) return;
-                          const rRoot = root.getBoundingClientRect();
                           const r = e.currentTarget.getBoundingClientRect();
                           setTipCoords({
-                            x: r.left - rRoot.left + r.width / 2,
-                            y: r.top - rRoot.top,
+                            cx: r.left + r.width / 2,
+                            top: r.top,
+                            bottom: r.bottom,
                           });
                         }}
                         className="flex items-center justify-center text-[11px] leading-[14px] cursor-crosshair transition-all duration-100"
@@ -171,18 +171,16 @@ export function Section02Field({ period, setPeriod }: Props) {
             </div>
           </div>
 
-          {/* Tooltip HUD */}
-          {hoverCell && tipCoords && (
+          {/* Tooltip HUD — portaled to body: escapes the scroll-clipped
+              matrix container and stays inside the viewport */}
+          {hoverCell && tipStyle && createPortal(
             <div
-              className="absolute z-40 pointer-events-none"
-              style={{
-                left: Math.min(Math.max(tipCoords.x, 90), 640),
-                top: tipCoords.y,
-                transform: 'translate(-50%, calc(-100% - 10px))',
-              }}
+              className="fixed z-[70] pointer-events-none"
+              style={tipStyle}
             >
               <CellTooltip cell={hoverCell} accent />
-            </div>
+            </div>,
+            document.body,
           )}
         </div>
       </div>
@@ -308,6 +306,31 @@ export function Section02Field({ period, setPeriod }: Props) {
               )}
             </span>
           </span>
+        </div>
+      </div>
+
+      {/* Transform view — DESIGN.D card/stack render of the same field data.
+          Local disclosure only; collapsed by default, no page transition. */}
+      <div className="pt-2">
+        <button
+          type="button"
+          aria-expanded={transformOpen}
+          aria-controls="field-transform"
+          onClick={() => setTransformOpen((v) => !v)}
+          className="mono-tag text-[10px] text-neutral-500 hover:text-[#d6ff3e] transition-colors duration-200 flex items-center gap-2"
+        >
+          <span className="text-[#d6ff3e]">{transformOpen ? '[-]' : '[+]'}</span>
+          {transformOpen ? 'COLLAPSE' : 'EXPAND / TRANSFORM'}
+        </button>
+        <div
+          id="field-transform"
+          className={`grid transition-all duration-500 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
+            transformOpen ? 'grid-rows-[1fr] opacity-100 mt-6' : 'grid-rows-[0fr] opacity-0'
+          }`}
+        >
+          <div className="overflow-hidden min-h-0">
+            {transformOpen && <FieldTransform period={period} />}
+          </div>
         </div>
       </div>
     </section>
