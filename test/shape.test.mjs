@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 // runs, and the fingerprint normalization contract.
 
 const { monthIdx, idxMonth, buildRepoSpans, buildLangStrata, buildMigration, buildFingerprint } =
-  await import('../src/shape.js')
+  await import('../src/retained/shape.js')
 
 const REPOS = [
   { id: 'r1', name: 'alpha', path: 'me/alpha', private: false, primaryLanguage: 'TypeScript', languageBytes: 1000 },

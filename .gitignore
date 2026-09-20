@@ -33,3 +33,9 @@ dev-ledger-snapshot.json
 .qa-cookie*
 .arena/
 api/qa-session.mjs
+
+# local build cache
+.vite/
+
+.vercel
+.env*
