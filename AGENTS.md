@@ -20,7 +20,7 @@ One sealed iron-session cookie `dev_ledger_session` (`lib/config.mjs`, `lib/auth
 
 A browser-session cookie expires when the *browser's* notion of a session ends — not necessarily when the user closes windows. Firefox deliberately restores session cookies when it restores a browsing session (`browser.startup.page=3` "Open previous windows and tabs", `browser.sessionstore.resume_session_once`, crash recovery — see `SessionCookies.sys.mjs`, which re-adds them `isSession = true`). A resident Firefox process also keeps them. Verified in production QA: unchecked login survived a full Firefox close + reopen under session restore.
 
-This is standards-compliant. No cookie attribute can force process-exit expiry, and the alternatives (service-worker epoch binding, sessionStorage gates, unload hooks) were evaluated and **rejected** — they cause false logouts under normal browser/SW lifecycle events. Do not add them.
+This is standards-compliant. No cookie attribute can force process-exit expiry, and every alternative was investigated and **rejected**: service-worker epoch binding, sessionStorage gates, unload/pagehide hooks, server-side sliding leases/heartbeats, and session tables. None can exactly detect browser-process exit (no origin-scoped primitive shares the process lifetime), and leases/heartbeats cause false logouts after sleep, tab discard, or background suspension. Do not add them — the current implementation is final.
 
 Production acceptance matrix (real OAuth, canonical `https://devledger-app.vercel.app`):
 
