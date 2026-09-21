@@ -5,6 +5,13 @@ import App from "./App";
 import { LoginScreen } from "./ledger/LoginScreen";
 import { BootLogOverlay, BootLogPreloader } from "./transitions/BootLog";
 
+import {
+  HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_URL,
+  heartbeatOutcome,
+  shouldHeartbeat,
+} from "./ledger/heartbeatModel.mjs";
+
 type AuthState = "loading" | "out" | "in";
 
 function Gate() {
@@ -18,6 +25,9 @@ function Gate() {
   // always answers JSON; the only non-JSON 200 is the vite static fallback,
   // and a non-JSON error still proves an API exists.
   const [apiPresent, setApiPresent] = useState(false);
+  // Whether the authenticated session is remembered ("keep me signed in").
+  // Drives the inactivity heartbeat gate — persistent sessions carry no lease.
+  const [persistent, setPersistent] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -31,6 +41,7 @@ function Gate() {
         if (!live) return;
         setApiPresent(isJson || res.status !== 200);
         const ok = res.ok && body?.authenticated;
+        setPersistent(body?.persistent === true);
         setAuth(ok ? "in" : "out");
         if (ok) setBooting(true);
       })
@@ -39,6 +50,40 @@ function Gate() {
       live = false;
     };
   }, []);
+
+  // Inactivity heartbeat: while authenticated WITHOUT "keep me signed in",
+  // renew the server-side lease every 60s (plus immediately on focus/visible
+  // — covers background-tab throttling). Any open tab keeps the lease alive;
+  // when all tabs close the beats stop and the lease expires server-side.
+  // A 401 means the lease lapsed (sleep/offline > lease) → logged out.
+  useEffect(() => {
+    if (auth !== "in" || !shouldHeartbeat({ authenticated: true, persistent })) {
+      return;
+    }
+    let dead = false;
+    const beat = () => {
+      fetch(HEARTBEAT_URL, { method: "POST", credentials: "same-origin" })
+        .then((res) => {
+          if (!dead && heartbeatOutcome(res.status) === "logout") {
+            setPersistent(false);
+            setAuth("out");
+          }
+        })
+        .catch(() => {});
+    };
+    const onWake = () => {
+      if (document.visibilityState !== "hidden") beat();
+    };
+    const t = setInterval(beat, HEARTBEAT_INTERVAL_MS);
+    window.addEventListener("focus", onWake);
+    document.addEventListener("visibilitychange", onWake);
+    return () => {
+      dead = true;
+      clearInterval(t);
+      window.removeEventListener("focus", onWake);
+      document.removeEventListener("visibilitychange", onWake);
+    };
+  }, [auth, persistent]);
 
   if (auth === "loading") {
     return <BootLogPreloader label="auth · checking session" />;
