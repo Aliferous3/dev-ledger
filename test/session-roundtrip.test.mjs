@@ -15,6 +15,11 @@ import assert from 'node:assert/strict'
 // session semantics. See AGENTS.md.
 
 const { getSession } = await import('../lib/auth.mjs')
+const { sessionLeaseMs } = await import('../lib/config.mjs')
+
+// Non-persistent sessions must carry a valid leaseUntil (server-enforced
+// inactivity lease) or getSession treats them as expired.
+const freshLease = () => Date.now() + sessionLeaseMs
 
 function makeRes() {
   const headers = {}
@@ -43,6 +48,7 @@ test('default session cookie authenticates a subsequent request (refresh)', asyn
   const s1 = await getSession({ headers: {} }, res1)
   s1.userId = 'user-1'
   s1.persistent = false
+  s1.leaseUntil = freshLease()
   await s1.save()
 
   const sc = setCookies(res1)[0]
@@ -86,6 +92,7 @@ test('both cookie modes share one seal format — cross-decode works', async () 
   const a = await getSession({ headers: {} }, resA) // session-scoped write
   a.userId = 'cross-a'
   a.persistent = false
+  a.leaseUntil = freshLease()
   await a.save()
 
   const resB = makeRes()
@@ -120,6 +127,7 @@ test('oauth round-trip: login state cookie → callback read → refreshed sessi
   s2.persistent = s2.remember === true
   delete s2.remember
   s2.userId = 'user-3'
+  s2.leaseUntil = freshLease()
   await s2.save()
   assert.ok(!/max-age=/i.test(setCookies(res2)[0]), 'unchecked login stays session-scoped')
 
@@ -160,6 +168,7 @@ test('logout clears both cookie variants and later requests decode empty', async
     const s1 = await getSession({ headers: {} }, res1, { persistent })
     s1.userId = 'bye'
     s1.persistent = persistent
+    if (!persistent) s1.leaseUntil = freshLease()
     await s1.save()
 
     const res2 = makeRes()

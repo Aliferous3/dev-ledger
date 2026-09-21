@@ -1,5 +1,5 @@
 import { getSession, getUserOctokit, getAppOctokit } from '../../lib/auth.mjs'
-import { github, appUrl } from '../../lib/config.mjs'
+import { github, appUrl, sessionLeaseMs } from '../../lib/config.mjs'
 import { supabase } from '../../lib/db.mjs'
 import { setUserSync } from '../../lib/sync.mjs'
 
@@ -47,6 +47,11 @@ export default async function handler(req, res) {
   // cookie — session-scoped or 30-day persistent.
   session.persistent = session.remember === true
   delete session.remember
+  // Non-persistent sessions get the sliding inactivity lease; remembered
+  // sessions keep their ~30-day lifetime with no short lease.
+  if (!session.persistent && sessionLeaseMs > 0) {
+    session.leaseUntil = Date.now() + sessionLeaseMs
+  }
 
   const redirectUri = `${appUrl}/api/auth/callback`
   const tokenRes = await fetch('https://github.com/login/oauth/access_token', {

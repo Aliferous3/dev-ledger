@@ -10,22 +10,24 @@
 
 One sealed iron-session cookie `dev_ledger_session` (`lib/config.mjs`, `lib/auth.mjs`):
 
-- **Default (KEEP ME SIGNED IN unchecked):** true browser-session cookie — `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` when the effective origin is https, **no Max-Age/Expires**. Survives refresh / hard refresh / navigation / new tabs; dies with the browser session.
+- **Default (KEEP ME SIGNED IN unchecked):** true browser-session cookie — `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` when the effective origin is https, **no Max-Age/Expires** — **plus a server-enforced sliding inactivity lease**: `leaseUntil` (epoch ms) sealed inside the session payload, minted at OAuth callback, renewed by `POST /api/auth/heartbeat` (60s from open tabs) and piggybacked in `getSession` when <50% remains. `SESSION_LEASE_MINUTES` (default **5**, `0` disables) without ANY Dev Ledger contact → expired server-side → login required. This makes "no activity = logged out" uniform across browsers, including Firefox Session Restore (which resurrects session cookies but cannot extend the lease). Sleep/offline > lease → sign-in required on return — intentional.
 - **Remember (checked):** identical seal/format + `Max-Age` ~30 days. Only the outgoing persistence attributes differ — `persistent` flag rides inside the sealed cookie through the OAuth round-trip and is honored only after state validation.
 - **Logout:** `/api/auth/logout` destroys either variant (`Max-Age=0`).
 - **Auth gate** (`src/main.tsx`): boot state is `loading → in | out` from `/api/user` only. The Vite dev login bypass is allowed only when `import.meta.env.DEV && !apiPresent` — `apiPresent` is true whenever `/api/user` returns JSON *or* any non-200 response (a crashed function still proves an API exists). Never let the bypass fire under `vercel dev`.
 - **Secure flag** follows the effective origin scheme (`appUrl` starts with `https://`), not `NODE_ENV`. Local `VERCEL_URL` hosts (`localhost`, `127.*`, `::1`) get `http://` appUrl — never `https://localhost`.
 
-### Known caveat — Firefox Session Restore (accepted, do not "fix")
+### Why the lease exists — Firefox Session Restore
 
-A browser-session cookie expires when the *browser's* notion of a session ends — not necessarily when the user closes windows. Firefox deliberately restores session cookies when it restores a browsing session (`browser.startup.page=3` "Open previous windows and tabs", `browser.sessionstore.resume_session_once`, crash recovery — see `SessionCookies.sys.mjs`, which re-adds them `isSession = true`). A resident Firefox process also keeps them. Verified in production QA: unchecked login survived a full Firefox close + reopen under session restore.
+A browser-session cookie expires when the *browser's* notion of a session ends — not necessarily when the user closes windows. Firefox deliberately restores session cookies when it restores a browsing session (`browser.startup.page=3`, `browser.sessionstore.resume_session_once`, crash recovery — `SessionCookies.sys.mjs` re-adds them `isSession = true`); a resident Firefox process keeps them too. Verified in production QA: unchecked login survived a full Firefox close + reopen under session restore.
 
-This is standards-compliant. No cookie attribute can force process-exit expiry, and every alternative was investigated and **rejected**: service-worker epoch binding, sessionStorage gates, unload/pagehide hooks, server-side sliding leases/heartbeats, and session tables. None can exactly detect browser-process exit (no origin-scoped primitive shares the process lifetime), and leases/heartbeats cause false logouts after sleep, tab discard, or background suspension. Do not add them — the current implementation is final.
+No cookie attribute can force process-exit expiry, and process-exit detection primitives (service-worker epoch, sessionStorage gates, unload hooks, session tables) were evaluated and rejected — none can exactly detect browser exit. The product rule is therefore defined as **inactivity**: "5 minutes with no Dev Ledger contact → sign-in required." The sealed `leaseUntil` enforces it uniformly across browsers — a restored cookie still dies when its lease lapses. Iron-session forces `ttl=0` for session-scoped cookies, which is why the lease lives in the payload, not the seal config.
+
+Accepted trade-offs (intentional): sleep/hibernate or offline > lease → re-login on return; reopening within the lease window after closing stays signed in.
 
 Production acceptance matrix (real OAuth, canonical `https://devledger-app.vercel.app`):
 
-- Default: OAuth → dashboard → refresh ✓ → hard refresh ✓ → new tab ✓ → browser restart → logged out *unless the browser restores session cookies (Firefox restore/resident process)*
-- Remember: same, and restart → still logged in
+- Default: OAuth → dashboard → refresh ✓ → hard refresh ✓ → new tab ✓ → tab open >5min stays in (heartbeat) · all tabs closed >5min → logged out (any browser, restore or not)
+- Remember: same, and restart → still logged in (~30 days, no lease)
 
 ## Data layer
 

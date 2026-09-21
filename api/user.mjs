@@ -52,6 +52,9 @@ export default async function handler(req, res) {
 
   res.status(200).json({
     authenticated: true,
+    // Lets the frontend run the inactivity heartbeat only for
+    // non-persistent sessions; remembered sessions need none.
+    persistent: session.persistent === true,
     user: user
       ? {
           githubLogin: user.github_login,
