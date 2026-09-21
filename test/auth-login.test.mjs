@@ -143,3 +143,113 @@ test('callback rejects a stale/mismatched OAuth state', async () => {
   )
   assert.equal(resCb.statusCode, 400)
 })
+
+test('default login emits a true session cookie — no Max-Age/Expires', async () => {
+  const res = mockRes()
+  await loginHandler(mockReq(), res)
+  const sc = res.getHeader('set-cookie')
+  const c = (Array.isArray(sc) ? sc : [sc]).find((x) => x.startsWith(`${sessionCookie.cookieName}=`))
+  assert.ok(c, 'login must emit the session cookie')
+  assert.doesNotMatch(c, /Max-Age=/i)
+  assert.doesNotMatch(c, /Expires=/i)
+})
+
+test('remember=1 login emits a persistent ~30-day cookie carrying the flag', async () => {
+  const res = mockRes()
+  await loginHandler(mockReq({ query: { remember: '1' } }), res)
+  const sc = res.getHeader('set-cookie')
+  const c = (Array.isArray(sc) ? sc : [sc]).find((x) => x.startsWith(`${sessionCookie.cookieName}=`))
+  assert.ok(c, 'login must emit the session cookie')
+  const m = c.match(/Max-Age=(\d+)/i)
+  assert.ok(m, 'persistent login must emit Max-Age')
+  const secs = Number(m[1])
+  assert.ok(secs > 2_500_000 && secs <= 30 * 24 * 3600, `expected ~30d Max-Age, got ${secs}`)
+  const pending = await sessionFromCookie(cookieHeader(res))
+  assert.equal(pending.remember, true)
+})
+
+test('callback converts the remember flag into a persistent session cookie', async (t) => {
+  const resLogin = mockRes()
+  await loginHandler(mockReq({ query: { remember: '1' } }), resLogin)
+  const state = authorizeUrl(resLogin).searchParams.get('state')
+  const loginCookie = cookieHeader(resLogin)
+
+  const origFetch = globalThis.fetch
+  globalThis.fetch = async (url) => {
+    const u = String(url)
+    if (u.includes('login/oauth/access_token')) {
+      return new Response(JSON.stringify({ access_token: 'tok' }), { headers: { 'Content-Type': 'application/json' } })
+    }
+    if (u.includes('api.github.com/user')) {
+      return new Response(JSON.stringify({ id: 7, login: 'user', node_id: 'n', avatar_url: '', name: 'U' }), { headers: { 'Content-Type': 'application/json' } })
+    }
+    return new Response('{}', { status: 404 })
+  }
+  t.after(() => { globalThis.fetch = origFetch })
+
+  const resCb = mockRes()
+  await callbackHandler(
+    mockReq({ headers: { cookie: loginCookie }, query: { code: 'c', state } }),
+    resCb
+  )
+  assert.notEqual(resCb.statusCode, 400, resCb.body?.error)
+  const sc = resCb.getHeader('set-cookie')
+  const c = (Array.isArray(sc) ? sc : [sc]).find((x) => x.startsWith(`${sessionCookie.cookieName}=`))
+  assert.match(c, /Max-Age=\d+/i, 'callback must emit the persistent cookie')
+  const final = await sessionFromCookie(cookieHeader(resCb))
+  assert.equal(final.persistent, true)
+  assert.equal(final.remember, undefined)
+})
+
+test('logout clears a persistent session cookie too', async () => {
+  const resLogin = mockRes()
+  await loginHandler(mockReq({ query: { remember: '1' } }), resLogin)
+  const resOut = mockRes()
+  await logoutHandler(mockReq({ headers: { cookie: cookieHeader(resLogin) } }), resOut)
+  assert.equal(cookieHeader(resOut), `${sessionCookie.cookieName}=`)
+})
+
+test('a sealed remember flag without OAuth state cannot authenticate', async () => {
+  // A stale/replayed session carrying remember+persistent but no oauthState
+  // must still fail state validation — the flag never skips the check.
+  const req = mockReq()
+  const res = mockRes()
+  const s = await getIronSession(req, res, sessionCookie)
+  s.remember = true
+  s.persistent = true
+  await s.save()
+  const resCb = mockRes()
+  await callbackHandler(
+    mockReq({ headers: { cookie: cookieHeader(res) }, query: { code: 'x', state: 'whatever' } }),
+    resCb
+  )
+  assert.equal(resCb.statusCode, 400)
+})
+
+test('a tampered session cookie cannot bypass OAuth state validation', async () => {
+  const resLogin = mockRes()
+  await loginHandler(mockReq({ query: { remember: '1' } }), resLogin)
+  const good = cookieHeader(resLogin)
+  const state = authorizeUrl(resLogin).searchParams.get('state')
+  // Corrupt a character mid-seal — unseal must fail → empty session → the
+  // real (valid) state no longer matches, so the callback rejects before
+  // ever attempting the token exchange.
+  const [name, value] = good.split('=')
+  const mid = Math.floor(value.length / 2)
+  const forged = `${name}=${value.slice(0, mid)}${value[mid] === 'A' ? 'B' : 'A'}${value.slice(mid + 1)}`
+  let fetchCalled = false
+  const origFetch = globalThis.fetch
+  globalThis.fetch = async () => { fetchCalled = true; return new Response('{}', { status: 404 }) }
+  try {
+    const resCb = mockRes()
+    await callbackHandler(
+      mockReq({ headers: { cookie: forged }, query: { code: 'x', state } }),
+      resCb
+    )
+    assert.equal(resCb.statusCode, 400)
+    assert.equal(resCb.body?.error, 'Invalid OAuth state')
+    assert.equal(fetchCalled, false, 'token exchange must not be attempted')
+  } finally {
+    globalThis.fetch = origFetch
+  }
+})

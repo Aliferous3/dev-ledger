@@ -41,6 +41,13 @@ export default async function handler(req, res) {
   }
   delete session.oauthState
 
+  // Persist the login-time preference as the session's durable flag. The
+  // session was already bound with the matching lifetime (peek sees the
+  // `remember` flag in the incoming cookie), so save() emits the right
+  // cookie — session-scoped or 30-day persistent.
+  session.persistent = session.remember === true
+  delete session.remember
+
   const redirectUri = `${appUrl}/api/auth/callback`
   const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',

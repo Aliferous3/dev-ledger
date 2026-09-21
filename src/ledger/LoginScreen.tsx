@@ -11,6 +11,9 @@ const TYPE_LINES = ['> ledger --init', '// commits become chronology', '// chron
 export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
   const [hovered, setHovered] = useState<GridCell | null>(null);
   const [typed, setTyped] = useState(0);
+  // Opt-in persistent session (30-day cookie); unchecked = browser-session
+  // cookie that ends when the browser closes.
+  const [remember, setRemember] = useState(false);
   const ref = useReveal<HTMLDivElement>();
   const reduced = usePrefersReducedMotion();
 
@@ -94,7 +97,18 @@ export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
 
             <div className="grid md:grid-cols-[1fr_auto] gap-5 items-end">
               <pre className="font-mono text-[10px] leading-5 text-neutral-400 whitespace-pre-wrap min-h-[80px]">{shown}<span className="type-caret text-[#d6ff3e]">▌</span></pre>
-              <GithubButton onLogin={onLogin} />
+              <div className="flex flex-col items-start md:items-end gap-2.5">
+                <label className="mono-tag text-[9px] text-neutral-500 flex items-center gap-2 cursor-pointer select-none hover:text-neutral-300 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    onChange={(e) => setRemember(e.target.checked)}
+                    className="h-3 w-3 accent-[#d6ff3e] cursor-pointer"
+                  />
+                  KEEP ME SIGNED IN
+                </label>
+                <GithubButton onLogin={onLogin} remember={remember} />
+              </div>
             </div>
           </div>
         </div>
