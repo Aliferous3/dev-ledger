@@ -171,28 +171,46 @@ test('tampered leaseUntil fails seal validation', async () => {
   assert.equal(res.statusCode, 401)
 })
 
-/* ── sliding renewal (<50% remaining → renew) ── */
+/* ── validation-only: getSession NEVER renews ──
+   Renewal happens exclusively via POST /api/auth/heartbeat — arbitrary API
+   traffic (dashboard/sync/user reads) must not slide the lease, or
+   background polling would keep an idle session immortal. */
 
-test('lease >50% remaining → no cookie rewrite', async () => {
+test('getSession validates without renewing — >50% remaining', async () => {
   const now = Date.now()
   const cookie = await seal({ userId: 'u1', persistent: false, leaseUntil: now + sessionLeaseMs * 0.8 })
   const res = mockRes()
   const s = await getSession(mockReq({ headers: { cookie } }), res)
   assert.equal(s.userId, 'u1')
-  assert.equal(res.getHeader('set-cookie'), undefined, 'fresh lease must not churn Set-Cookie')
+  assert.equal(res.getHeader('set-cookie'), undefined, 'no Set-Cookie on validate')
 })
 
-test('lease <50% remaining → slides to a fresh full lease', async () => {
+test('getSession validates without renewing — even <50% remaining', async () => {
   const now = Date.now()
   const cookie = await seal({ userId: 'u1', persistent: false, leaseUntil: now + sessionLeaseMs * 0.2 })
   const res = mockRes()
   const s = await getSession(mockReq({ headers: { cookie } }), res)
-  assert.equal(s.userId, 'u1')
-  const renewed = cookieHeader(res)
-  assert.ok(renewed, 'sliding renewal must emit Set-Cookie')
-  const decoded = await decode(renewed)
-  assert.ok(decoded.leaseUntil >= now + sessionLeaseMs - 1000 && decoded.leaseUntil <= now + sessionLeaseMs + 1000,
-    'renewed lease ≈ now + full lease')
+  assert.equal(s.userId, 'u1', 'still-valid lease authenticates')
+  assert.equal(res.getHeader('set-cookie'), undefined, 'piggyback renewal removed — no Set-Cookie')
+})
+
+test('/api/user is validation-only — no lease renewal near expiry', async () => {
+  const now = Date.now()
+  const cookie = await seal({ userId: 'u1', persistent: false, leaseUntil: now + sessionLeaseMs * 0.1 })
+  const res = mockRes()
+  await userHandler(mockReq({ headers: { cookie } }), res)
+  assert.equal(res.statusCode, 200)
+  assert.ok(!cookieHeader(res), '/api/user must not extend the lease')
+})
+
+test('requireUser path (sync/dashboard) is validation-only', () => {
+  const req = src('lib/require-user.mjs')
+  assert.ok(req.includes('getSession'), 'requireUser uses the central helper')
+  assert.ok(!req.includes('leaseUntil'), 'no renewal logic in requireUser')
+  const auth = src('lib/auth.mjs')
+  const fn = auth.slice(auth.indexOf('export async function getSession'))
+  assert.ok(!fn.includes('leaseUntil = now + sessionLeaseMs'), 'getSession must not write leaseUntil')
+  assert.ok(!fn.includes('session.save()'), 'getSession must not save')
 })
 
 /* ── heartbeat route ── */
