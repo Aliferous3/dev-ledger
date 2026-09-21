@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { Period } from './types';
 import { useBootTransition } from './transitions/BootLog';
-import { LedgerContext, useDashboardStore } from './store/live';
+import { IdentityContext, LedgerContext, useDashboardStore, type Identity } from './store/live';
 import { TerminalTickerHeader } from './components/TerminalTickerHeader';
 import { UtilityBar } from './components/UtilityBar';
 import { RightSidebarNav } from './components/RightSidebarNav';
@@ -12,7 +12,7 @@ import { Section04Archive } from './components/Section04Archive';
 import { ActivityPage } from './components/ActivityPage';
 import { CodePage } from './components/CodePage';
 
-export default function App() {
+export default function App({ me = null }: { me?: Identity | null }) {
   const [period, setPeriod] = useState<Period>('1Y');
   const [crtOn, setCrtOn] = useState(false);
 
@@ -39,6 +39,7 @@ export default function App() {
     : 'JAN 2024 — SEP 2026'; // fixture fallback
 
   return (
+    <IdentityContext.Provider value={me}>
     <LedgerContext.Provider value={ledger}>
     <div className="min-h-screen bg-[#0a0a0a] text-neutral-100 flex flex-col selection:bg-[#d6ff3e]/30 selection:text-white">
       {/* System utility bar: live UTC clock · CRT toggle · sync status */}
@@ -115,6 +116,7 @@ export default function App() {
       </footer>
     </div>
     </LedgerContext.Provider>
+    </IdentityContext.Provider>
   );
 }
 

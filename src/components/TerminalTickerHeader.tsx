@@ -1,5 +1,6 @@
 import type { Period } from '../types';
 import { TerminalTicker } from './TerminalTicker';
+import { AccountMenu } from './AccountMenu';
 import { SECTIONS, sectionLabel, useActiveSection } from '../sections';
 
 interface Props {
@@ -12,12 +13,6 @@ interface Props {
 }
 
 const PERIODS: Period[] = ['7D', '30D', '90D', 'YTD', '1Y', 'ALL'];
-
-const USER = {
-  handle: '@Aliferous3',
-  initials: 'A3',
-  credit: 'DEVELOPED BY NOAMAN ALI',
-};
 
 /* Production header — BAND.10 KEYPAD adapted to the real six-view app.
    Row 2: brand + shortcut hint + RANGE readout + global period + user.
@@ -90,21 +85,18 @@ export function TerminalTickerHeader({ period, setPeriod, navigate, firing }: Pr
             </div>
             <span className="w-px h-5 bg-neutral-800 mx-1 hidden md:block" />
             <div className="flex items-center gap-3 whitespace-nowrap shrink-0">
-              <span className="group flex items-center gap-2.5 cursor-pointer">
-                <span className="relative shrink-0">
-                  <span className="absolute -inset-[2px] rounded-full bg-[conic-gradient(from_180deg,#d6ff3e,#38bdf8,#f97316,#d6ff3e)] opacity-80 group-hover:opacity-100 transition-opacity spin-slower" />
-                  <span className="relative w-6 h-6 text-[8px] rounded-full bg-[#0a0a0a] border border-black flex items-center justify-center mono-tag text-neutral-100 font-bold group-hover:text-[#d6ff3e] transition-colors">
-                    {USER.initials}
-                  </span>
-                </span>
-                <span className="mono-tag text-[10px] text-neutral-200 group-hover:text-[#d6ff3e] transition-colors tracking-[0.12em]">
-                  {USER.handle}
-                </span>
-              </span>
-              <span className="mono-tag text-[9px] text-neutral-600 hidden lg:inline-flex items-center gap-1 tracking-[0.18em]">
-                {USER.credit}
-                <span className="text-[8px]">↗</span>
-              </span>
+              <AccountMenu />
+              {/* Developer credit — always the author's GitHub, never the
+                  signed-in user's. */}
+              <a
+                href="https://github.com/Aliferous3"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group/credit mono-tag text-[9px] text-neutral-600 hover:text-neutral-400 hidden lg:inline-flex items-center gap-1 tracking-[0.18em] transition-colors"
+              >
+                DEVELOPED BY NOAMAN ALI
+                <span className="text-[8px] transition-transform duration-200 group-hover/credit:translate-x-0.5 group-hover/credit:-translate-y-0.5">↗</span>
+              </a>
             </div>
           </div>
         </div>

@@ -1,12 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLedger } from '../store/live';
+import { formatLocalTime, resolveTimeZone } from '../ledger/sysTime.mjs';
 
 // System utility bar — sparse hairline row above the main header.
-// LEFT: live UTC clock · CENTER/RIGHT: CRT scanlines toggle · RIGHT: sync status.
-
-function utcNow() {
-  return new Date().toISOString().slice(11, 19);
-}
+// LEFT: local clock in the browser's IANA zone · CENTER/RIGHT: CRT toggle ·
+// RIGHT: sync status.
 
 export function UtilityBar({
   crtOn,
@@ -15,8 +13,11 @@ export function UtilityBar({
   crtOn: boolean;
   onToggleCrt: () => void;
 }) {
-  const [time, setTime] = useState(utcNow);
+  // null until the client clock ticks — a neutral placeholder beats an
+  // incorrect render in any non-browser path.
+  const [now, setNow] = useState<Date | null>(null);
   const { dash, live } = useLedger();
+  const timeZone = useMemo(resolveTimeZone, []);
   // Live sync state from /api/dashboard — fixture mode reports SYNCED.
   const syncing = live && dash.sync.status === 'syncing';
   const syncLabel = syncing
@@ -28,17 +29,21 @@ export function UtilityBar({
         : 'ALL OBS. SYNCED';
 
   useEffect(() => {
-    const id = setInterval(() => setTime(utcNow()), 1000);
+    const tick = () => setNow(new Date());
+    tick();
+    const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
 
   return (
     <div className="w-full border-b border-[#161616] bg-[#0a0a0a] px-4 sm:px-6 py-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[9px] mono-tag select-none">
-      {/* LEFT — live UTC system time, fixed-width so layout never jumps */}
+      {/* LEFT — local system time + resolved IANA zone */}
       <span className="text-neutral-600 whitespace-nowrap">
         <span className="text-neutral-500">&gt;_</span> SYS.TIME //{' '}
-        <span className="text-neutral-300 tabular-nums">{time}</span>
-        <span className="text-neutral-600"> UTC</span>
+        <span className="text-neutral-300 tabular-nums">{now ? formatLocalTime(now) : '--:--:--'}</span>
+        {timeZone && (
+          <span className="text-neutral-700 text-[8px]"> {timeZone.toUpperCase()}</span>
+        )}
       </span>
 
       <div className="flex items-center gap-4 sm:gap-10">
