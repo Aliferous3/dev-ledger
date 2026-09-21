@@ -4,6 +4,7 @@ import { useBootTransition } from './transitions/BootLog';
 import { IdentityContext, LedgerContext, useDashboardStore, type Identity } from './store/live';
 import { TerminalTickerHeader } from './components/TerminalTickerHeader';
 import { UtilityBar } from './components/UtilityBar';
+import { SyncInstrument } from './components/SyncInstrument';
 import { RightSidebarNav } from './components/RightSidebarNav';
 import { Section01Measure } from './components/Section01Measure';
 import { Section02Field } from './components/Section02Field';
@@ -114,6 +115,9 @@ export default function App({ me = null }: { me?: Identity | null }) {
           </span>
         </div>
       </footer>
+
+      {/* Bottom-right sync instrument — shared dash.sync state */}
+      <SyncInstrument />
     </div>
     </LedgerContext.Provider>
     </IdentityContext.Provider>

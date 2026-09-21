@@ -289,6 +289,10 @@ html, body, #root {
 /* Selection highlight only — no permanent background on unselected text. */
 ::selection { background: rgba(214, 255, 62, 0.22); color: #f8ffdd; }
 
+/* Sync instrument — brief rise on mount; flattened under reduced motion. */
+@keyframes instrument-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+.instrument-in { animation: instrument-in 0.45s cubic-bezier(0.19, 1, 0.22, 1); }
+
 /* Reduced motion — flatten animation for accessibility */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

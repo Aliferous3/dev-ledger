@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { passivePollMs, rateLimitElapsed } from '../ledger/syncModel.mjs';
 import type { DayData, Period, RepoItem } from '../types';
 import { DASHBOARD, OBS_START, periodToRange } from '../ledgerData';
 import {
@@ -74,6 +75,7 @@ export interface DashboardData {
     detail?: unknown;
     lastSyncedAt?: string | null;
     error?: string | null;
+    resumeAt?: string | null;
   };
   rangeCoverage: { status: string; [k: string]: unknown };
   repositories: RepoRow[];
@@ -432,6 +434,31 @@ export function useDashboardStore(period: Period): LedgerStore {
   const all = payloads.all ?? FIXTURE;
   const dashBase = payloads[mode] ?? all;
   const dash = syncLive ? { ...dashBase, sync: { ...dashBase.sync, ...syncLive } } : dashBase;
+
+  // Passive sync observation: while the local pump isn't running, keep the
+  // instrument live when a sync is in flight (cron or another tab may be
+  // driving it) and resume the pump once a rate-limit window passes.
+  const syncStatus = dash.sync?.status;
+  const resumeAt = dash.sync?.resumeAt;
+  useEffect(() => {
+    if (!live || pumpingState) return;
+    const cadence = passivePollMs(syncStatus);
+    if (cadence == null) return;
+    const t = setInterval(async () => {
+      if (pumping.current) return;
+      try {
+        const r = await fetch('/api/sync', { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const s = (await r.json()) as DashboardData['sync'];
+        setSyncLive(s);
+        if (rateLimitElapsed(s)) syncNow();
+      } catch {
+        /* transient poll failure — next tick retries */
+      }
+    }, cadence);
+    return () => clearInterval(t);
+    // resumeAt re-derives cadence targets; status changes restart the poll.
+  }, [live, syncStatus, resumeAt, pumpingState, syncNow]);
 
   return useMemo<LedgerStore>(() => {
     if (!live) return fixtureStore(period);
