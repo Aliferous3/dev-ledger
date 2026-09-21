@@ -5,6 +5,14 @@ import assert from 'node:assert/strict'
 // then feeds the cookie back through getSession on a simulated subsequent
 // request (page refresh / new tab / navigation). This is the lifecycle that
 // broke in production — attributes alone can't catch it.
+//
+// KNOWN CAVEAT (accepted behavior): a browser-session cookie only guarantees
+// expiry when the browser's own notion of a session ends. Firefox Session
+// Restore (browser.startup.page=3, resume_session_once, crash recovery)
+// deliberately restores session cookies — verified in production QA — and a
+// resident browser process keeps them alive too. Do not "fix" this by adding
+// Max-Age, JS logout hooks, or client-memory gates; it is standards-compliant
+// session semantics. See AGENTS.md.
 
 const { getSession } = await import('../lib/auth.mjs')
 
