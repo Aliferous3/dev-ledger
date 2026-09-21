@@ -13,15 +13,23 @@ function Gate() {
   // authenticated — the app mounts beneath the overlay while it is covered.
   const [booting, setBooting] = useState(false);
   const [appMounted, setAppMounted] = useState(false);
+  // True once /api/user answers — i.e. a real backend is serving (vercel dev
+  // / production), so the DEV preview bypass must stay off. A real backend
+  // always answers JSON; the only non-JSON 200 is the vite static fallback,
+  // and a non-JSON error still proves an API exists.
+  const [apiPresent, setApiPresent] = useState(false);
 
   useEffect(() => {
     let live = true;
     fetch("/api/user", { credentials: "same-origin" })
       .then(async (res) => {
-        // Dev/static preview has no API — a non-JSON response means signed out.
+        // A real backend always answers /api/user with JSON. The only
+        // non-JSON 200 is the vite static fallback (no API → preview bypass
+        // is allowed). A non-JSON error still proves an API exists.
         const isJson = (res.headers.get("content-type") || "").includes("json");
         const body = isJson ? await res.json().catch(() => null) : null;
         if (!live) return;
+        setApiPresent(isJson || res.status !== 200);
         const ok = res.ok && body?.authenticated;
         setAuth(ok ? "in" : "out");
         if (ok) setBooting(true);
@@ -38,7 +46,7 @@ function Gate() {
   if (auth === "out") {
     return (
       <LoginScreen
-        onLogin={import.meta.env.DEV ? () => {
+        onLogin={import.meta.env.DEV && !apiPresent ? () => {
           setAuth("in");
           setBooting(true);
         } : undefined}
