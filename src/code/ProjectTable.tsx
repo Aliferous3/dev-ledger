@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { fmtBytes, fmtCompact } from '../codeData';
+import { m12Delay, registerM12 } from '../ledger/m12';
 
 export interface ProjectRow {
   name: string;
@@ -48,7 +49,9 @@ export function ProjectTable({ projects }: { projects: ProjectRow[] }) {
           return (
             <div
               key={p.name}
-              className="flex items-center justify-between py-3 group cursor-default relative"
+              ref={registerM12}
+              className="m12 flex items-center justify-between py-3 group cursor-default relative"
+              style={m12Delay(i)}
             >
               <div className="flex items-center gap-4 min-w-0">
                 <span className="mono-tag text-[9px] text-neutral-600 group-hover:text-[#d6ff3e] transition-colors">

@@ -289,6 +289,54 @@ html, body, #root {
 /* Selection highlight only — no permanent background on unselected text. */
 ::selection { background: rgba(214, 255, 62, 0.22); color: #f8ffdd; }
 
+/* Sync instrument — brief rise on mount; flattened under reduced motion. */
+@keyframes instrument-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+.instrument-in { animation: instrument-in 0.45s cubic-bezier(0.19, 1, 0.22, 1); }
+
+/* ── M12 · GIT DIFF · +/- GUTTER — primary entrance language ─────────────
+   Each element arrives like an added diff hunk: transient "+" in a narrow
+   left gutter, faint lime row tint + a 2px lime rule on the left edge that
+   both fade inside ~700ms. Rows apply top→bottom via animation-delay
+   (i * 34ms set inline by the m12Delay() helper). Elements start armed
+   (invisible) only once JS observes them — a shared IntersectionObserver
+   adds .m12-on the first time the element intersects the viewport, so the
+   reveal runs once per page visit and never on live updates. */
+.m12 { position: relative; }
+.m12-wait { opacity: 0; }
+@keyframes diff-apply {
+  0%   { opacity: 0; background: rgba(214, 255, 62, 0.16); box-shadow: inset 2px 0 0 #d6ff3e; }
+  30%  { opacity: 1; background: rgba(214, 255, 62, 0.16); box-shadow: inset 2px 0 0 #d6ff3e; }
+  100% { opacity: 1; background: transparent; box-shadow: inset 2px 0 0 transparent; }
+}
+@keyframes diff-glyph {
+  0%, 55% { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* Dense-grid variant (heatmap cells, bar segments): same "added hunk"
+   grammar — transient lime wash — but no gutter "+" and no left rule,
+   which would read as noise at cell scale. */
+@keyframes diff-cell {
+  0%   { opacity: 0; background: rgba(214, 255, 62, 0.22); }
+  40%  { opacity: 1; background: rgba(214, 255, 62, 0.22); }
+  100% { opacity: 1; background: transparent; }
+}
+.m12-cell-on { animation: diff-cell 0.5s ease-out both; }
+.m12-on { animation: diff-apply 0.7s ease-out both; }
+/* The "+" gutter marker is transient — it fades out with the tint and is
+   removed from the accessibility tree (decorative). Placed INSIDE the
+   element's left edge so it can never push past the viewport. */
+.m12-on::before {
+  content: "+";
+  position: absolute;
+  left: 4px;
+  top: 2px;
+  z-index: 2;
+  font: 600 10px/1 ui-monospace, monospace;
+  color: #d6ff3e;
+  pointer-events: none;
+  animation: diff-glyph 0.6s ease-out both;
+}
+
 /* Reduced motion — flatten animation for accessibility */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

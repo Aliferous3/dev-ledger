@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { passivePollMs, rateLimitElapsed } from '../ledger/syncModel.mjs';
 import type { DayData, Period, RepoItem } from '../types';
 import { DASHBOARD, OBS_START, periodToRange } from '../ledgerData';
 import {
@@ -74,6 +75,7 @@ export interface DashboardData {
     detail?: unknown;
     lastSyncedAt?: string | null;
     error?: string | null;
+    resumeAt?: string | null;
   };
   rangeCoverage: { status: string; [k: string]: unknown };
   repositories: RepoRow[];
@@ -140,6 +142,10 @@ export interface LedgerStore {
   range: { mode: string; from: string | null; to: string | null };
   /** weekday×hour rhythm for the selected period */
   rhythm: RhythmBundle;
+  /** trigger the existing /api/sync pump — no parallel sync implementation */
+  syncNow: () => void;
+  /** true while a syncNow pump is in flight */
+  pumping: boolean;
 }
 
 const PERIOD_MODE: Record<Period, string> = {
@@ -350,13 +356,21 @@ function fixtureStore(period: Period): LedgerStore {
     allFromIso: OBS_START,
     range: periodToRange(period),
     rhythm: FIXTURE_RHYTHM,
+    syncNow: () => {},
+    pumping: false,
   };
 }
 
 export function useDashboardStore(period: Period): LedgerStore {
   const mode = PERIOD_MODE[period];
   const [payloads, setPayloads] = useState<Partial<Record<string, DashboardData>>>({});
+  // Live sync state reported by /api/sync during a pump — folded into
+  // dash.sync so every surface (UtilityBar, account menu) shares one state.
+  const [syncLive, setSyncLive] = useState<DashboardData['sync'] | null>(null);
+  const [fetchTick, setFetchTick] = useState(0);
   const requested = useRef(new Set<string>());
+  const pumping = useRef(false);
+  const [pumpingState, setPumpingState] = useState(false);
 
   // Fetch the period-scoped payload on every period change (backend respects
   // the range) and the all-time payload once for structural views.
@@ -369,11 +383,82 @@ export function useDashboardStore(period: Period): LedgerStore {
         if (d) setPayloads((p) => ({ ...p, [m]: d }));
       });
     }
-  }, [mode]);
+  }, [mode, fetchTick]);
+
+  // Existing sync mechanism: serial POST slices (each bounded in-request),
+  // plus the same progressive GET poll the production UI used. Cron finishes
+  // anything abandoned; cursors make slices resumable.
+  const syncNow = useCallback(() => {
+    if (pumping.current) return;
+    pumping.current = true;
+    setPumpingState(true);
+    const poll = setInterval(async () => {
+      try {
+        const r = await fetch('/api/sync', { credentials: 'same-origin' });
+        if (r.ok) setSyncLive(await r.json());
+      } catch {
+        /* transient poll failure — the POST loop is authoritative */
+      }
+    }, 1500);
+    (async () => {
+      try {
+        for (;;) {
+          const res = await fetch('/api/sync?force=1', {
+            method: 'POST',
+            credentials: 'same-origin',
+          });
+          if (!res.ok) break;
+          const s = await res.json();
+          setSyncLive(s);
+          if (s?.status === 'syncing') {
+            await new Promise((r) => setTimeout(r, 1500));
+            continue;
+          }
+          break;
+        }
+      } catch {
+        /* offline/API-less preview — nothing to do */
+      } finally {
+        clearInterval(poll);
+        pumping.current = false;
+        setPumpingState(false);
+        // Pull fresh dashboard data + canonical sync state after the run.
+        requested.current.clear();
+        setSyncLive(null);
+        setFetchTick((t) => t + 1);
+      }
+    })();
+  }, []);
 
   const live = payloads.all != null || payloads[mode] != null;
   const all = payloads.all ?? FIXTURE;
-  const dash = payloads[mode] ?? all;
+  const dashBase = payloads[mode] ?? all;
+  const dash = syncLive ? { ...dashBase, sync: { ...dashBase.sync, ...syncLive } } : dashBase;
+
+  // Passive sync observation: while the local pump isn't running, keep the
+  // instrument live when a sync is in flight (cron or another tab may be
+  // driving it) and resume the pump once a rate-limit window passes.
+  const syncStatus = dash.sync?.status;
+  const resumeAt = dash.sync?.resumeAt;
+  useEffect(() => {
+    if (!live || pumpingState) return;
+    const cadence = passivePollMs(syncStatus);
+    if (cadence == null) return;
+    const t = setInterval(async () => {
+      if (pumping.current) return;
+      try {
+        const r = await fetch('/api/sync', { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const s = (await r.json()) as DashboardData['sync'];
+        setSyncLive(s);
+        if (rateLimitElapsed(s)) syncNow();
+      } catch {
+        /* transient poll failure — next tick retries */
+      }
+    }, cadence);
+    return () => clearInterval(t);
+    // resumeAt re-derives cadence targets; status changes restart the poll.
+  }, [live, syncStatus, resumeAt, pumpingState, syncNow]);
 
   return useMemo<LedgerStore>(() => {
     if (!live) return fixtureStore(period);
@@ -404,8 +489,10 @@ export function useDashboardStore(period: Period): LedgerStore {
       allFromIso,
       range: periodToRange(period, endIso, allFromIso),
       rhythm: rhythmFromRows(dash.rhythm),
+      syncNow,
+      pumping: pumpingState,
     };
-  }, [live, all, dash, period]);
+  }, [live, all, dash, period, syncNow, pumpingState]);
 }
 
 export const LedgerContext = createContext<LedgerStore | null>(null);
@@ -414,4 +501,34 @@ export function useLedger(): LedgerStore {
   const store = useContext(LedgerContext);
   if (!store) return fixtureStore('1Y'); // standalone render → fixture fallback
   return store;
+}
+
+/* ── Authenticated identity ────────────────────────────────────────────
+   Shape of GET /api/user — safe presentation data only (login, avatar,
+   installations, sync). The Gate resolves this once; no credentials or
+   tokens ever cross the boundary. */
+
+export interface Identity {
+  authenticated: boolean;
+  user: {
+    githubLogin?: string;
+    avatarUrl?: string;
+    displayName?: string;
+  } | null;
+  installations: { id: number; account: string; type: string; url: string }[];
+  appSlug: string | null;
+  sync?: {
+    status: string;
+    phase?: string;
+    progress?: number;
+    detail?: unknown;
+    lastSyncedAt?: string | null;
+    error?: string | null;
+  } | null;
+}
+
+export const IdentityContext = createContext<Identity | null>(null);
+
+export function useIdentity(): Identity | null {
+  return useContext(IdentityContext);
 }

@@ -12,6 +12,7 @@ import { CircadianRadar } from '../activity/CircadianRadar';
 import { RhythmStream } from '../activity/RhythmStream';
 import { ActivityCharts, type MonthBucket, type WeekdayBucket } from '../activity/ActivityCharts';
 import { ActivityMilestones, type Milestone } from '../activity/ActivityMilestones';
+import { M12 } from '../ledger/m12';
 
 interface Props {
   period: Period;
@@ -151,27 +152,39 @@ export function ActivityPage({ period }: Props) {
     <section id="section-05" className="relative scroll-mt-28 space-y-12">
       {/* 1 — Page header: radar-style composition (lime eyebrow, serif
           title, mono sub) with the shared dial-focus readout on the right. */}
-      <ActivityHeader activeHour={activeHour} totalCommits={totalCommits} rhythm={rhythm} />
+      <M12 i={0} id="activity-header">
+        <ActivityHeader activeHour={activeHour} totalCommits={totalCommits} rhythm={rhythm} />
+      </M12>
 
       {/* 2 — Extremes specification table (Blueprint source, real values) */}
-      <ActivityExtremes rows={extremes} />
+      <M12 i={1} id="activity-extremes">
+        <ActivityExtremes rows={extremes} />
+      </M12>
 
       {/* 3 — Circadian radar body + distribution (hour state lifted here) */}
-      <CircadianRadar
-        activeHour={activeHour}
-        onHover={setHoveredSlice}
-        onSelect={setSelectedHour}
-        rhythm={rhythm}
-      />
+      <M12 i={2} id="activity-radar">
+        <CircadianRadar
+          activeHour={activeHour}
+          onHover={setHoveredSlice}
+          onSelect={setSelectedHour}
+          rhythm={rhythm}
+        />
+      </M12>
 
       {/* 4 — CRT RHYTHM_STREAM ASCII matrix (own probe sweep) */}
-      <RhythmStream rhythm={rhythm} />
+      <M12 i={3} id="activity-rhythm">
+        <RhythmStream rhythm={rhythm} />
+      </M12>
 
       {/* 5 — Three mini charts, real period-filtered data */}
-      <ActivityCharts months={months} weekdays={weekdays} />
+      <M12 i={4} id="activity-charts">
+        <ActivityCharts months={months} weekdays={weekdays} />
+      </M12>
 
       {/* 6 — Milestones + active months ranking */}
-      <ActivityMilestones milestones={milestones} months={activeMonths} />
+      <M12 i={5} id="activity-milestones">
+        <ActivityMilestones milestones={milestones} months={activeMonths} />
+      </M12>
     </section>
   );
 }

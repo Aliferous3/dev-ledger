@@ -1,4 +1,5 @@
 import { fmtCompact } from '../codeData';
+import { m12Delay, registerM12 } from '../ledger/m12';
 
 export interface ChurnRow {
   rank: string;
@@ -17,10 +18,12 @@ export function ChurnTable({ rows }: { rows: ChurnRow[] }) {
         <span className="text-neutral-600">{rows.length} CHURN SOURCES</span>
       </div>
       <div className="border border-neutral-800 divide-y divide-neutral-900 bg-black/40">
-        {rows.map((p) => (
+        {rows.map((p, i) => (
           <div
             key={p.name}
-            className="px-4 py-2.5 flex items-center justify-between gap-4 hover:bg-neutral-900/30 transition-colors group"
+            ref={registerM12}
+            className="m12 px-4 py-2.5 flex items-center justify-between gap-4 hover:bg-neutral-900/30 transition-colors group"
+            style={m12Delay(i)}
           >
             <span className="mono-tag text-[9px] text-neutral-600 w-6 group-hover:text-[#d6ff3e] transition-colors">
               {p.rank}

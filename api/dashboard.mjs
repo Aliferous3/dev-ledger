@@ -138,6 +138,7 @@ export default async function handler(req, res) {
           progress: sync.progress,
           detail: sync.detail || null,
           lastSyncedAt: sync.last_synced_at,
+          resumeAt: sync.resume_at || null,
           error: sync.error,
         }
       : { status: 'idle', progress: 0 },

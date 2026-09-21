@@ -1,17 +1,14 @@
-import { SECTIONS, sectionLabel, useActiveSection } from '../sections';
+import { PAGES, PAGE_SECTIONS, useActiveAnchor, type PageId } from '../pages';
 
-/* NAV.06 — BLUEPRINT CALLOUT (SPEC). Ported from the zip16 AnchorBlueprint
-   study: dashed spec frame, lime corner brackets, [NN] labels, leader
-   lines ending in rotated diamond nodes, CAL.MARK footer. Consumes the
-   shared SECTIONS registry, scroll-spy, and App-level Boot Log navigate. */
-export function RightSidebarNav({
-  navigate,
-}: {
-  navigate: (id: string, label: string) => void;
-}) {
-  const active = useActiveSection();
-  const activeIdx = SECTIONS.findIndex((s) => s.id === active);
-  const activeName = SECTIONS[activeIdx]?.name ?? SECTIONS[0].name;
+/* NAV.06 — BLUEPRINT CALLOUT (SPEC). Page-scoped anchor index: tracks the
+   real section ids of the ACTIVE page (Overview's four registers, or the
+   internal blocks of Activity/Code) and scrolls to them. Page navigation
+   itself lives in the header — this rail is within-page only. */
+export function RightSidebarNav({ page }: { page: PageId }) {
+  const anchors = PAGE_SECTIONS[page];
+  const active = useActiveAnchor(anchors);
+  const activeIdx = anchors.findIndex((a) => a.id === active);
+  const pageName = PAGES.find((p) => p.id === page)?.name ?? '';
 
   return (
     <aside
@@ -24,29 +21,31 @@ export function RightSidebarNav({
         <span className="absolute -bottom-px -left-px w-2.5 h-2.5 border-b border-l border-[#d6ff3e]" />
         <span className="absolute -bottom-px -right-px w-2.5 h-2.5 border-b border-r border-[#d6ff3e]" />
         <div className="flex items-center justify-between mb-3">
-          <span className="mono-tag text-[9px] text-neutral-600 tracking-[0.25em]">◤ NAV.SPEC</span>
+          <span className="mono-tag text-[9px] text-neutral-600 tracking-[0.25em]">◤ {pageName}</span>
           <span className="w-1.5 h-1.5 rounded-full bg-[#d6ff3e] pulse-dot" />
         </div>
         <div className="space-y-[5px]">
-          {SECTIONS.map((s) => {
-            const on = active === s.id;
+          {anchors.map((a, i) => {
+            const on = active === a.id;
             return (
               <button
-                key={s.id}
+                key={a.id}
                 type="button"
                 aria-current={on ? 'location' : undefined}
-                onClick={() => navigate(s.id, sectionLabel(s))}
+                onClick={() =>
+                  document.getElementById(a.id)?.scrollIntoView({ behavior: 'instant' as ScrollBehavior })
+                }
                 className="group w-full flex items-center gap-2 justify-end"
               >
                 <span className={`mono-tag text-[7px] transition-colors ${on ? 'text-[#d6ff3e]' : 'text-neutral-700'}`}>
-                  [{s.num}]
+                  [{String(i + 1).padStart(2, '0')}]
                 </span>
                 <span
                   className={`mono-tag text-[10px] transition-colors duration-150 ${
                     on ? 'text-[#d6ff3e] font-semibold' : 'text-neutral-400 group-hover:text-neutral-100'
                   }`}
                 >
-                  {s.name}
+                  {a.name}
                 </span>
                 <span className="relative flex items-center">
                   <span
@@ -67,7 +66,7 @@ export function RightSidebarNav({
           })}
         </div>
         <div className="mt-3 pt-2 border-t border-dashed border-neutral-800 mono-tag text-[7px] text-neutral-600 tabular-nums">
-          CAL.MARK · {activeName} · {String(activeIdx + 1).padStart(2, '0')}/06
+          CAL.MARK · {anchors[activeIdx]?.name ?? '—'} · {String(activeIdx + 1).padStart(2, '0')}/{String(anchors.length).padStart(2, '0')}
         </div>
       </div>
     </aside>

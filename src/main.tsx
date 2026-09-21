@@ -4,6 +4,7 @@ import "./index.css";
 import App from "./App";
 import { LoginScreen } from "./ledger/LoginScreen";
 import { BootLogOverlay, BootLogPreloader } from "./transitions/BootLog";
+import type { Identity } from "./store/live";
 
 import {
   HEARTBEAT_INTERVAL_MS,
@@ -28,6 +29,9 @@ function Gate() {
   // Whether the authenticated session is remembered ("keep me signed in").
   // Drives the inactivity heartbeat gate — persistent sessions carry no lease.
   const [persistent, setPersistent] = useState(false);
+  // The authenticated identity payload — safe presentation data only
+  // (login, avatar, installations, sync). Feeds App via IdentityContext.
+  const [me, setMe] = useState<Identity | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -42,6 +46,7 @@ function Gate() {
         setApiPresent(isJson || res.status !== 200);
         const ok = res.ok && body?.authenticated;
         setPersistent(body?.persistent === true);
+        setMe(ok ? (body as Identity) : null);
         setAuth(ok ? "in" : "out");
         if (ok) setBooting(true);
       })
@@ -66,6 +71,7 @@ function Gate() {
         .then((res) => {
           if (!dead && heartbeatOutcome(res.status) === "logout") {
             setPersistent(false);
+            setMe(null);
             setAuth("out");
           }
         })
@@ -100,7 +106,7 @@ function Gate() {
   }
   return (
     <>
-      {appMounted && <App />}
+      {appMounted && <App me={me} />}
       <BootLogOverlay
         active={booting}
         label="code metrics · v1.3.0"

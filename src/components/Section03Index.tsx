@@ -4,6 +4,7 @@ import { useLedger } from '../store/live';
 import { HistoricalLanes } from '../retained/HistoricalLanes';
 import { ProjHtop } from '../projects/ProjHtop';
 import { useBootTransition } from '../transitions/BootLog';
+import { m12Delay, registerM12 } from '../ledger/m12';
 
 interface Props {
   period: Period;
@@ -252,15 +253,17 @@ export function Section03Index({ period }: Props) {
             <ProjPager page={projPage} disabled={firing} onSelect={gotoProjPage} />
           </div>
           <div className="border border-neutral-900 divide-y divide-neutral-900 bg-black/40">
-            {REPOSITORIES.map((repo) => {
+            {REPOSITORIES.map((repo, i) => {
           const isSelected = activeId === repo.id;
           return (
             <div
               key={repo.id}
+              ref={registerM12}
               onClick={() => setSelectedRepoId(repo.id)}
               onMouseEnter={() => setHoverRepoId(repo.id)}
               onMouseLeave={() => setHoverRepoId(null)}
-              className={`px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4 cursor-pointer transition-colors duration-150 ${
+              style={m12Delay(i)}
+              className={`m12 px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4 cursor-pointer transition-colors duration-150 ${
                 isSelected ? 'bg-neutral-900/60 text-[#d6ff3e]' : 'hover:bg-neutral-950/80 text-neutral-300'
               }`}
             >

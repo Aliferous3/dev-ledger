@@ -1,3 +1,5 @@
+import { m12Delay, registerM12 } from '../ledger/m12';
+
 export interface ExtremeRow {
   id: string;
   label: string;
@@ -17,10 +19,12 @@ export function ActivityExtremes({ rows }: { rows: ExtremeRow[] }) {
       </div>
 
       <div className="border border-neutral-800 divide-y divide-neutral-900 bg-black/40">
-        {rows.map((ex) => (
+        {rows.map((ex, i) => (
           <div
             key={ex.id}
-            className="px-4 py-3 flex flex-wrap items-center justify-between gap-4 hover:bg-neutral-900/30 transition-colors"
+            ref={registerM12}
+            className="m12 px-4 py-3 flex flex-wrap items-center justify-between gap-4 hover:bg-neutral-900/30 transition-colors"
+            style={m12Delay(i)}
           >
             <div className="mono-tag text-[10px] text-neutral-400 min-w-[200px]">{ex.label}</div>
             <div className="mono-tag text-[9px] text-[#d6ff3e] w-28">{ex.date}</div>

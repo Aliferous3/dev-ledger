@@ -3,6 +3,7 @@ import type { Period, ArchiveTab } from '../types';
 import { useLedger } from '../store/live';
 import { useShapeDerived, Strata, Lifecycle, Fingerprint, WorkSpan } from '../retained/WorkShape';
 import { useBootTransition } from '../transitions/BootLog';
+import { m12Delay, registerM12 } from '../ledger/m12';
 
 interface Props {
   period: Period;
@@ -155,7 +156,9 @@ export function Section04Archive({ period }: Props) {
               {migrations.map((card, i) => (
                 <div
                   key={i}
-                  className="border border-neutral-900 bg-neutral-950/60 p-6 space-y-2 hover:border-[#d6ff3e]/50 transition-colors"
+                  ref={registerM12}
+                  className="m12 border border-neutral-900 bg-neutral-950/60 p-6 space-y-2 hover:border-[#d6ff3e]/50 transition-colors"
+                  style={m12Delay(i)}
                 >
                   <div className="text-[9px] mono-tag text-neutral-500">0{i + 1} // {card.span}</div>
                   <div className="font-editorial text-xl md:text-2xl text-neutral-100">

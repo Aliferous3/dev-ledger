@@ -1,9 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import type { Period } from './types';
-import { useBootTransition } from './transitions/BootLog';
-import { LedgerContext, useDashboardStore } from './store/live';
+import { IdentityContext, LedgerContext, useDashboardStore, useLedger, type Identity } from './store/live';
+import { useRoute } from './pages';
 import { TerminalTickerHeader } from './components/TerminalTickerHeader';
 import { UtilityBar } from './components/UtilityBar';
+import { SyncMonitor } from './components/SyncMonitor';
 import { RightSidebarNav } from './components/RightSidebarNav';
 import { Section01Measure } from './components/Section01Measure';
 import { Section02Field } from './components/Section02Field';
@@ -11,25 +12,22 @@ import { Section03Index } from './components/Section03Index';
 import { Section04Archive } from './components/Section04Archive';
 import { ActivityPage } from './components/ActivityPage';
 import { CodePage } from './components/CodePage';
+import { M12 } from './ledger/m12';
 
-export default function App() {
+/* Three-page authenticated app — the ONLY top-level destinations are
+   OVERVIEW / ACTIVITY / CODE (see src/pages.ts). The dashboard store,
+   header, utility bar and the SYNC.04 monitor live above the page switch
+   so data and sync state persist across navigation. Each page mounts
+   fresh and its blocks apply via the M12 git-diff entrance. */
+
+export default function App({ me = null }: { me?: Identity | null }) {
   const [period, setPeriod] = useState<Period>('1Y');
   const [crtOn, setCrtOn] = useState(false);
-
-  // One Boot Log transition shared by the keypad header and the right
-  // rail — a second nav surface can't double-fire while one is active.
-  const { firing, fire, overlay } = useBootTransition();
-  const navigate = useCallback(
-    (id: string, label: string) => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      fire(label, () => el.scrollIntoView({ behavior: 'instant' as ScrollBehavior }));
-    },
-    [fire],
-  );
+  const { page, navigate } = useRoute();
 
   // Live production telemetry (or the bundled fixture when /api/dashboard is
-  // unreachable — e.g. vite-only dev). `dash` is scoped to the global period.
+  // unreachable — e.g. vite-only dev). `dash` is scoped to the global period
+  // and shared by all three pages — no refetch on page change.
   const ledger = useDashboardStore(period);
   const netGrowth = ledger.dash.summary.sourceAdded - ledger.dash.summary.sourceDeleted;
   const totalCommits = ledger.dash.summary.commits;
@@ -39,17 +37,18 @@ export default function App() {
     : 'JAN 2024 — SEP 2026'; // fixture fallback
 
   return (
+    <IdentityContext.Provider value={me}>
     <LedgerContext.Provider value={ledger}>
     <div className="min-h-screen bg-[#0a0a0a] text-neutral-100 flex flex-col selection:bg-[#d6ff3e]/30 selection:text-white">
       {/* System utility bar: live UTC clock · CRT toggle · sync status */}
       <UtilityBar crtOn={crtOn} onToggleCrt={() => setCrtOn((v) => !v)} />
 
-      {/* Sticky header: keypad nav band + existing Dev Ledger marquee ticker */}
+      {/* Sticky header: 3-page nav band + existing Dev Ledger marquee ticker */}
       <TerminalTickerHeader
         period={period}
         setPeriod={setPeriod}
+        page={page}
         navigate={navigate}
-        firing={firing}
         netGrowth={netGrowth}
         commits={totalCommits}
       />
@@ -62,38 +61,18 @@ export default function App() {
         />
       )}
 
-      {/* Floating right sidebar navigation tracking sections */}
-      <RightSidebarNav navigate={navigate} />
-      {overlay}
+      {/* Right rail: within-page anchor index for the active page */}
+      <RightSidebarNav page={page} />
 
-      {/* Main Longitudinal Record Content */}
-      <main className="flex-1 max-w-[1280px] w-full mx-auto px-6 md:px-12 py-12 md:py-16 space-y-32">
-        {/* 01 — MEASURE */}
-        <Section01Measure
-          period={period}
-          daysData={ledger.days}
-        />
-
-        {/* 02 — FIELD */}
-        <Section02Field
-          period={period}
-        />
-
-        {/* 03 — INDEX */}
-        <Section03Index
-          period={period}
-        />
-
-        {/* 04 — ARCHIVE (The Shape of Your Work) */}
-        <Section04Archive
-          period={period}
-        />
-
-        {/* 05 — ACTIVITY */}
-        <ActivityPage period={period} />
-
-        {/* 06 — CODE */}
-        <CodePage period={period} />
+      {/* Page content — one page mounted at a time; remount on navigation
+          drives the M12 top→bottom apply. */}
+      <main
+        key={page}
+        className="flex-1 max-w-[1280px] w-full mx-auto px-6 md:px-12 py-12 md:py-16 space-y-32"
+      >
+        {page === 'overview' && <OverviewBody period={period} />}
+        {page === 'activity' && <ActivityBody period={period} />}
+        {page === 'code' && <CodeBody period={period} />}
       </main>
 
       {/* Bottom Footer (matching reference bottom bar "END OF RECORD") */}
@@ -113,9 +92,36 @@ export default function App() {
           </span>
         </div>
       </footer>
+
+      {/* SYNC.04 system monitor — app-level, persists across all pages */}
+      <SyncMonitor />
     </div>
     </LedgerContext.Provider>
+    </IdentityContext.Provider>
   );
+}
+
+/* OVERVIEW — app start through THE SHAPE OF YOUR WORK, inclusive. */
+function OverviewBody({ period }: { period: Period }) {
+  const ledger = useLedger();
+  return (
+    <>
+      <M12 i={0}><Section01Measure period={period} daysData={ledger.days} /></M12>
+      <M12 i={4}><Section02Field period={period} /></M12>
+      <M12 i={8}><Section03Index period={period} /></M12>
+      <M12 i={12}><Section04Archive period={period} /></M12>
+    </>
+  );
+}
+
+/* ACTIVITY — the Activity record, up to (not including) Source Composition. */
+function ActivityBody({ period }: { period: Period }) {
+  return <ActivityPage period={period} />;
+}
+
+/* CODE — Source Composition through end of record. */
+function CodeBody({ period }: { period: Period }) {
+  return <CodePage period={period} />;
 }
 
 const MONTH_SHORT = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
