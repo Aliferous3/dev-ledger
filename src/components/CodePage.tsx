@@ -9,6 +9,7 @@ import { GrowthCurve, type GrowthPoint } from '../code/GrowthCurve';
 import { ProjectTable, type ProjectRow } from '../code/ProjectTable';
 import { CodeIntelligence, type IntelMetric } from '../code/CodeIntelligence';
 import { ChurnTable, type ChurnRow } from '../code/ChurnTable';
+import { M12 } from '../ledger/m12';
 
 const MONTH_NAMES = [
   'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
@@ -143,29 +144,39 @@ export function CodePage({ period }: Props) {
   return (
     <section id="section-06" className="relative scroll-mt-28 space-y-12">
       {/* 1 — Source composition header + totals */}
-      <CodeHeader totals={totals} langCount={langRows.length} />
+      <M12 i={0} id="code-header">
+        <CodeHeader totals={totals} langCount={langRows.length} />
+      </M12>
 
       {/* 2 — Language treemap mosaic (name + size per language) */}
-      <LanguageTreemap langs={langRows} />
+      <M12 i={1} id="code-treemap">
+        <LanguageTreemap langs={langRows} />
+      </M12>
 
       {/* 3 — Analysis row: growth curve | bytes/churn project table */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 pt-6 border-t border-neutral-900">
-        <div className="lg:col-span-7">
-          <div className="mono-tag text-[10px] text-[#d6ff3e] mb-4">
-            $ GIT LOG --STAT --GRAPH // GROWTH
+      <M12 i={2} id="code-growth">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 pt-6 border-t border-neutral-900">
+          <div className="lg:col-span-7">
+            <div className="mono-tag text-[10px] text-[#d6ff3e] mb-4">
+              $ GIT LOG --STAT --GRAPH // GROWTH
+            </div>
+            <GrowthCurve points={growth} />
           </div>
-          <GrowthCurve points={growth} />
+          <div className="lg:col-span-5" id="code-projects">
+            <ProjectTable projects={projects} />
+          </div>
         </div>
-        <div className="lg:col-span-5">
-          <ProjectTable projects={projects} />
-        </div>
-      </div>
+      </M12>
 
       {/* 4 — Code Intelligence spec cards */}
-      <CodeIntelligence metrics={intel} />
+      <M12 i={3} id="code-intel">
+        <CodeIntelligence metrics={intel} />
+      </M12>
 
       {/* 5 — Source churn table */}
-      <ChurnTable rows={churnRows} />
+      <M12 i={4} id="code-churn">
+        <ChurnTable rows={churnRows} />
+      </M12>
     </section>
   );
 }

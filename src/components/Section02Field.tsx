@@ -11,6 +11,7 @@ import {
 } from '../fieldData';
 import { useLedger } from '../store/live';
 import { CellTooltip } from '../field/Tooltip';
+import { m12CellRef, m12Delay } from '../ledger/m12';
 
 interface Props {
   period: Period;
@@ -133,6 +134,7 @@ export function Section02Field({ period }: Props) {
                     return (
                       <div
                         key={cell.iso}
+                        ref={m12CellRef}
                         onMouseEnter={(e) => {
                           setHoverCell(cell);
                           const r = e.currentTarget.getBoundingClientRect();
@@ -142,8 +144,9 @@ export function Section02Field({ period }: Props) {
                             bottom: r.bottom,
                           });
                         }}
-                        className="flex items-center justify-center text-[11px] leading-[14px] cursor-crosshair transition-all duration-100"
+                        className="m12 flex items-center justify-center text-[11px] leading-[14px] cursor-crosshair transition-all duration-100"
                         style={{
+                          ...m12Delay(week.index),
                           color: hovered
                             ? '#d6ff3e'
                             : cell.intensity === 4

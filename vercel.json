@@ -8,6 +8,11 @@
   },
   "crons": [
     { "path": "/api/cron/sync", "schedule": "0 2 * * *" }
+  ],
+  "rewrites": [
+    { "source": "/overview", "destination": "/index.html" },
+    { "source": "/activity", "destination": "/index.html" },
+    { "source": "/code", "destination": "/index.html" }
   ]
 }
 

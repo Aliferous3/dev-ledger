@@ -1,43 +1,35 @@
 import type { Period } from '../types';
 import { TerminalTicker } from './TerminalTicker';
 import { AccountMenu } from './AccountMenu';
-import { SECTIONS, sectionLabel, useActiveSection } from '../sections';
+import { PAGES, type PageId } from '../pages';
 
 interface Props {
   period: Period;
   setPeriod: (p: Period) => void;
-  navigate: (id: string, label: string) => void;
-  firing: boolean;
+  page: PageId;
+  navigate: (page: PageId) => void;
   netGrowth: number;
   commits: number;
 }
 
 const PERIODS: Period[] = ['7D', '30D', '90D', 'YTD', '1Y', 'ALL'];
 
-/* Production header — BAND.10 KEYPAD adapted to the real six-view app.
+/* Production header — BAND.10 KEYPAD adapted to the three-page app.
    Row 2: brand + shortcut hint + RANGE readout + global period + user.
-   Row 3: keypad nav keys (numeric shortcuts, Boot Log transitions).
+   Row 3: keypad nav — exactly OVERVIEW / ACTIVITY / CODE.
    Row 4: the canonical telemetry marquee (unchanged). */
-export function TerminalTickerHeader({ period, setPeriod, navigate, firing }: Props) {
-  const active = useActiveSection();
-
-  const go = (i: number) => {
-    const s = SECTIONS[i];
-    if (s) navigate(s.id, sectionLabel(s));
-  };
-
+export function TerminalTickerHeader({ period, setPeriod, page, navigate }: Props) {
   return (
     <header className="sticky top-0 z-50 bg-[#0a0a0a]/90 backdrop-blur-md border-b border-neutral-900">
       <div
         tabIndex={0}
         onKeyDown={(e) => {
-          if (firing) return;
           const t = e.target as HTMLElement;
           if (t.closest('input, textarea, [contenteditable="true"]')) return;
           const n = parseInt(e.key, 10);
-          if (n >= 1 && n <= SECTIONS.length) {
+          if (n >= 1 && n <= PAGES.length) {
             e.preventDefault();
-            go(n - 1);
+            navigate(PAGES[n - 1].id);
           }
         }}
         className="max-w-[1360px] mx-auto px-6 md:px-12 py-3 outline-none focus:ring-1 focus:ring-[#d6ff3e]/30"
@@ -59,7 +51,7 @@ export function TerminalTickerHeader({ period, setPeriod, navigate, firing }: Pr
           </div>
 
           <span className="mono-tag text-[8px] text-neutral-600 hidden lg:inline">
-            press 1–{SECTIONS.length} · focus panel
+            press 1–{PAGES.length} · focus panel
           </span>
 
           <div className="flex items-center gap-2 ml-auto flex-wrap">
@@ -101,19 +93,19 @@ export function TerminalTickerHeader({ period, setPeriod, navigate, firing }: Pr
           </div>
         </div>
 
-        {/* ROW 3 — keypad nav: one key per major view, numeric shortcut */}
+        {/* ROW 3 — page nav: exactly OVERVIEW / ACTIVITY / CODE */}
         <nav
-          aria-label="Major views"
-          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 mt-3"
+          aria-label="Pages"
+          className="grid grid-cols-3 gap-1.5 mt-3"
         >
-          {SECTIONS.map((s, i) => {
-            const on = active === s.id;
+          {PAGES.map((p, i) => {
+            const on = page === p.id;
             return (
               <button
-                key={s.id}
+                key={p.id}
                 type="button"
-                aria-pressed={on}
-                onClick={() => go(i)}
+                aria-current={on ? 'page' : undefined}
+                onClick={() => navigate(p.id)}
                 className={`flex items-center justify-between px-3 py-2 border transition-all ${
                   on
                     ? 'border-[#d6ff3e] bg-[#d6ff3e] text-black'
@@ -121,7 +113,7 @@ export function TerminalTickerHeader({ period, setPeriod, navigate, firing }: Pr
                 }`}
               >
                 <span className="mono-tag text-[9px]">
-                  {s.num} {s.name}
+                  {p.num} {p.name}
                 </span>
                 <kbd
                   className={`mono-tag text-[8px] px-1.5 py-0.5 border ${

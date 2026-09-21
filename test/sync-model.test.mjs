@@ -134,12 +134,12 @@ test('rateLimitElapsed resumes only after resume_at passes', () => {
 
 test('instrument mounts once inside the ledger provider, not per-section', () => {
   const app = src('src/App.tsx')
-  const mounts = app.match(/<SyncInstrument\s*\/>/g) || []
+  const mounts = app.match(/<SyncMonitor\s*\/>/g) || []
   assert.equal(mounts.length, 1)
 })
 
 test('instrument never carries credentials or raw payloads to the DOM', () => {
-  const c = src('src/components/SyncInstrument.tsx')
+  const c = src('src/components/SyncMonitor.tsx')
   assert.ok(!/access_token|installation_token|service_role|SESSION_SECRET/i.test(c))
 })
 
