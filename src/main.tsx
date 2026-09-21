@@ -23,7 +23,9 @@ function Gate() {
     let live = true;
     fetch("/api/user", { credentials: "same-origin" })
       .then(async (res) => {
-        // Dev/static preview has no API — a non-JSON response means signed out.
+        // A real backend always answers /api/user with JSON. The only
+        // non-JSON 200 is the vite static fallback (no API → preview bypass
+        // is allowed). A non-JSON error still proves an API exists.
         const isJson = (res.headers.get("content-type") || "").includes("json");
         const body = isJson ? await res.json().catch(() => null) : null;
         if (!live) return;
