@@ -13,6 +13,7 @@ import { RhythmStream } from '../activity/RhythmStream';
 import { ActivityCharts, type MonthBucket, type WeekdayBucket } from '../activity/ActivityCharts';
 import { ActivityMilestones, type Milestone } from '../activity/ActivityMilestones';
 import { M12 } from '../ledger/m12';
+import { SkChart, SkHeatmap, SkMetric, SkRows } from '../ledger/Skeleton';
 
 interface Props {
   period: Period;
@@ -42,7 +43,7 @@ export function ActivityPage({ period }: Props) {
 
   // Live day-cells + weekday×hour rhythm from the dashboard store —
   // fixture fallback when the API is unreachable.
-  const { cells, end, rhythm } = useLedger();
+  const { cells, end, rhythm, resolving } = useLedger();
 
   // All date-addressable data derives from the same day-cell telemetry the
   // FIELD matrix reads, filtered by the canonical global period.
@@ -58,25 +59,25 @@ export function ActivityPage({ period }: Props) {
     const mc = maxBy(dayCells, (c) => c.commits);
     if (mc)
       rows.push({
-        id: 'commits', label: 'MOST COMMITS IN A DAY', value: String(mc.commits),
+        id: 'commits', label: 'MOST COMMITS IN A DAY', valueNum: mc.commits, valueFmt: 'grouped',
         date: mc.iso, detail: `${WD[mc.date.getDay()]} · +${fmtCompact(mc.added)} / −${fmtCompact(mc.deleted)}`,
       });
     const ch = maxBy(dayCells, (c) => c.added + c.deleted);
     if (ch)
       rows.push({
-        id: 'churn', label: 'HIGHEST CHURN DAY', value: fmtCompact(ch.added + ch.deleted),
+        id: 'churn', label: 'HIGHEST CHURN DAY', valueNum: ch.added + ch.deleted, valueFmt: 'compact',
         date: ch.iso, detail: `${WD[ch.date.getDay()]} · ${ch.commits} COMMITS`,
       });
     const ad = maxBy(dayCells, (c) => c.added);
     if (ad)
       rows.push({
-        id: 'added', label: 'MOST LINES ADDED', value: fmtCompact(ad.added),
+        id: 'added', label: 'MOST LINES ADDED', valueNum: ad.added, valueFmt: 'compact',
         date: ad.iso, detail: `${WD[ad.date.getDay()]} · −${fmtCompact(ad.deleted)} REMOVED`,
       });
     const de = maxBy(dayCells, (c) => c.deleted);
     if (de)
       rows.push({
-        id: 'deleted', label: 'MOST LINES DELETED', value: fmtCompact(de.deleted),
+        id: 'deleted', label: 'MOST LINES DELETED', valueNum: de.deleted, valueFmt: 'compact',
         date: de.iso, detail: `${WD[de.date.getDay()]} · +${fmtCompact(de.added)} ADDED`,
       });
     return rows;
@@ -153,37 +154,71 @@ export function ActivityPage({ period }: Props) {
       {/* 1 — Page header: radar-style composition (lime eyebrow, serif
           title, mono sub) with the shared dial-focus readout on the right. */}
       <M12 i={0} id="activity-header">
-        <ActivityHeader activeHour={activeHour} totalCommits={totalCommits} rhythm={rhythm} />
+        <ActivityHeader activeHour={activeHour} totalCommits={totalCommits} rhythm={rhythm} resolving={resolving} />
       </M12>
 
       {/* 2 — Extremes specification table (Blueprint source, real values) */}
       <M12 i={1} id="activity-extremes">
-        <ActivityExtremes rows={extremes} />
+        {resolving ? (
+          <div className="border border-neutral-800 bg-black/40 px-4 py-4">
+            <SkRows rows={4} cols={[200, 112, 96, '1fr']} h={22} rowGap={18} />
+          </div>
+        ) : (
+          <ActivityExtremes rows={extremes} />
+        )}
       </M12>
 
       {/* 3 — Circadian radar body + distribution (hour state lifted here) */}
       <M12 i={2} id="activity-radar">
-        <CircadianRadar
-          activeHour={activeHour}
-          onHover={setHoveredSlice}
-          onSelect={setSelectedHour}
-          rhythm={rhythm}
-        />
+        {resolving ? (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center bg-black/40 border border-neutral-900 p-6 md:p-8">
+            <div className="lg:col-span-7"><SkChart h={280} /></div>
+            <div className="lg:col-span-5 space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <SkMetric key={i} labelW="40%" valueH={24} valueW={64} />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <CircadianRadar
+            activeHour={activeHour}
+            onHover={setHoveredSlice}
+            onSelect={setSelectedHour}
+            rhythm={rhythm}
+          />
+        )}
       </M12>
 
       {/* 4 — CRT RHYTHM_STREAM ASCII matrix (own probe sweep) */}
       <M12 i={3} id="activity-rhythm">
-        <RhythmStream rhythm={rhythm} />
+        {resolving ? (
+          <SkHeatmap cols={24} rows={7} cell={14} gap={2} />
+        ) : (
+          <RhythmStream rhythm={rhythm} />
+        )}
       </M12>
 
       {/* 5 — Three mini charts, real period-filtered data */}
       <M12 i={4} id="activity-charts">
-        <ActivityCharts months={months} weekdays={weekdays} />
+        {resolving ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-neutral-900">
+            <SkChart h={112} /><SkChart h={112} /><SkChart h={112} />
+          </div>
+        ) : (
+          <ActivityCharts months={months} weekdays={weekdays} />
+        )}
       </M12>
 
       {/* 6 — Milestones + active months ranking */}
       <M12 i={5} id="activity-milestones">
-        <ActivityMilestones milestones={milestones} months={activeMonths} />
+        {resolving ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-neutral-900">
+            <SkRows rows={4} cols={[96, '1fr']} h={14} rowGap={16} />
+            <SkRows rows={5} cols={['1fr', 56]} h={18} rowGap={14} />
+          </div>
+        ) : (
+          <ActivityMilestones milestones={milestones} months={activeMonths} />
+        )}
       </M12>
     </section>
   );

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { fmtBytes, fmtCompact } from '../codeData';
 import { m12Delay, registerM12 } from '../ledger/m12';
+import { NumBytes, NumCompact } from '../ledger/Num';
 
 export interface ProjectRow {
   name: string;
@@ -61,8 +61,8 @@ export function ProjectTable({ projects }: { projects: ProjectRow[] }) {
                   {p.name}
                 </span>
               </div>
-              <span className="font-editorial text-lg text-neutral-100 group-hover:text-[#d6ff3e] transition-colors tabular-nums">
-                {tab === 'bytes' ? fmtBytes(v) : fmtCompact(v)}
+              <span className="font-editorial text-lg text-neutral-100 group-hover:text-[#d6ff3e] transition-colors tabular-nums inline-flex justify-end">
+                {tab === 'bytes' ? <NumBytes value={v} /> : <NumCompact value={v} />}
               </span>
               <span
                 className="absolute bottom-0 left-0 h-px bg-[#d6ff3e]/70 transition-all duration-500"

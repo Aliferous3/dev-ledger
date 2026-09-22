@@ -1,6 +1,10 @@
+import { NumCompact, NumPct } from '../ledger/Num';
+
 export interface IntelMetric {
   label: string;
-  value: string;
+  /** raw value — null renders the '—' no-data mark, never a fake 0 */
+  valueNum: number | null;
+  valueFmt: 'pct' | 'compact';
   sub: string;
   pct: number; // bar fill 0-100
 }
@@ -20,7 +24,15 @@ export function CodeIntelligence({ metrics }: { metrics: IntelMetric[] }) {
               <span>{m.label}</span>
               <span className="text-[#d6ff3e]">C-0{i + 1}</span>
             </div>
-            <div className="font-editorial text-4xl text-neutral-100 mt-2 tabular-nums">{m.value}</div>
+            <div className="font-editorial text-4xl text-neutral-100 mt-2 tabular-nums">
+              {m.valueNum === null ? (
+                '—'
+              ) : m.valueFmt === 'pct' ? (
+                <NumPct value={m.valueNum} />
+              ) : (
+                <NumCompact value={m.valueNum} />
+              )}
+            </div>
             <div className="mono-tag text-[8px] text-neutral-600 mt-1 truncate" title={m.sub}>
               {m.sub}
             </div>

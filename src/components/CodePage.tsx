@@ -2,7 +2,8 @@ import { useMemo } from 'react';
 import type { Period } from '../types';
 import { inPeriod } from '../fieldData';
 import { useLedger } from '../store/live';
-import { fmtBytes, fmtCompact } from '../codeData';
+import { fmtCompact } from '../codeData';
+import { SkChart, SkMetric, SkRows } from '../ledger/Skeleton';
 import { CodeHeader, type CodeTotals } from '../code/CodeHeader';
 import { LanguageTreemap } from '../code/LanguageTreemap';
 import { GrowthCurve, type GrowthPoint } from '../code/GrowthCurve';
@@ -35,7 +36,7 @@ function monthInRange(
 export function CodePage({ period }: Props) {
   // Live telemetry: day-cells, language corpus and repoMonthly all come
   // from the dashboard store (fixture fallback when the API is offline).
-  const { cells, end, all, range, langRows } = useLedger();
+  const { cells, end, all, range, langRows, resolving } = useLedger();
   // Line-change telemetry: same day-cells FIELD/Activity read.
   const lineStats = useMemo(() => {
     const vis = cells.filter((c) => inPeriod(c.date, period, end));
@@ -52,11 +53,11 @@ export function CodePage({ period }: Props) {
 
   const langTotal = langRows.reduce((a, l) => a + l.bytes, 0);
   const totals: CodeTotals = {
-    sourceBytes: fmtBytes(langTotal), // working-tree snapshot
+    sourceBytes: langTotal, // working-tree snapshot — raw bytes
     linesAdded: lineStats.added,
     linesDeleted: lineStats.deleted,
     netLines: lineStats.net,
-    totalChurn: fmtCompact(lineStats.churn),
+    totalChurn: lineStats.churn,
   };
 
   // Project churn is repo-attributed monthly telemetry — filtered to the
@@ -104,25 +105,29 @@ export function CodePage({ period }: Props) {
     return [
       {
         label: 'REFACTOR RATIO',
-        value: added > 0 ? `${((deleted / added) * 100).toFixed(1)}%` : '—',
+        valueNum: added > 0 ? (deleted / added) * 100 : null,
+        valueFmt: 'pct',
         sub: `${fmtCompact(deleted)} DEL / ${fmtCompact(added)} ADD`,
         pct: added > 0 ? (deleted / added) * 100 : 0,
       },
       {
         label: 'RETENTION RATIO',
-        value: added > 0 ? `${((net / added) * 100).toFixed(1)}%` : '—',
+        valueNum: added > 0 ? (net / added) * 100 : null,
+        valueFmt: 'pct',
         sub: `${fmtCompact(net)} NET / ${fmtCompact(added)} ADD`,
         pct: added > 0 ? Math.max(0, (net / added) * 100) : 0,
       },
       {
         label: 'CHURN / ACTIVE DAY',
-        value: fmtCompact(churnPerDay),
+        valueNum: churnPerDay,
+        valueFmt: 'compact',
         sub: `${fmtCompact(churn)} / ${activeDays} DAYS`,
         pct: Math.min(100, churnPerDay / 1000),
       },
       {
         label: 'CHURN CONCENTRATION',
-        value: `${concentration.toFixed(1)}%`,
+        valueNum: concentration,
+        valueFmt: 'pct',
         sub: top ? top.name.toUpperCase() : '—',
         pct: concentration,
       },
@@ -145,16 +150,32 @@ export function CodePage({ period }: Props) {
     <section id="section-06" className="relative scroll-mt-28 space-y-12">
       {/* 1 — Source composition header + totals */}
       <M12 i={0} id="code-header">
-        <CodeHeader totals={totals} langCount={langRows.length} />
+        <CodeHeader totals={totals} langCount={langRows.length} resolving={resolving} />
       </M12>
 
       {/* 2 — Language treemap mosaic (name + size per language) */}
       <M12 i={1} id="code-treemap">
-        <LanguageTreemap langs={langRows} />
+        {resolving ? (
+          <div className="flex gap-px border border-neutral-900">
+            {[42, 27, 18, 13].map((w, i) => (
+              <div key={i} style={{ flexBasis: `${w}%` }}>
+                <SkChart h={160} className="border-0" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <LanguageTreemap langs={langRows} />
+        )}
       </M12>
 
       {/* 3 — Analysis row: growth curve | bytes/churn project table */}
       <M12 i={2} id="code-growth">
+        {resolving ? (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 pt-6 border-t border-neutral-900">
+            <div className="lg:col-span-7"><SkChart h={190} /></div>
+            <div className="lg:col-span-5"><SkRows rows={6} cols={[24, '1fr', 72]} h={15} rowGap={20} /></div>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 pt-6 border-t border-neutral-900">
           <div className="lg:col-span-7">
             <div className="mono-tag text-[10px] text-[#d6ff3e] mb-4">
@@ -166,16 +187,33 @@ export function CodePage({ period }: Props) {
             <ProjectTable projects={projects} />
           </div>
         </div>
+        )}
       </M12>
 
       {/* 4 — Code Intelligence spec cards */}
       <M12 i={3} id="code-intel">
-        <CodeIntelligence metrics={intel} />
+        {resolving ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="relative border border-neutral-800 p-4 bg-neutral-950/40">
+                <SkMetric labelW="60%" valueH={34} valueW={90} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <CodeIntelligence metrics={intel} />
+        )}
       </M12>
 
       {/* 5 — Source churn table */}
       <M12 i={4} id="code-churn">
-        <ChurnTable rows={churnRows} />
+        {resolving ? (
+          <div className="border border-neutral-800 bg-black/40 px-4 py-3">
+            <SkRows rows={6} cols={[24, '1fr', 128, 64]} h={14} rowGap={18} />
+          </div>
+        ) : (
+          <ChurnTable rows={churnRows} />
+        )}
       </M12>
     </section>
   );

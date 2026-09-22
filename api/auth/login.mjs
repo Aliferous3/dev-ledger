@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { getSession } from '../../lib/auth.mjs'
 import { github, appUrl } from '../../lib/config.mjs'
 
@@ -6,7 +7,11 @@ export default async function handler(req, res) {
   // browser-session cookie (no Max-Age/Expires).
   const remember = req.query?.remember === '1' || req.query?.remember === 'true'
   const session = await getSession(req, res, { persistent: remember })
-  const state = Buffer.from(JSON.stringify({ at: Date.now() })).toString('base64url')
+  // Random state bound to the sealed session + a 15-minute freshness bound
+  // enforced at the callback.
+  const state = Buffer.from(
+    JSON.stringify({ at: Date.now(), r: crypto.randomBytes(16).toString('base64url') }),
+  ).toString('base64url')
   session.oauthState = state
   // Carried inside the sealed session so the preference survives the GitHub
   // OAuth round-trip without weakening state validation.

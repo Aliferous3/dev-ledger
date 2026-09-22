@@ -188,7 +188,7 @@ export const DASHBOARD = {
     languageBytes: [...langTotals.values()].reduce((a, b) => a + b, 0),
   },
   github: { connected: true, pullRequests: 439, mergedPrs: 426, revoked: false },
-  sync: { status: 'idle', progress: 1 },
+  sync: { status: 'idle', progress: 0 },
   rangeCoverage: { status: 'complete' },
   repositories,
   languages: [...langTotals.entries()]

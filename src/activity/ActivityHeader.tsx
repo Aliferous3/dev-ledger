@@ -1,4 +1,6 @@
 import type { RhythmBundle } from '../store/live';
+import { NumGrouped } from '../ledger/Num';
+import { SkNum } from '../ledger/Skeleton';
 
 /* Page header — Attachment 2 composition (lime eyebrow, serif title, mono
    sub, divider) with the DIAL FOCUS readout bound to the shared radar
@@ -7,10 +9,12 @@ export function ActivityHeader({
   activeHour,
   totalCommits,
   rhythm,
+  resolving = false,
 }: {
   activeHour: number;
   totalCommits: number;
   rhythm: RhythmBundle;
+  resolving?: boolean;
 }) {
   const [pwStart, pwEnd] = rhythm.highlights.peakWindow.split('–').map((s) => parseInt(s, 10));
   const inPeak = activeHour >= pwStart && activeHour <= pwEnd;
@@ -24,7 +28,7 @@ export function ActivityHeader({
         </div>
         <h2 className="font-editorial text-4xl sm:text-5xl text-neutral-100 mt-2">Activity</h2>
         <div className="mono-tag text-[9px] text-neutral-500 mt-1">
-          POLAR PROJECTION OF {totalCommits.toLocaleString('en-US')} COMMITS ACROSS 24 HOURS
+          POLAR PROJECTION OF {resolving ? <SkNum h={9} w={64} className="inline-block align-baseline" /> : <NumGrouped value={totalCommits} className="inline-flex" />} COMMITS ACROSS 24 HOURS
         </div>
       </div>
 

@@ -123,6 +123,10 @@ export interface RhythmBundle {
 export interface LedgerStore {
   /** true when /api/dashboard responded; false = bundled fixture fallback */
   live: boolean;
+  /** true while the first /api/dashboard fetch is in flight — pages render
+      skeleton geometry instead of fixture stand-ins or placeholder zeros.
+      Settles false on success AND on failure (fixture fallback is data). */
+  resolving: boolean;
   /** payload scoped to the selected global period (?range=) */
   dash: DashboardData;
   /** all-time payload — structural data (field grid, archive span, lanes) */
@@ -342,6 +346,7 @@ function fixtureStore(period: Period): LedgerStore {
   const endIso = '2026-09-20';
   return {
     live: false,
+    resolving: false,
     dash: FIXTURE,
     all: FIXTURE,
     days: DATA_365,
@@ -371,6 +376,12 @@ export function useDashboardStore(period: Period): LedgerStore {
   const requested = useRef(new Set<string>());
   const pumping = useRef(false);
   const [pumpingState, setPumpingState] = useState(false);
+  // First-load resolution: skeletons render until the initial dashboard
+  // fetches settle. Settled counts successes AND failures — a failed fetch
+  // falls back to bundled fixtures, which are real renderable data, not a
+  // loading state.
+  const settled = useRef(new Set<string>());
+  const [settleTick, setSettleTick] = useState(0);
 
   // Fetch the period-scoped payload on every period change (backend respects
   // the range) and the all-time payload once for structural views.
@@ -380,6 +391,8 @@ export function useDashboardStore(period: Period): LedgerStore {
       if (requested.current.has(m)) continue;
       requested.current.add(m);
       fetchDashboard(m).then((d) => {
+        settled.current.add(m);
+        setSettleTick((t) => t + 1);
         if (d) setPayloads((p) => ({ ...p, [m]: d }));
       });
     }
@@ -460,8 +473,17 @@ export function useDashboardStore(period: Period): LedgerStore {
     // resumeAt re-derives cadence targets; status changes restart the poll.
   }, [live, syncStatus, resumeAt, pumpingState, syncNow]);
 
+  // Skeleton window: still waiting on the first payload(s). Once live, or
+  // once every requested fetch has settled, data (real or fixture) owns
+  // the surface.
+  const resolving = !live && !(settleTick > 0 && ['all', mode].every((m) => settled.current.has(m)));
+
   return useMemo<LedgerStore>(() => {
-    if (!live) return fixtureStore(period);
+    // Fixture fallback still wires the REAL sync pump — SYNC NOW must fire
+    // the canonical /api/sync POST even when the dashboard payload isn't
+    // live (vite preview, transient fetch failure). If no API exists the
+    // POST fails fast and the pump settles back to fixture state.
+    if (!live) return { ...fixtureStore(period), resolving, syncNow, pumping: pumpingState };
 
     const endIso =
       all.daily[all.daily.length - 1]?.date ??
@@ -475,6 +497,7 @@ export function useDashboardStore(period: Period): LedgerStore {
 
     return {
       live: true,
+      resolving,
       dash,
       all,
       days: daysFromDaily(all.daily, endIso),
@@ -492,7 +515,7 @@ export function useDashboardStore(period: Period): LedgerStore {
       syncNow,
       pumping: pumpingState,
     };
-  }, [live, all, dash, period, syncNow, pumpingState]);
+  }, [live, all, dash, period, syncNow, pumpingState, resolving]);
 }
 
 export const LedgerContext = createContext<LedgerStore | null>(null);

@@ -1,22 +1,14 @@
 import React from 'react'
-import NumberFlow from '@number-flow/react'
+import { Num } from '../ledger/Num'
 
+// Retained-surface adapter — delegates to the shared Num wrapper so every
+// animated number in the app shares the same timing/easing/trend=0 grammar.
 export function AnimatedNumber({ value, compact = false, signed = false, className = '' }) {
   if (value == null || (typeof value === 'number' && isNaN(value))) {
     return <span className={className}>—</span>
   }
   const format = compact
-    ? { notation: 'compact', signDisplay: signed ? 'exceptZero' : 'auto' }
+    ? { notation: 'compact', signDisplay: signed ? 'exceptZero' : 'auto', maximumFractionDigits: 1 }
     : { useGrouping: true, signDisplay: signed ? 'exceptZero' : 'auto' }
-  return (
-    <NumberFlow
-      value={Number(value)}
-      format={format}
-      className={className}
-      transformTiming={{ duration: 500, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' }}
-      spinTiming={{ duration: 400, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' }}
-      opacityTiming={{ duration: 280, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' }}
-      respectMotionPreference
-    />
-  )
+  return <Num value={Number(value)} format={format} className={className} />
 }

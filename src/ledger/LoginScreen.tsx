@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import type { GridCell } from './data';
 import { BranchGraph } from './BranchGraph';
 import { LedgerBoxes, BoxReadout, GithubButton, useReveal, usePrefersReducedMotion } from './shared';
+import { VapourTitle } from './VapourTitle';
+import { m12Delay, registerM12 } from './m12';
 
 /* LEDGER.02 — CONSOLE STACK · terminal window, typewriter, packet line.
    The Dev Ledger login screen: Variant02 internals verbatim, scaled to a
@@ -35,8 +37,9 @@ export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
         style={{ background: 'radial-gradient(ellipse 75% 45% at 50% 22%, rgba(214,255,62,0.05), transparent 70%)' }}
       />
       <div ref={ref} className="reveal relative w-full min-h-[calc(100vh-2rem)] sm:min-h-[calc(100vh-3rem)] border border-neutral-800 bg-black overflow-hidden glow-card">
-        {/* window chrome — deliberately full width */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-900 bg-[#0e0e0e]">
+        {/* window chrome — deliberately full width; M12 applies it first
+            as the registration mark the rest of the page diffs onto */}
+        <div ref={registerM12} style={m12Delay(0)} className="m12 relative flex items-center justify-between px-4 py-2.5 border-b border-neutral-900 bg-[#0e0e0e]">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-[#2a2a2a]" />
             <span className="w-2 h-2 rounded-full bg-[#2a2a2a]" />
@@ -49,7 +52,7 @@ export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
         </div>
 
         {/* reverse marquee — deliberately full width */}
-        <div className="overflow-hidden border-b border-neutral-900 py-1 bg-[#0a0a0a]">
+        <div ref={registerM12} style={m12Delay(1)} className="m12 relative overflow-hidden border-b border-neutral-900 py-1 bg-[#0a0a0a]">
           <div className="marquee-track-rev flex whitespace-nowrap mono-tag text-[9px] text-neutral-600">
             {[0, 1].map((k) => (
               <span key={k} className="flex shrink-0">
@@ -67,14 +70,20 @@ export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
 
           <div className="relative mx-auto w-full max-w-[960px] min-w-0 space-y-6">
             <div className="relative text-center">
-              <div className="mono-tag text-[9px] text-[#d6ff3e]">BODY OF WORK — THE DEVELOPER'S RECORD</div>
-              <h1 className="font-editorial font-light text-[clamp(2.2rem,5.6vw,4.4rem)] leading-none mt-2">DEV LEDGER</h1>
-              <p className="font-editorial italic text-sm text-neutral-400 mt-2">Your GitHub history, made legible.</p>
+              <div ref={registerM12} style={m12Delay(2)} className="m12 relative mono-tag text-[9px] text-[#d6ff3e]">BODY OF WORK — THE DEVELOPER'S RECORD</div>
+              {/* Vapour coalescence on the title — canvas particles resolve
+                  into the real h1 once, then the simulation stops. Reduced
+                  motion renders the title immediately. */}
+              <VapourTitle
+                text="DEV LEDGER"
+                className="font-editorial font-light text-[clamp(2.4rem,6.2vw,5.6rem)] leading-none mt-2"
+              />
+              <p ref={registerM12} style={m12Delay(3)} className="m12 relative font-editorial italic text-sm text-neutral-400 mt-2">Your GitHub history, made legible.</p>
             </div>
 
             {/* mission line — full content width, 22px single line on desktop,
                 cqw-scaled only on narrow viewports */}
-            <div className="relative min-w-0 w-[100cqw] ml-[calc((100%-100cqw)/2)] text-center">
+            <div ref={registerM12} style={m12Delay(4)} className="m12 relative min-w-0 w-[100cqw] ml-[calc((100%-100cqw)/2)] text-center">
               <p
                 className="font-mono whitespace-nowrap max-md:whitespace-normal"
                 style={{ fontSize: 'clamp(11px, 1.7cqw, 22px)', letterSpacing: '-0.1em' }}
@@ -83,22 +92,24 @@ export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
               </p>
             </div>
 
-            <div className="relative border border-neutral-900 bg-[#0c0c0c]/80 p-3 md:p-5">
+            <div ref={registerM12} style={m12Delay(5)} className="m12 relative border border-neutral-900 bg-[#0c0c0c]/80 p-3 md:p-5">
               <div className="mono-tag text-[9px] text-neutral-500 mb-2 flex justify-between"><span>$ git log --graph --oneline</span><span className="text-[#d6ff3e]">PACKET ▸ FLOWING</span></div>
               <BranchGraph layout="h" idPrefix="v2" />
             </div>
 
-            <div className="relative border border-neutral-900 bg-[#0c0c0c]/80 p-3 md:p-5 overflow-hidden">
+            <div ref={registerM12} style={m12Delay(6)} className="m12 relative border border-neutral-900 bg-[#0c0c0c]/80 p-3 md:p-5 overflow-hidden">
               <div className="relative">
                 <LedgerBoxes hovered={hovered} setHovered={setHovered} cell={10} gap={3} />
                 <div className="mt-2"><BoxReadout hovered={hovered} /></div>
               </div>
             </div>
 
-            <div className="grid md:grid-cols-[1fr_auto] gap-5 items-end">
-              <pre className="font-mono text-[10px] leading-5 text-neutral-400 whitespace-pre-wrap min-h-[80px]">{shown}<span className="type-caret text-[#d6ff3e]">▌</span></pre>
+            <div className="relative grid md:grid-cols-[1fr_auto] gap-5 items-end">
+              <pre ref={registerM12} style={m12Delay(7)} className="m12 relative font-mono text-[10px] leading-5 text-neutral-400 whitespace-pre-wrap min-h-[80px]">{shown}<span className="type-caret text-[#d6ff3e]">▌</span></pre>
               <div className="flex flex-col items-start md:items-end gap-2.5">
-                <label className="mono-tag text-[9px] text-neutral-500 flex items-center gap-2 cursor-pointer select-none hover:text-neutral-300 transition-colors">
+                {/* Controls stay clickable while their entrance plays —
+                    .m12-wait is opacity-only, never pointer-events. */}
+                <label ref={registerM12} style={m12Delay(8)} className="m12 relative mono-tag text-[9px] text-neutral-500 flex items-center gap-2 cursor-pointer select-none hover:text-neutral-300 transition-colors">
                   <input
                     type="checkbox"
                     checked={remember}
@@ -107,7 +118,9 @@ export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
                   />
                   KEEP ME SIGNED IN
                 </label>
-                <GithubButton onLogin={onLogin} remember={remember} />
+                <div ref={registerM12} style={m12Delay(9)} className="m12 relative">
+                  <GithubButton onLogin={onLogin} remember={remember} />
+                </div>
               </div>
             </div>
           </div>
