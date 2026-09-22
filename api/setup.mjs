@@ -14,24 +14,29 @@ export default async function handler(req, res) {
 
   const { installation_id: installationId } = req.query || {}
   if (installationId && supabase) {
+    // The query param is attacker-controllable — an installation id only
+    // proves the app was installed SOMEWHERE. Linking a foreign id here
+    // would mint that installation's tokens under this user and ingest its
+    // repositories into the wrong tenant. Link only when the installation's
+    // target account IS the signed-in user; org installs are linked by the
+    // OAuth-callback discovery (listInstallationsForAuthenticatedUser)
+    // which GitHub itself verifies against the user's token.
     try {
       const octokit = await getAppOctokit()
       const { data: inst } = await octokit.rest.apps.getInstallation({ installation_id: Number(installationId) })
-      await supabase.from('github_installations').upsert({
-        user_id: session.userId,
-        installation_id: inst.id,
-        account_id: inst.account?.id,
-        account_login: inst.account?.login,
-        account_type: inst.account?.type,
-      }, { onConflict: 'user_id,installation_id' })
+      if (inst?.account?.id === session.githubUserId) {
+        await supabase.from('github_installations').upsert({
+          user_id: session.userId,
+          installation_id: inst.id,
+          account_id: inst.account?.id,
+          account_login: inst.account?.login,
+          account_type: inst.account?.type,
+        }, { onConflict: 'user_id,installation_id' })
+        await setUserSync(session.userId, { status: 'syncing', phase: 'discover' })
+      }
     } catch {
-      // Still record the installation id — discovery will surface problems.
-      await supabase.from('github_installations').upsert({
-        user_id: session.userId,
-        installation_id: Number(installationId),
-      }, { onConflict: 'user_id,installation_id' })
+      // Unknown/foreign installation — never record an unverified id.
     }
-    await setUserSync(session.userId, { status: 'syncing', phase: 'discover' })
   }
 
   res.writeHead(302, { Location: '/?installed=1' })

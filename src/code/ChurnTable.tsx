@@ -1,5 +1,5 @@
-import { fmtCompact } from '../codeData';
 import { m12Delay, registerM12 } from '../ledger/m12';
+import { NumCompact, NumGrouped } from '../ledger/Num';
 
 export interface ChurnRow {
   rank: string;
@@ -15,7 +15,7 @@ export function ChurnTable({ rows }: { rows: ChurnRow[] }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between mono-tag text-[10px] text-neutral-400">
         <span>SOURCE CHURN TABLE</span>
-        <span className="text-neutral-600">{rows.length} CHURN SOURCES</span>
+        <span className="text-neutral-600 inline-flex gap-1"><NumGrouped value={rows.length} /> CHURN SOURCES</span>
       </div>
       <div className="border border-neutral-800 divide-y divide-neutral-900 bg-black/40">
         {rows.map((p, i) => (
@@ -37,8 +37,8 @@ export function ChurnTable({ rows }: { rows: ChurnRow[] }) {
                 style={{ width: `${Math.max(0.8, (p.churn / max) * 100)}%` }}
               />
             </div>
-            <span className="font-editorial text-lg text-neutral-100 w-16 text-right tabular-nums">
-              {fmtCompact(p.churn)}
+            <span className="font-editorial text-lg text-neutral-100 w-16 text-right tabular-nums inline-flex justify-end">
+              <NumCompact value={p.churn} />
             </span>
           </div>
         ))}

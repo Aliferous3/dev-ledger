@@ -32,6 +32,7 @@ dev-ledger-snapshot.json
 .*.mjs
 .qa-cookie*
 .arena/
+.zipstudy/
 api/qa-session.mjs
 
 # local build cache

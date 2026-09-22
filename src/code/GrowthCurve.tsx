@@ -1,5 +1,5 @@
 import { smoothPath } from '../retained/primitives';
-import { fmtCompact } from '../codeData';
+import { NumCompact } from '../ledger/Num';
 
 export interface GrowthPoint {
   label: string; // 'SEP'
@@ -44,8 +44,8 @@ export function GrowthCurve({ points }: { points: GrowthPoint[] }) {
           </span>
         ))}
       </div>
-      <div className="mono-tag text-[8px] text-neutral-600 mt-1">
-        CUMULATIVE NET SOURCE ADDITIONS · PEAK {fmtCompact(max)}
+      <div className="mono-tag text-[8px] text-neutral-600 mt-1 inline-flex gap-1">
+        CUMULATIVE NET SOURCE ADDITIONS · PEAK <NumCompact value={max} />
       </div>
     </div>
   );

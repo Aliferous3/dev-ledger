@@ -27,10 +27,3 @@ export interface RepoItem {
   angle: number;
   radius: number;
 }
-
-export type ArchiveTab =
-  | 'F · 01 FINGERPRINT'
-  | 'F · 02 SUCCESSION'
-  | 'F · 03 LIFECYCLE'
-  | 'F · 04 MIGRATION'
-  | 'F · 05 SPAN';

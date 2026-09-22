@@ -21,21 +21,37 @@ export default async function handler(req, res) {
       const { data: inst } = appOctokit
         ? await appOctokit.rest.apps.getInstallation({ installation_id: Number(installationId) }).catch(() => ({ data: null }))
         : { data: null }
-      await supabase.from('github_installations').upsert({
-        user_id: session.userId,
-        installation_id: Number(installationId),
-        account_id: inst?.account?.id,
-        account_login: inst?.account?.login,
-        account_type: inst?.account?.type,
-      }, { onConflict: 'user_id,installation_id' })
-      await setUserSync(session.userId, { status: 'syncing', phase: 'discover' })
+      // Attacker-controllable query param: link only when the installation's
+      // target account IS the signed-in user. Org installs are linked by the
+      // OAuth discovery path below (GitHub verifies against the user token).
+      if (inst?.account?.id === session.githubUserId) {
+        await supabase.from('github_installations').upsert({
+          user_id: session.userId,
+          installation_id: inst.id,
+          account_id: inst.account?.id,
+          account_login: inst.account?.login,
+          account_type: inst.account?.type,
+        }, { onConflict: 'user_id,installation_id' })
+        await setUserSync(session.userId, { status: 'syncing', phase: 'discover' })
+      }
     }
     res.writeHead(302, { Location: '/' })
     res.end()
     return
   }
 
-  if (!code || !state || state !== session.oauthState) {
+  // State must match the sealed session AND be fresh (15 min) — a stale
+  // state should not complete an OAuth round-trip forever.
+  let stateOk = false
+  if (code && state && state === session.oauthState) {
+    try {
+      const parsed = JSON.parse(Buffer.from(String(state), 'base64url').toString('utf8'))
+      stateOk = Number.isFinite(parsed.at) && Date.now() - parsed.at < 15 * 60 * 1000
+    } catch {
+      stateOk = false
+    }
+  }
+  if (!stateOk) {
     res.status(400).json({ error: 'Invalid OAuth state' })
     return
   }
@@ -102,25 +118,28 @@ export default async function handler(req, res) {
     session.githubLogin = user.login
     await session.save()
 
-    if (installationId) {
-      const appOctokit = await getAppOctokit().catch(() => null)
-      const { data: inst } = appOctokit
-        ? await appOctokit.rest.apps.getInstallation({ installation_id: Number(installationId) }).catch(() => ({ data: null }))
-        : { data: null }
-      await supabase.from('github_installations').upsert({
-        user_id: dbUser.id,
-        installation_id: Number(installationId),
-        account_id: inst?.account?.id,
-        account_login: inst?.account?.login,
-        account_type: inst?.account?.type,
-      }, { onConflict: 'user_id,installation_id' })
-    }
-
     // Discover every installation of this app accessible to the user token.
     const { data: discovered } = await userOctokit.rest.apps
       .listInstallationsForAuthenticatedUser({ per_page: 100 })
       .catch(() => ({ data: { installations: [] } }))
     installations = discovered?.installations || []
+
+    // A query-param installation_id is only honored when GitHub itself
+    // reports it as accessible to this user token — never trust the raw
+    // param, it would let a caller graft a foreign installation onto their
+    // tenant.
+    if (installationId) {
+      const inst = installations.find((i) => i.id === Number(installationId))
+      if (inst) {
+        await supabase.from('github_installations').upsert({
+          user_id: dbUser.id,
+          installation_id: inst.id,
+          account_id: inst.account?.id,
+          account_login: inst.account?.login,
+          account_type: inst.account?.type,
+        }, { onConflict: 'user_id,installation_id' })
+      }
+    }
     for (const inst of installations) {
       await supabase.from('github_installations').upsert({
         user_id: dbUser.id,

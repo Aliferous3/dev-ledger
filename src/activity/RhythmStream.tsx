@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getRhythmLevel } from '../activityData';
 import type { RhythmBundle } from '../store/live';
 import { usePrefersReducedMotion } from '../ledger/shared';
+import { NumGrouped } from '../ledger/Num';
 
 const BLOCKS = ['·', '░', '▒', '▓', '█'] as const;
 
@@ -93,7 +94,7 @@ export function RhythmStream({ rhythm }: { rhythm: RhythmBundle }) {
                   );
                 })}
               </div>
-              <span className="mono-tag text-[9px] text-neutral-500 text-right tabular-nums">{d.total}</span>
+              <span className="mono-tag text-[9px] text-neutral-500 text-right tabular-nums inline-flex justify-end"><NumGrouped value={d.total} /></span>
             </div>
           ))}
         </div>

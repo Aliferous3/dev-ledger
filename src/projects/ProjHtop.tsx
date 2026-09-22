@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Period } from '../types';
 import { useLedger } from '../store/live';
-import { formatBytes } from '../fieldData';
+import { Num, NumCompact, NumGrouped, NumPct } from '../ledger/Num';
 
 /* ================================================================== */
 /* PROJECTS / PAGE 02 — HTOP / PROCESS MONITOR                         */
@@ -66,7 +66,6 @@ export function ProjHtop({ period, pager }: Props) {
           99,
           Math.round(100 * (0.6 * (r.commits / maxC) + 0.4 * (r.churn / maxCh))),
         ),
-        churnStr: r.churn > 0 ? formatBytes(r.churn) : '0',
       }))
       .sort((a, b) => b.momentum - a.momentum);
     return {
@@ -99,11 +98,11 @@ export function ProjHtop({ period, pager }: Props) {
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 border-t border-neutral-900 mt-2">
           {[
-            ['REPOSITORIES', String(REPOSITORIES.length)],
-            ['TOTAL CHURN', totals.churn > 0 ? formatBytes(totals.churn) : '0'],
-            ['COMMITS', totals.commits.toLocaleString('en-US')],
-            ['ACTIVE DAYS', String(totals.days)],
-          ].map(([k, v], i) => (
+            ['REPOSITORIES', 'grouped', REPOSITORIES.length],
+            ['TOTAL CHURN', 'compact', totals.churn],
+            ['COMMITS', 'grouped', totals.commits],
+            ['ACTIVE DAYS', 'grouped', totals.days],
+          ].map(([k, fmt, v], i) => (
             <div
               key={k}
               className={`py-4 ${i > 0 ? 'md:border-l md:border-neutral-900 md:pl-6' : ''} group cursor-default`}
@@ -111,8 +110,8 @@ export function ProjHtop({ period, pager }: Props) {
               <div className="mono-tag text-[9px] text-neutral-500 group-hover:text-[#d6ff3e] transition-colors">
                 {k} I
               </div>
-              <div className="font-editorial text-5xl text-neutral-100 mt-1 group-hover:text-[#d6ff3e] transition-colors tabular-nums">
-                {v}
+              <div className="font-editorial text-5xl text-neutral-100 mt-1 group-hover:text-[#d6ff3e] transition-colors tabular-nums inline-flex">
+                {fmt === 'compact' ? <NumCompact value={v as number} /> : <NumGrouped value={v as number} />}
               </div>
             </div>
           ))}
@@ -139,15 +138,16 @@ export function ProjHtop({ period, pager }: Props) {
               <Gauge label="MOM AVG" pct={jitter(momAvg, 0)} />
               <Gauge label="CHURN IO" pct={jitter(churnIo, 1)} />
               <div className="mono-tag text-[9px] text-neutral-500 mt-1">
-                Tasks: <span className="text-neutral-200">{REPOSITORIES.length}</span> total,{' '}
-                <span className="text-[#d6ff3e]">{stateCount('ACTIVE')}</span> running,{' '}
-                <span className="text-neutral-400">{stateCount('STEADY')}</span> steady,{' '}
-                <span className="text-neutral-500">{stateCount('QUIET')}</span> quiet,{' '}
-                <span className="text-neutral-600">{stateCount('DORMANT')}</span> dormant
+                Tasks: <span className="text-neutral-200 inline-flex"><NumGrouped value={REPOSITORIES.length} /></span> total,{' '}
+                <span className="text-[#d6ff3e] inline-flex"><NumGrouped value={stateCount('ACTIVE')} /></span> running,{' '}
+                <span className="text-neutral-400 inline-flex"><NumGrouped value={stateCount('STEADY')} /></span> steady,{' '}
+                <span className="text-neutral-500 inline-flex"><NumGrouped value={stateCount('QUIET')} /></span> quiet,{' '}
+                <span className="text-neutral-600 inline-flex"><NumGrouped value={stateCount('DORMANT')} /></span> dormant
               </div>
               <div className="mono-tag text-[9px] text-neutral-500 mt-1">
-                Load average: <span className="text-[#d6ff3e]">{(rows[0]?.momentum ?? 0) / 100}</span>{' '}
-                {((rows[1]?.momentum ?? 0) / 100).toFixed(2)} {((rows[2]?.momentum ?? 0) / 100).toFixed(2)} · {period}
+                Load average: <span className="text-[#d6ff3e] inline-flex"><Num value={(rows[0]?.momentum ?? 0) / 100} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} /></span>{' '}
+                <Num value={(rows[1]?.momentum ?? 0) / 100} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} className="inline-flex" />{' '}
+                <Num value={(rows[2]?.momentum ?? 0) / 100} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} className="inline-flex" /> · {period}
               </div>
             </div>
 
@@ -183,11 +183,11 @@ export function ProjHtop({ period, pager }: Props) {
                     <span className={on ? 'text-black' : 'text-[#d6ff3e]'}>{'|'.repeat(bars)}</span>
                     <span className={on ? 'text-black/40' : 'text-neutral-800'}>{'.'.repeat(24 - bars)}</span>
                     <span className={on ? 'text-black' : 'text-neutral-600'}>]</span>
-                    <span className="ml-1">{m}%</span>
+                    <span className="ml-1 inline-flex"><NumPct value={m} /></span>
                   </span>
-                  <span className="text-right tabular-nums">{r.churnStr}</span>
-                  <span className="text-right tabular-nums">{r.commits}</span>
-                  <span className="text-right tabular-nums">{r.days}</span>
+                  <span className="text-right tabular-nums inline-flex justify-end"><NumCompact value={r.churn} /></span>
+                  <span className="text-right tabular-nums inline-flex justify-end"><NumGrouped value={r.commits} /></span>
+                  <span className="text-right tabular-nums inline-flex justify-end"><NumGrouped value={r.days} /></span>
                   <span className={`text-right mono-tag text-[9px] ${on ? 'text-black' : stateColor(r.status)}`}>
                     {r.status}
                   </span>
@@ -221,7 +221,7 @@ function Gauge({ label, pct }: { label: string; pct: number }) {
         <span className="text-neutral-800">{'.'.repeat(30 - bars)}</span>
       </span>
       <span className="text-neutral-600">]</span>
-      <span className="text-neutral-300 tabular-nums w-9">{pct}%</span>
+      <span className="text-neutral-300 tabular-nums w-9 inline-flex"><NumPct value={pct} /></span>
     </div>
   );
 }

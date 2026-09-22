@@ -5,6 +5,8 @@ import { HistoricalLanes } from '../retained/HistoricalLanes';
 import { ProjHtop } from '../projects/ProjHtop';
 import { useBootTransition } from '../transitions/BootLog';
 import { m12Delay, registerM12 } from '../ledger/m12';
+import { NumGrouped } from '../ledger/Num';
+import { SkChart, SkRows } from '../ledger/Skeleton';
 
 interface Props {
   period: Period;
@@ -21,7 +23,7 @@ const Z_FIT = 0.8;
 export function Section03Index({ period }: Props) {
   // Live repositories (constellation + project directory) and the
   // period-scoped lane series — fixture fallback when the API is offline.
-  const { dash, repos: REPOSITORIES, range } = useLedger();
+  const { dash, repos: REPOSITORIES, range, resolving } = useLedger();
   const [selectedRepoId, setSelectedRepoId] = useState<string>('D.01');
   const [hoverRepoId, setHoverRepoId] = useState<string | null>(null);
   const [hoverRing, setHoverRing] = useState<number | null>(null);
@@ -63,6 +65,10 @@ export function Section03Index({ period }: Props) {
         </div>
 
         <div className="relative bg-black/60 border border-neutral-900 h-[280px] sm:h-[320px] overflow-hidden flex items-center justify-center select-none">
+          {resolving ? (
+            <SkChart h={240} className="mx-4" />
+          ) : (
+          <>
           {/* Subtle CRT background grid */}
           <div className="pointer-events-none absolute inset-0 terminal-grid opacity-25" />
 
@@ -235,12 +241,16 @@ export function Section03Index({ period }: Props) {
             })}
             </g>
           </svg>
+          </>
+          )}
 
           {/* Bottom HUD bar inside constellation */}
+          {!resolving && (
           <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between text-[9px] mono-tag text-neutral-600">
             <span>COORDS: LAT 44.8 · LNG 11.2 // POLAR RETICLE</span>
             <span className="text-[#d6ff3e]">ACTIVE: {activeId}</span>
           </div>
+          )}
         </div>
       </div>
 
@@ -253,7 +263,12 @@ export function Section03Index({ period }: Props) {
             <ProjPager page={projPage} disabled={firing} onSelect={gotoProjPage} />
           </div>
           <div className="border border-neutral-900 divide-y divide-neutral-900 bg-black/40">
-            {REPOSITORIES.map((repo, i) => {
+            {resolving ? (
+              <div className="px-4 sm:px-6 py-5">
+                <SkRows rows={6} cols={[32, '1fr', 96, 80, 64, 64]} h={16} rowGap={22} />
+              </div>
+            ) : (
+            REPOSITORIES.map((repo, i) => {
           const isSelected = activeId === repo.id;
           return (
             <div
@@ -307,13 +322,13 @@ export function Section03Index({ period }: Props) {
                 <span className="w-16 text-right font-medium text-neutral-200">
                   {repo.bytesStr}
                 </span>
-                <span className="w-16 text-right text-neutral-400">
-                  {repo.commits.toLocaleString('en-US')}
+                <span className="w-16 text-right text-neutral-400 inline-flex justify-end">
+                  <NumGrouped value={repo.commits} />
                 </span>
               </div>
             </div>
           );
-        })}
+        }))}
           </div>
         </div>
       ) : (

@@ -20,6 +20,24 @@ html, body, #root {
   font-feature-settings: 'cv01', 'cv02';
 }
 
+/* Shared section-heading scale — every major page/section title renders
+   through this token so no single heading can drift into a one-off hero
+   treatment. */
+.section-heading {
+  font-family: 'Newsreader', 'Instrument Serif', Georgia, serif;
+  font-feature-settings: 'cv01', 'cv02';
+  font-weight: 400;
+  font-size: 2.25rem;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: #f5f5f5;
+}
+@media (min-width: 640px) {
+  .section-heading {
+    font-size: 3rem;
+  }
+}
+
 /* Subtle scanline grid background */
 .terminal-grid {
   background-image:
@@ -337,6 +355,52 @@ html, body, #root {
   animation: diff-glyph 0.6s ease-out both;
 }
 
+/* SYNC.04 indeterminate meter — a phase the backend reports as running but
+   with no done/total pair gets a sliding two-cell sweep over the ghost
+   track instead of a fabricated fill. Steps() keeps it a strict ASCII
+   cell walk; reduced-motion parks the marker mid-track. */
+.mon-indet { position: relative; display: inline-block; }
+.mon-indet > .mon-indet-sweep {
+  position: absolute;
+  left: 0;
+  top: 0;
+  animation: mon-indet-walk 0.9s steps(9) infinite alternate;
+}
+@keyframes mon-indet-walk {
+  from { transform: translateX(0); }
+  to { transform: translateX(8ch); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mon-indet > .mon-indet-sweep { animation: none; transform: translateX(4ch); }
+}
+
+/* Skeleton blocks — an unpopulated technical record: near-black fill,
+   zinc hairline edge, low-luminance settle. No shimmer gradients. */
+.sk {
+  background: #131413;
+  border: 1px solid #1e1f1d;
+  position: relative;
+  overflow: hidden;
+}
+.sk::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(150, 150, 142, 0.06), transparent);
+  animation: sk-settle 1.6s ease-in-out infinite;
+  transform: translateX(-100%);
+}
+@keyframes sk-settle {
+  to { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sk::after { animation: none; }
+}
+
+/* Floating surfaces that dim when overlapping content (SYNC.MON) — the
+   class carries the transition; opacity itself is set inline per state. */
+.mon-occlude { transition: opacity 0.2s ease-out; }
+
 /* Reduced motion — flatten animation for accessibility */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -347,11 +411,7 @@ html, body, #root {
   }
 }
 
-/* Mobile: retained 12-col figure grids stack vertically below md — zero the
-   column gaps so the fixed gap total can't push past the viewport. */
-@media (max-width: 767px) {
-  #section-04 .grid-cols-12 { column-gap: 0; }
-}
+
 
 /* Keypad header — slow conic ring spin on the user avatar */
 @keyframes spin-slower {

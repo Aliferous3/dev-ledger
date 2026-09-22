@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Period } from './types';
 import { IdentityContext, LedgerContext, useDashboardStore, useLedger, type Identity } from './store/live';
-import { useRoute } from './pages';
+import { useRoute, DEFAULT_PERIOD, periodFromQuery, rangeSearch } from './pages';
 import { TerminalTickerHeader } from './components/TerminalTickerHeader';
 import { UtilityBar } from './components/UtilityBar';
 import { SyncMonitor } from './components/SyncMonitor';
@@ -9,7 +9,6 @@ import { RightSidebarNav } from './components/RightSidebarNav';
 import { Section01Measure } from './components/Section01Measure';
 import { Section02Field } from './components/Section02Field';
 import { Section03Index } from './components/Section03Index';
-import { Section04Archive } from './components/Section04Archive';
 import { ActivityPage } from './components/ActivityPage';
 import { CodePage } from './components/CodePage';
 import { M12 } from './ledger/m12';
@@ -21,9 +20,28 @@ import { M12 } from './ledger/m12';
    fresh and its blocks apply via the M12 git-diff entrance. */
 
 export default function App({ me = null }: { me?: Identity | null }) {
-  const [period, setPeriod] = useState<Period>('1Y');
+  // Default window is 90D; an explicit ?range=<preset> in the URL wins.
+  const [period, setPeriodState] = useState<Period>(
+    () => periodFromQuery(window.location.search) ?? DEFAULT_PERIOD,
+  );
   const [crtOn, setCrtOn] = useState(false);
   const { page, navigate } = useRoute();
+
+  // Explicit user selection is written to ?range= so refresh/back keep it;
+  // the default keeps the canonical clean URL.
+  const setPeriod = useCallback((p: Period) => {
+    setPeriodState(p);
+    const url = window.location.pathname + rangeSearch(p) + window.location.hash;
+    history.pushState({ period: p }, '', url);
+  }, []);
+
+  // Back/forward through range entries resolves canonically (clean → 90D).
+  useEffect(() => {
+    const onPop = () =>
+      setPeriodState(periodFromQuery(window.location.search) ?? DEFAULT_PERIOD);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   // Live production telemetry (or the bundled fixture when /api/dashboard is
   // unreachable — e.g. vite-only dev). `dash` is scoped to the global period
@@ -101,7 +119,7 @@ export default function App({ me = null }: { me?: Identity | null }) {
   );
 }
 
-/* OVERVIEW — app start through THE SHAPE OF YOUR WORK, inclusive. */
+/* OVERVIEW — app start through the repository INDEX, inclusive. */
 function OverviewBody({ period }: { period: Period }) {
   const ledger = useLedger();
   return (
@@ -109,7 +127,6 @@ function OverviewBody({ period }: { period: Period }) {
       <M12 i={0}><Section01Measure period={period} daysData={ledger.days} /></M12>
       <M12 i={4}><Section02Field period={period} /></M12>
       <M12 i={8}><Section03Index period={period} /></M12>
-      <M12 i={12}><Section04Archive period={period} /></M12>
     </>
   );
 }

@@ -6,12 +6,13 @@ import {
   inPeriod,
   computeStats,
   formatBytes,
-  formatNumber,
   type DayCell,
 } from '../fieldData';
 import { useLedger } from '../store/live';
 import { CellTooltip } from '../field/Tooltip';
 import { m12CellRef, m12Delay } from '../ledger/m12';
+import { NumBytes, NumGrouped } from '../ledger/Num';
+import { SkHeatmap, SkNum } from '../ledger/Skeleton';
 
 interface Props {
   period: Period;
@@ -28,7 +29,7 @@ const TIP_GAP = 10;
 export function Section02Field({ period }: Props) {
   // Live telemetry cells/weeks/languages from the dashboard store — falls
   // back to the bundled fixtures when the API is unreachable.
-  const { cells, weeks, langs: languages, langTotal: languageTotal, end, all } = useLedger();
+  const { cells, weeks, langs: languages, langTotal: languageTotal, end, all, resolving } = useLedger();
   const [hoverCell, setHoverCell] = useState<DayCell | null>(null);
   const [tipCoords, setTipCoords] = useState<{ cx: number; top: number; bottom: number } | null>(null);
   const [hoverLang, setHoverLang] = useState<string | null>(null);
@@ -83,7 +84,7 @@ export function Section02Field({ period }: Props) {
             </span>
           </div>
           <div className="text-neutral-400">
-            <span className="text-[#d6ff3e]">58</span> / 365 DAYS ACTIVE
+            <span className="text-[#d6ff3e] inline-flex"><NumGrouped value={stats.activeDays} /></span> / {cells.length || 365} DAYS ACTIVE
           </div>
         </div>
 
@@ -101,6 +102,10 @@ export function Section02Field({ period }: Props) {
           </div>
 
           <div className="flex gap-2 min-w-[720px]">
+            {resolving ? (
+              <SkHeatmap cols={weeks.length || 52} rows={7} cell={12} gap={2} className="flex-1" />
+            ) : (
+            <>
             {/* Day of Week Labels */}
             <div className="flex flex-col justify-between py-[2px] pr-2 w-4 shrink-0">
               {DOW.map((d, i) => (
@@ -189,6 +194,8 @@ export function Section02Field({ period }: Props) {
                 ))}
               </div>
             </div>
+            </>
+            )}
           </div>
 
           {/* Tooltip HUD — portaled to body: escapes the scroll-clipped
@@ -221,7 +228,7 @@ export function Section02Field({ period }: Props) {
               {label}
             </div>
             <div className="mt-2 text-2xl text-neutral-100 tabular-nums tracking-tight group-hover:text-[#d6ff3e] transition-colors">
-              {formatNumber(value as number)}
+              {resolving ? <SkNum h={22} w="60%" /> : <NumGrouped value={value as number} />}
             </div>
           </div>
         ))}
@@ -343,7 +350,7 @@ export function Section02Field({ period }: Props) {
                   style={{ background: on ? '#d6ff3e' : '#f4f4f4' }}
                 />
                 {l.name.toUpperCase()}
-                <span className="ml-2 text-neutral-600">{formatBytes(l.bytes)}</span>
+                <span className="ml-2 text-neutral-600 inline-flex"><NumBytes value={l.bytes} /></span>
               </button>
             );
           })}
@@ -383,8 +390,8 @@ export function Section02Field({ period }: Props) {
                           {'█'.repeat(filled)}
                           <span className="text-neutral-800">{'░'.repeat(48 - filled)}</span>
                         </span>
-                        <span className={`w-20 text-right ${on ? 'text-[#d6ff3e]' : 'text-neutral-600'}`}>
-                          {formatBytes(l.bytes)}
+                        <span className={`w-20 text-right inline-flex justify-end ${on ? 'text-[#d6ff3e]' : 'text-neutral-600'}`}>
+                          <NumBytes value={l.bytes} />
                         </span>
                       </div>
                     );

@@ -1,4 +1,5 @@
 import type { RhythmBundle } from '../store/live';
+import { NumPct } from '../ledger/Num';
 
 /* Circadian radar body — extracted from ActivityRadar (Design 04) minus
    its internal page header. The active hour is owned by ActivityPage:
@@ -173,7 +174,7 @@ export function CircadianRadar({
             >
               <div className="flex justify-between items-baseline mb-1">
                 <span className="mono-tag text-[10px] text-neutral-200">{w.label}</span>
-                <span className="font-editorial text-2xl text-[#d6ff3e] tabular-nums">{w.pct}%</span>
+                <span className="font-editorial text-2xl text-[#d6ff3e] tabular-nums inline-flex"><NumPct value={w.pct} /></span>
               </div>
               <div className="w-full bg-neutral-900 h-1 overflow-hidden">
                 <div className="h-full bg-[#d6ff3e]" style={{ width: `${w.pct * 2.2}%` }} />
@@ -187,7 +188,7 @@ export function CircadianRadar({
           <div className="text-[#d6ff3e] font-semibold">// PEAK CADENCE LOCATED</div>
           <div>
             {rhythm.highlights.peakWeekday} {rhythm.highlights.peakWindow} UTC ACCOUNTS FOR{' '}
-            {rhythm.windows[3]?.pct}% OF ALL ENGINE COMMITS.
+            <NumPct value={rhythm.windows[3]?.pct ?? 0} className="inline-flex" /> OF ALL ENGINE COMMITS.
           </div>
         </div>
       </div>

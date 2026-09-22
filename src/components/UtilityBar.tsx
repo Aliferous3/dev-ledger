@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLedger } from '../store/live';
 import { formatLocalTime, resolveTimeZone } from '../ledger/sysTime.mjs';
 
 // System utility bar — sparse hairline row above the main header.
-// LEFT: local clock in the browser's IANA zone · CENTER/RIGHT: CRT toggle ·
-// RIGHT: sync status.
+// LEFT: local clock in the browser's IANA zone · RIGHT: CRT toggle.
+// Sync status has exactly one surface: the SYNC.MON monitor (fixed
+// bottom-right). No second indicator lives here.
 
 export function UtilityBar({
   crtOn,
@@ -16,17 +16,7 @@ export function UtilityBar({
   // null until the client clock ticks — a neutral placeholder beats an
   // incorrect render in any non-browser path.
   const [now, setNow] = useState<Date | null>(null);
-  const { dash, live } = useLedger();
   const timeZone = useMemo(resolveTimeZone, []);
-  // Live sync state from /api/dashboard — fixture mode reports SYNCED.
-  const syncing = live && dash.sync.status === 'syncing';
-  const syncLabel = syncing
-    ? `SYNCING ${Math.round((dash.sync.progress ?? 0) * 100)}%`
-    : live && dash.sync.status === 'revoked'
-      ? 'GITHUB REVOKED'
-      : live && dash.sync.status === 'error'
-        ? 'SYNC ERROR'
-        : 'ALL OBS. SYNCED';
 
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -59,12 +49,6 @@ export function UtilityBar({
             [{crtOn ? 'ON' : 'OFF'}]
           </span>
         </button>
-
-        {/* RIGHT — sync status */}
-        <span className="flex items-center gap-1.5 text-neutral-500 whitespace-nowrap">
-          <span className={`inline-block w-1.5 h-1.5 rounded-full pulse-dot ${syncing ? 'bg-amber-400' : 'bg-[#d6ff3e]'}`} />
-          {syncLabel}
-        </span>
       </div>
     </div>
   );

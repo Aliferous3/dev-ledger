@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { NumGrouped } from '../ledger/Num';
 
 export interface Milestone {
   id: string;
@@ -72,7 +73,7 @@ export function ActivityMilestones({
               <span className="text-neutral-500">
                 RANK 0{m.rank} // {m.date}
               </span>
-              <span className="font-editorial text-2xl text-neutral-100 tabular-nums">{m.commits}</span>
+              <span className="font-editorial text-2xl text-neutral-100 tabular-nums inline-flex"><NumGrouped value={m.commits} /></span>
             </div>
           ))}
         </div>

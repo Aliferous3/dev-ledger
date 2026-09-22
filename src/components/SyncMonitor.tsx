@@ -2,14 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { useIdentity, useLedger } from '../store/live';
 import { isSyncBlocked } from '../ledger/syncModel.mjs';
 import { manageReposUrl, reconnectUrl } from '../ledger/accountModel.mjs';
+import { Num, NumGrouped } from '../ledger/Num';
 import {
   COLLAPSE_HOLD_MS,
   MON_PHASES,
+  OPACITY_CLEAR,
+  OPACITY_OVERLAP_COLLAPSED,
+  OPACITY_OVERLAP_EXPANDED,
   collapsedFrac,
   collapsedLabel,
   monitorCounts,
   monitorRows,
   monitorTag,
+  occludedByContent,
   shouldAutoExpand,
 } from '../ledger/syncMonitorModel.mjs';
 
@@ -33,8 +38,22 @@ const HAIR = '#2b2c2b';
 const PANEL = '#151615';
 const CLAY = '#c08379';
 
-function Meter({ frac, on }: { frac: number; on: boolean }) {
+function Meter({ frac, on }: { frac: number | null; on: boolean }) {
   const n = 10;
+  // frac null = the backend reports work in flight but no done/total pair:
+  // render a moving indeterminate sweep, never a fabricated fill level.
+  if (frac === null) {
+    return (
+      <span className="font-mono text-[9px] tracking-tighter" aria-hidden>
+        <span style={{ color: DIM }}>[</span>
+        <span className="mon-indet">
+          <span style={{ color: FAINT }}>{'░'.repeat(n)}</span>
+          <span className="mon-indet-sweep" style={{ color: on ? INK : ZINC }}>{'█'.repeat(2)}</span>
+        </span>
+        <span style={{ color: DIM }}>]</span>
+      </span>
+    );
+  }
   const f = Math.round(Math.max(0, Math.min(1, frac)) * n);
   return (
     <span className="font-mono text-[9px] tracking-tighter" aria-hidden>
@@ -50,22 +69,25 @@ function Act({
   children,
   clay = false,
   onClick,
+  disabled = false,
 }: {
   children: React.ReactNode;
   clay?: boolean;
   onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group/act flex items-center gap-2 w-full text-left mono-tag text-[9px] py-[3px] transition-colors"
+      disabled={disabled}
+      className="group/act flex items-center gap-2 w-full text-left mono-tag text-[9px] py-[3px] transition-colors disabled:cursor-default"
       style={{ color: DIM }}
     >
       <span style={{ color: clay ? CLAY : DIM }}>&gt;</span>
       <span
-        className="transition-colors group-hover/act:!text-[#e9e9e6]"
-        style={{ color: clay ? CLAY : ZINC }}
+        className={`transition-colors ${disabled ? '' : 'group-hover/act:!text-[#e9e9e6]'}`}
+        style={{ color: disabled ? FAINT : clay ? CLAY : ZINC }}
       >
         {children}
       </span>
@@ -77,9 +99,16 @@ export function SyncMonitor() {
   const { dash, syncNow, pumping } = useLedger();
   const me = useIdentity();
   const sync = dash.sync;
-  const status = sync?.status || 'idle';
+  // `pumping` folds into the effective status the moment SYNC NOW fires —
+  // the panel expands and DISCOVER lights RUN before the first POST
+  // response lands, instead of sitting IDLE through the request gap.
+  const status = pumping && (!sync || sync.status === 'idle' || sync.status === 'complete')
+    ? 'syncing'
+    : sync?.status || 'idle';
 
   const [expanded, setExpanded] = useState(false);
+  const rootRef = useRef<HTMLElement | null>(null);
+  const [occluded, setOccluded] = useState(false);
   const [justDone, setJustDone] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   // A deliberate user expand pins the panel — the post-success hold must
@@ -112,6 +141,34 @@ export function SyncMonitor() {
     }
   }, [status]);
 
+  // Overlap-aware translucency: while the floating control sits over real
+  // page content it dims (collapsed ~78%, expanded ~94%); over empty
+  // background it stays opaque. rAF-throttled scroll/resize probe via
+  // elementsFromPoint at the control's center — not a raw scrollY check.
+  useEffect(() => {
+    let raf = 0;
+    const probe = () => {
+      raf = 0;
+      const el = rootRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const stack = document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const next = occludedByContent(stack, el);
+      setOccluded((v) => (v === next ? v : next));
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(probe);
+    };
+    probe();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    return () => {
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [expanded]);
+
   if (!sync) return null;
 
   const toggle = () => {
@@ -132,7 +189,11 @@ export function SyncMonitor() {
 
   const syncing = status === 'syncing' || pumping;
   const blocked = isSyncBlocked(status);
-  const rows = monitorRows(sync);
+  // Model functions read the effective sync (pumping folded in) so a fresh
+  // manual run shows RUN on DISCOVER immediately — not after the first
+  // POST round-trip.
+  const effSync = { ...sync, status };
+  const rows = monitorRows(effSync);
   const counts = monitorCounts(sync);
   // Prefer the concrete installation URL; the generic GitHub app-settings
   // page always works, so the action is never a dead button.
@@ -142,22 +203,34 @@ export function SyncMonitor() {
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   };
 
+  const opacity = occluded
+    ? expanded ? OPACITY_OVERLAP_EXPANDED : OPACITY_OVERLAP_COLLAPSED
+    : OPACITY_CLEAR;
+
   if (!expanded) {
     return (
       <button
         type="button"
+        ref={(el) => { rootRef.current = el; }}
         onClick={toggle}
         aria-expanded={false}
         aria-label="sync monitor — expand"
-        className="fixed bottom-4 right-4 z-[90] flex items-center gap-2 border px-3 py-2 transition-colors hover:border-[#4a4b49]"
-        style={{ background: PANEL, borderColor: blocked ? CLAY : HAIR }}
+        className="mon-occlude fixed bottom-4 right-4 z-[90] flex items-center gap-2 border px-3 py-2 hover:border-[#4a4b49]"
+        style={{ background: PANEL, borderColor: blocked ? CLAY : HAIR, opacity }}
       >
-        <Meter frac={collapsedFrac(sync, justDone)} on={syncing} />
+        <Meter frac={collapsedFrac(effSync, justDone)} on={syncing} />
         <span
-          className="mono-tag text-[8px]"
+          className="mono-tag text-[8px] inline-flex items-center gap-1"
           style={{ color: status === 'error' || status === 'revoked' ? CLAY : ZINC }}
         >
-          {collapsedLabel(sync, justDone)}
+          {status === 'syncing' && !justDone ? (
+            <>
+              <Num value={Math.round((sync?.progress || 0) * 100)} suffix="%" />
+              <span>SYNC</span>
+            </>
+          ) : (
+            collapsedLabel(effSync, justDone)
+          )}
         </span>
       </button>
     );
@@ -165,13 +238,15 @@ export function SyncMonitor() {
 
   return (
     <aside
+      ref={(el) => { rootRef.current = el; }}
       aria-label="sync monitor"
       onKeyDown={onKey}
-      className="fixed bottom-4 right-4 left-4 sm:left-auto sm:w-[280px] z-[90] border font-mono text-[9px] instrument-in"
+      className="mon-occlude fixed bottom-4 right-4 left-4 sm:left-auto sm:w-[280px] z-[90] border font-mono text-[9px] instrument-in"
       style={{
         background: PANEL,
         borderColor: status === 'revoked' ? FAINT : HAIR,
         borderStyle: status === 'revoked' ? 'dashed' : 'solid',
+        opacity,
       }}
     >
       <button
@@ -183,7 +258,13 @@ export function SyncMonitor() {
         style={{ borderColor: HAIR }}
       >
         <span style={{ color: INK }}>SYNC.MON</span>
-        <span style={{ color: DIM }}>{monitorTag(sync, justDone)}</span>
+        <span style={{ color: DIM }} className="inline-flex items-center">
+          {status === 'syncing' && !justDone ? (
+            <Num value={Math.round((sync?.progress || 0) * 100)} suffix="%" />
+          ) : (
+            monitorTag(effSync, justDone)
+          )}
+        </span>
       </button>
 
       <div className="px-3 py-2.5" aria-live="polite">
@@ -263,10 +344,16 @@ export function SyncMonitor() {
         className="px-3 py-2 border-t flex items-center justify-between mono-tag text-[7px]"
         style={{ borderColor: HAIR, color: DIM }}
       >
-        <span className="tabular-nums">
-          {counts.commits.toLocaleString('en-US')} CMT · {counts.pulls} PR · {counts.repos} REPO
+        <span className="tabular-nums inline-flex items-center gap-1">
+          <NumGrouped value={counts.commits} /> CMT · <NumGrouped value={counts.pulls} /> PR · <NumGrouped value={counts.repos} /> REPO
         </span>
-        <span>{monitorTag(sync, justDone)}</span>
+        <span className="inline-flex items-center">
+          {status === 'syncing' && !justDone ? (
+            <Num value={Math.round((sync?.progress || 0) * 100)} suffix="%" />
+          ) : (
+            monitorTag(effSync, justDone)
+          )}
+        </span>
       </div>
 
       {showDetail && (
@@ -281,7 +368,7 @@ export function SyncMonitor() {
           <div className="flex justify-between">
             <span>PROGRESS</span>
             <span className="tabular-nums" style={{ color: ZINC }}>
-              {Math.round((sync?.progress || 0) * 100)}%
+              <Num value={Math.round((sync?.progress || 0) * 100)} suffix="%" />
             </span>
           </div>
           <div className="flex justify-between">
@@ -311,6 +398,22 @@ export function SyncMonitor() {
           <>
             <Act clay onClick={() => syncNow()}>RETRY SYNC</Act>
             <Act onClick={() => setShowDetail((v) => !v)}>VIEW DETAILS</Act>
+          </>
+        ) : syncing ? (
+          <>
+            {/* No duplicate pumps while a run is in flight — the store's
+                pumping guard also early-returns, this is the honest UI. */}
+            <Act disabled>SYNCING…</Act>
+            <Act onClick={() => openExternal(installsUrl)}>MANAGE REPOSITORIES</Act>
+            <Act onClick={() => setShowDetail((v) => !v)}>VIEW SYNC DETAILS</Act>
+          </>
+        ) : status === 'rate_limited' ? (
+          <>
+            {/* Backend can't sync until resumeAt — the passive pump fires
+                syncNow() itself once the window passes. */}
+            <Act disabled>AWAITING RATE LIMIT</Act>
+            <Act onClick={() => openExternal(installsUrl)}>MANAGE REPOSITORIES</Act>
+            <Act onClick={() => setShowDetail((v) => !v)}>VIEW SYNC DETAILS</Act>
           </>
         ) : (
           <>

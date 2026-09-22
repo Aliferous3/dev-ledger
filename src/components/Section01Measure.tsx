@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import type { Period, MetricKey, DayData } from '../types';
 import { MonthBins } from './MonthBins';
 import { useLedger } from '../store/live';
+import { NumBytes, NumGrouped } from '../ledger/Num';
+import { SkNum } from '../ledger/Skeleton';
 
 interface Props {
   period: Period;
@@ -19,7 +21,7 @@ const TABS: { key: MetricKey; label: string; heroLabel: string }[] = [
 export function Section01Measure({ daysData }: Props) {
   const [activeTab, setActiveTab] = useState<MetricKey>('GROWTH');
   // Canonical period → ISO range (fixture window or live telemetry horizon).
-  const { range, all } = useLedger();
+  const { range, all, resolving } = useLedger();
   const metaFrom = range.from ?? all.workShape.span?.firstActive ?? '—';
   const metaTo = range.to ?? all.workShape.span?.lastActive ?? '—';
   const topLang = all.languages[0]?.language ?? '—';
@@ -36,7 +38,9 @@ export function Section01Measure({ daysData }: Props) {
     [daysData, range],
   );
 
-  // Hero value follows the active metric tab over the filtered range
+  // Hero value follows the active metric tab over the filtered range.
+  // Raw number — Num handles grouping + the + prefix and animates the
+  // transition when the metric tab or period changes.
   const heroValue = useMemo(() => {
     let cum = 0;
     for (const d of filteredDays) {
@@ -46,9 +50,10 @@ export function Section01Measure({ daysData }: Props) {
       else if (activeTab === 'CHURN') cum += d.added + d.deleted;
       else cum += d.commits;
     }
-    const sign = (activeTab === 'GROWTH' || activeTab === 'ADDED') && cum > 0 ? '+' : '';
-    return `${sign}${cum.toLocaleString('en-US')}`;
+    return cum;
   }, [filteredDays, activeTab]);
+  const heroSign =
+    (activeTab === 'GROWTH' || activeTab === 'ADDED') && heroValue > 0 ? '+' : '';
 
   const currentTabObj = TABS.find((t) => t.key === activeTab)!;
 
@@ -76,7 +81,11 @@ export function Section01Measure({ daysData }: Props) {
         {/* Large Editorial Serif Number */}
         <div className="relative inline-block group">
           <div className="text-6xl sm:text-8xl md:text-9xl font-editorial font-light text-neutral-100 tracking-tight select-none transition-all duration-300 group-hover:text-[#d6ff3e]">
-            {heroValue}
+            {resolving ? (
+              <SkNum h="0.85em" w="3.2em" className="mx-auto" />
+            ) : (
+              <NumGrouped value={heroValue} prefix={heroSign} />
+            )}
           </div>
           <div className="text-[9px] mono-tag text-neutral-600 opacity-0 group-hover:opacity-100 transition-opacity absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap">
             // TELEMETRY PEAK: SEP 2026
@@ -87,9 +96,9 @@ export function Section01Measure({ daysData }: Props) {
         <div className="pt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[10px] mono-tag text-neutral-500">
           <span>{metaFrom} — {metaTo}</span>
           <span className="text-neutral-700">·</span>
-          <span>SOURCE BYTES <span className="text-neutral-300">{(all.summary.languageBytes / 1_000_000).toFixed(1)} MB</span></span>
+          <span>SOURCE BYTES <span className="text-neutral-300"><NumBytes value={all.summary.languageBytes} /></span></span>
           <span className="text-neutral-700">·</span>
-          <span>{all.summary.repos} REPOSITORIES</span>
+          <span><NumGrouped value={all.summary.repos} /> REPOSITORIES</span>
           <span className="text-neutral-700">·</span>
           <span className="text-neutral-300">{topLang.toUpperCase()}</span>
         </div>

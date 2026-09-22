@@ -5,8 +5,11 @@ import { runSync } from '../../lib/sync.mjs'
 // on a rate limit whose resume time has passed, so a user can close the tab
 // during initial history import and it still finishes in the background.
 export default async function handler(req, res) {
+  // Fail closed: without CRON_SECRET there is nothing to authenticate
+  // against, so an unconfigured deployment must reject rather than expose
+  // a public "run sync work" trigger.
   const secret = process.env.CRON_SECRET
-  if (secret && req.headers.authorization !== `Bearer ${secret}`) {
+  if (!secret || req.headers.authorization !== `Bearer ${secret}`) {
     res.status(401).json({ error: 'Unauthorized' })
     return
   }

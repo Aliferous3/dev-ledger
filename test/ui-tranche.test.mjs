@@ -92,11 +92,11 @@ test('revoked: every row denied EACCES', () => {
   }
 })
 
-test('rate_limited keeps real in-flight state (resumes automatically)', () => {
+test('rate_limited marks in-flight rows RATE (resumes automatically)', () => {
   const rows = monitorRows(syncing({ status: 'rate_limited' }))
   assert.equal(rows[0].st, 'ok')
-  assert.equal(rows[1].st, 'run')
-  assert.equal(rows[2].st, 'run')
+  assert.equal(rows[1].st, 'rate')
+  assert.equal(rows[2].st, 'rate')
 })
 
 test('range sync drives the RANGE row', () => {

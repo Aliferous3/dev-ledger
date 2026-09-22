@@ -6,6 +6,12 @@ import { sessionLeaseMs } from '../../lib/config.mjs'
 // writes, no GitHub calls. getSession already rejects expired leases, so an
 // overdue beat arrives unauthenticated → 401.
 export default async function handler(req, res) {
+  // POST-only: the lease must never renew from a GET — otherwise any
+  // embedded image/prefetch could extend a session without real intent.
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' })
+    return
+  }
   const session = await getSession(req, res)
   if (!session.userId) {
     res.status(401).json({ ok: false, authenticated: false })

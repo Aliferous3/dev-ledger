@@ -1,7 +1,8 @@
 import { useCallback, useState } from 'react';
 import type { DayData } from '../types';
 import { smoothPath } from '../retained/primitives';
-import { fmt, fmtCompact } from '../codeData';
+import { fmt } from '../codeData';
+import { NumCompact } from '../ledger/Num';
 
 const W = 1000;
 const LIME = '#d6ff3e';
@@ -174,7 +175,7 @@ export function MonthBins({ days }: { days: DayData[] }) {
 
         {/* FIG. B — month buckets with nested day strips */}
         <div onMouseLeave={() => setIdx(null)}>
-          <FigHead tag="FIG. B" title="NET CHANGE BY MONTH · DAY DETAIL" right={`MAX ${fmtCompact(maxMonth)} / MO`} />
+          <FigHead tag="FIG. B" title="NET CHANGE BY MONTH · DAY DETAIL" right={<span className="inline-flex gap-1">MAX <NumCompact value={maxMonth} /> / MO</span>} />
           <div className="grid grid-cols-3 sm:grid-cols-6 md:grid-cols-12 gap-1.5">
             {months.map((m) => {
               const hot = m.days.some((d) => idx === d.i);
@@ -183,7 +184,7 @@ export function MonthBins({ days }: { days: DayData[] }) {
                 <div key={m.key}
                   className={`border p-2 transition-all duration-200 ${hot ? 'border-[#d6ff3e] bg-[#d6ff3e]/[0.07]' : 'border-neutral-900 bg-black/40 hover:border-neutral-700'}`}>
                   <div className={`mono-tag text-[8px] ${hot ? 'text-[#d6ff3e]' : 'text-neutral-500'}`}>{m.label}</div>
-                  <div className="font-editorial text-lg text-neutral-100 leading-none mt-1 tabular-nums">{fmtCompact(m.total)}</div>
+                  <div className="font-editorial text-lg text-neutral-100 leading-none mt-1 tabular-nums inline-flex"><NumCompact value={m.total} /></div>
                   <div className="h-1 bg-neutral-900 mt-2 overflow-hidden">
                     <div className="h-full bg-[#d6ff3e] transition-all duration-500" style={{ width: `${Math.max(0, m.total / maxMonth) * 100}%` }} />
                   </div>
