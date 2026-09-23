@@ -190,8 +190,8 @@ test('CI runs tests, build, and a gated npm audit', () => {
 
 test('CI builds BEFORE testing — the artifact scan must inspect a real dist/', () => {
   const wf = src(WORKFLOW);
-  const buildIdx = wf.indexOf('npm run build');
-  const testIdx = wf.indexOf('npm test');
+  const buildIdx = wf.indexOf('run: npm run build');
+  const testIdx = wf.indexOf('run: npm test');
   assert.ok(buildIdx > -1 && testIdx > -1, 'workflow must run both build and test');
   assert.ok(
     buildIdx < testIdx,
