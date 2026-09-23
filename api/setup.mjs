@@ -3,6 +3,7 @@ import { getSession, getAppOctokit } from '../lib/auth.mjs'
 import { supabase } from '../lib/db.mjs'
 import { isSessionLive } from '../lib/sessions.mjs'
 import { kickSync, runSync } from '../lib/sync.mjs'
+import { requestQuery } from '../lib/request-query.mjs'
 
 // GitHub App "Setup URL". After a user installs the app or modifies the
 // repository selection, GitHub redirects here with ?installation_id&setup_action.
@@ -14,7 +15,7 @@ export default async function handler(req, res) {
     return
   }
 
-  const { installation_id: installationId } = req.query || {}
+  const { installation_id: installationId } = requestQuery(req)
   if (installationId && supabase) {
     // The query param is attacker-controllable — an installation id only
     // proves the app was installed SOMEWHERE. Linking a foreign id here
