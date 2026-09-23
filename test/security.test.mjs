@@ -204,3 +204,34 @@ test('008 migration drops unused commit message and PR title columns', () => {
   assert.match(sql, /alter table public\.commits\s+drop column if exists message/i);
   assert.match(sql, /alter table public\.pull_requests\s+drop column if exists title/i);
 });
+
+
+/* ── Runtime hygiene: bypass Vercel's legacy req.query parser ── */
+
+test('API handlers do not access req.query (DEP0169 workaround)', () => {
+  const apiRoot = path.join(ROOT, 'api');
+  const files = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (/\.(mjs|js)$/.test(e.name)) files.push(p);
+    }
+  };
+  walk(apiRoot);
+  for (const f of files) {
+    const content = readFileSync(f, 'utf8');
+    assert.doesNotMatch(
+      content,
+      /\breq\.query\b/,
+      `${path.relative(ROOT, f)} accesses Vercel req.query and can trigger DEP0169`,
+    );
+  }
+});
+
+test('request query helper uses WHATWG URL parsing', () => {
+  const helper = src('lib/request-query.mjs');
+  assert.match(helper, /new URL\(/);
+  assert.doesNotMatch(helper, /from ['"](?:node:)?url['"]/);
+  assert.doesNotMatch(helper, /url\.parse|parseURL/);
+});
