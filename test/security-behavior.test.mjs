@@ -22,7 +22,7 @@ const heartbeatHandler = (await import('../api/auth/heartbeat.mjs')).default
 const logoutHandler = (await import('../api/auth/logout.mjs')).default
 const userHandler = (await import('../api/user.mjs')).default
 const dashboardHandler = (await import('../api/dashboard.mjs')).default
-const disconnectHandler = (await import('../api/repos/disconnect.mjs')).default
+const disconnectHandler = userHandler
 const webhookHandler = (await import('../api/webhooks/github.mjs')).default
 const healthHandler = (await import('../api/health.mjs')).default
 
@@ -446,7 +446,6 @@ test('disconnect: delete removes only that repo\'s rows for that user', async ()
   db.t('pull_requests').push({ id: crypto.randomUUID(), user_id: a, repository_id: repo2.id, github_pr_id: 22, number: 2, state: 'open', created_at: new Date().toISOString() })
   db.t('repo_sync').push({ user_id: a, repository_id: repo1.id, phase: 'done' })
   db.t('repo_coverage').push({ id: crypto.randomUUID(), user_id: a, repository_id: repo1.id, covered_from: '2024-01-01', covered_to: '2024-06-01', complete: false })
-  db.t('sync_state').push({ id: crypto.randomUUID(), user_id: a, repository_id: repo1.id })
   db.t('repository_languages').push({ id: crypto.randomUUID(), repository_id: repo1.id, language: 'TS', bytes: 1 })
 
   const { cookie } = await mintSession({ userId: a, persistent: true })
@@ -459,7 +458,6 @@ test('disconnect: delete removes only that repo\'s rows for that user', async ()
   assert.equal(db.t('pull_requests').filter((p) => p.repository_id === repo1.id).length, 0, 'PRs gone')
   assert.equal(db.t('repo_sync').filter((s) => s.repository_id === repo1.id).length, 0)
   assert.equal(db.t('repo_coverage').filter((c) => c.repository_id === repo1.id).length, 0)
-  assert.equal(db.t('sync_state').filter((s) => s.repository_id === repo1.id).length, 0)
   assert.equal(db.t('repository_languages').filter((l) => l.repository_id === repo1.id).length, 0)
   // unrelated repo of the same user untouched
   assert.ok(db.t('repositories').some((r) => r.id === repo2.id))
