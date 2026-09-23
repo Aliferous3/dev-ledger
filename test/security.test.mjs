@@ -82,15 +82,23 @@ test('built production artifact contains zero fixture identifiers', () => {
     // server-side secret env names must never reach the client bundle
     for (const secret of [
       'SUPABASE_SERVICE_ROLE_KEY',
+      'SUPABASE_DB_PASSWORD',
       'GITHUB_CLIENT_SECRET',
       'GITHUB_APP_PRIVATE_KEY',
       'GITHUB_WEBHOOK_SECRET',
       'SESSION_SECRET',
       'CRON_SECRET',
       'DATABASE_URL',
+      'VERCEL_TOKEN',
     ]) {
       assert.ok(!content.includes(secret), `${rel} leaks ${secret}`);
     }
+    // high-confidence credential material — a bundle never legitimately
+    // contains PEM blocks, GitHub PATs, or JWTs
+    assert.doesNotMatch(content, /-----BEGIN [A-Z ]*PRIVATE KEY-----/, `${rel} contains PEM private-key material`);
+    assert.doesNotMatch(content, /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}/, `${rel} contains a GitHub token`);
+    assert.doesNotMatch(content, /github_pat_[A-Za-z0-9_]{20,}/, `${rel} contains a fine-grained GitHub PAT`);
+    assert.doesNotMatch(content, /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/, `${rel} contains a JWT`);
   }
 });
 

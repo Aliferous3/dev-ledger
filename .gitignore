@@ -35,6 +35,10 @@ dev-ledger-snapshot.json
 .zipstudy/
 api/qa-session.mjs
 
+# supply-chain tooling artifacts — never commit downloaded binaries or SBOMs
+.gitleaks-dl/
+sbom*.json
+
 # local build cache
 .vite/
 
