@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { getIronSession } from 'iron-session'
-import { cookie as sessionCookie } from '../lib/config.mjs'
+import { cookie as sessionCookie, appUrl } from '../lib/config.mjs'
 import loginHandler from '../api/auth/login.mjs'
 import logoutHandler from '../api/auth/logout.mjs'
 import callbackHandler from '../api/auth/callback.mjs'
@@ -26,8 +26,22 @@ function mockRes() {
 }
 
 function mockReq(overrides = {}) {
-  return { method: 'GET', headers: {}, query: {}, ...overrides }
+  // Handlers read query via requestQuery(req) (WHATWG URL over req.url) —
+  // translate the legacy `query` override into the real url so tests match.
+  const { query, ...rest } = overrides
+  const req = { method: 'GET', headers: {}, ...rest }
+  if (query && Object.keys(query).length) {
+    const params = new URLSearchParams()
+    for (const [k, v] of Object.entries(query)) params.set(k, v)
+    req.url = `${req.url?.split('?')[0] || '/'}?${params}`
+  }
+  return req
 }
+
+// Logout is POST-only + same-origin guarded — the request shape the
+// frontend's sign-out fetch produces.
+const ORIGIN = new URL(appUrl).origin
+const logoutReq = (headers = {}) => mockReq({ method: 'POST', headers: { origin: ORIGIN, ...headers } })
 
 function cookieHeader(res) {
   const sc = res.getHeader('set-cookie')
@@ -75,8 +89,8 @@ test('each login issues a fresh OAuth state', async () => {
 
 test('logout expires the session cookie', async () => {
   const res = mockRes()
-  await logoutHandler(mockReq(), res)
-  assert.equal(res.statusCode, 302)
+  await logoutHandler(logoutReq(), res)
+  assert.equal(res.statusCode, 200)
   const sc = res.getHeader('set-cookie')
   const expired = (Array.isArray(sc) ? sc : [sc]).find((c) => c.startsWith(`${sessionCookie.cookieName}=`))
   assert.ok(expired, 'logout must emit a Set-Cookie for the session cookie')
@@ -97,7 +111,7 @@ test('account A → logout → login → callback as account B stores only ident
 
   // Logout A — the emitted cookie is expired/empty
   const resOut = mockRes()
-  await logoutHandler(mockReq({ headers: { cookie: cookieA } }), resOut)
+  await logoutHandler(logoutReq({ cookie: cookieA }), resOut)
   const cleared = cookieHeader(resOut)
   assert.equal(cleared, `${sessionCookie.cookieName}=`)
 
@@ -209,7 +223,7 @@ test('logout clears a persistent session cookie too', async () => {
   const resLogin = mockRes()
   await loginHandler(mockReq({ query: { remember: '1' } }), resLogin)
   const resOut = mockRes()
-  await logoutHandler(mockReq({ headers: { cookie: cookieHeader(resLogin) } }), resOut)
+  await logoutHandler(logoutReq({ cookie: cookieHeader(resLogin) }), resOut)
   assert.equal(cookieHeader(resOut), `${sessionCookie.cookieName}=`)
 })
 

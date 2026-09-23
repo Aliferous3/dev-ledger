@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { getIronSession } from 'iron-session'
-import { cookie as sessionCookie, sessionLeaseMs } from '../lib/config.mjs'
+import { cookie as sessionCookie, sessionLeaseMs, appUrl } from '../lib/config.mjs'
 import { getSession } from '../lib/auth.mjs'
 import loginHandler from '../api/auth/login.mjs'
 import callbackHandler from '../api/auth/callback.mjs'
@@ -22,6 +22,7 @@ const src = (p) => readFileSync(path.join(root, p), 'utf8')
 
 const MIN = 60_000
 assert.ok(sessionLeaseMs > 0 && sessionLeaseMs <= 30 * MIN, 'lease must be a sane positive duration')
+const ORIGIN = new URL(appUrl).origin
 
 function mockRes() {
   return {
@@ -39,7 +40,16 @@ function mockRes() {
 }
 
 function mockReq(overrides = {}) {
-  return { method: 'GET', headers: {}, query: {}, ...overrides }
+  // Handlers read query via requestQuery(req) (WHATWG URL over req.url) —
+  // translate the legacy `query` override into the real url so tests match.
+  const { query, ...rest } = overrides
+  const req = { method: 'GET', headers: {}, ...rest }
+  if (query && Object.keys(query).length) {
+    const params = new URLSearchParams()
+    for (const [k, v] of Object.entries(query)) params.set(k, v)
+    req.url = `${req.url?.split('?')[0] || '/'}?${params}`
+  }
+  return req
 }
 
 function cookieHeader(res) {
@@ -219,7 +229,7 @@ test('heartbeat renews a valid non-persistent lease', async () => {
   const now = Date.now()
   const cookie = await seal({ userId: 'u1', persistent: false, leaseUntil: now + sessionLeaseMs * 0.8 })
   const res = mockRes()
-  await heartbeatHandler(mockReq({ method: 'POST', headers: { cookie } }), res)
+  await heartbeatHandler(mockReq({ method: 'POST', headers: { cookie, origin: ORIGIN } }), res)
   assert.equal(res.statusCode, 200)
   assert.equal(res.body.ok, true)
   const renewed = await decode(cookieHeader(res))
@@ -229,7 +239,7 @@ test('heartbeat renews a valid non-persistent lease', async () => {
 test('heartbeat on a persistent session reports persistent, no lease imposed', async () => {
   const cookie = await seal({ userId: 'rem', persistent: true }, { persistent: true })
   const res = mockRes()
-  await heartbeatHandler(mockReq({ method: 'POST', headers: { cookie } }), res)
+  await heartbeatHandler(mockReq({ method: 'POST', headers: { cookie, origin: ORIGIN } }), res)
   assert.equal(res.statusCode, 200)
   assert.equal(res.body.persistent, true)
   const decoded = await decode(cookieHeader(res) || cookie)
@@ -238,12 +248,12 @@ test('heartbeat on a persistent session reports persistent, no lease imposed', a
 
 test('heartbeat is 401 unauthenticated and on an expired lease', async () => {
   const anon = mockRes()
-  await heartbeatHandler(mockReq({ method: 'POST' }), anon)
+  await heartbeatHandler(mockReq({ method: 'POST', headers: { origin: ORIGIN } }), anon)
   assert.equal(anon.statusCode, 401)
 
   const stale = await seal({ userId: 'u1', persistent: false, leaseUntil: Date.now() - 1000 })
   const res = mockRes()
-  await heartbeatHandler(mockReq({ method: 'POST', headers: { cookie: stale } }), res)
+  await heartbeatHandler(mockReq({ method: 'POST', headers: { cookie: stale, origin: ORIGIN } }), res)
   assert.equal(res.statusCode, 401)
 })
 
@@ -259,7 +269,7 @@ test('heartbeat at t+4m keeps the session alive at t+8m', async (t) => {
 
   const resBeat = mockRes()
   await withNow(t0 + 4 * MIN, () =>
-    heartbeatHandler(mockReq({ method: 'POST', headers: { cookie } }), resBeat))
+    heartbeatHandler(mockReq({ method: 'POST', headers: { cookie, origin: ORIGIN } }), resBeat))
   assert.equal(resBeat.statusCode, 200)
   const renewed = cookieHeader(resBeat)
 
@@ -293,8 +303,8 @@ test('expired-lease cookie does not break a fresh login', async (t) => {
 test('logout destroys an expired-lease session cleanly', async () => {
   const stale = await seal({ userId: 'u1', persistent: false, leaseUntil: Date.now() - 1000 })
   const res = mockRes()
-  await logoutHandler(mockReq({ headers: { cookie: stale } }), res)
-  assert.equal(res.statusCode, 302)
+  await logoutHandler(mockReq({ method: 'POST', headers: { cookie: stale, origin: ORIGIN } }), res)
+  assert.equal(res.statusCode, 200)
 })
 
 /* ── frontend heartbeat model + wiring guards ── */

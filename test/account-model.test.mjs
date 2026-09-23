@@ -112,7 +112,10 @@ test('account menu exposes no credentials — presentation fields only', () => {
 
 test('account menu uses the existing logout and sync paths', () => {
   const menu = src('src/components/AccountMenu.tsx')
-  assert.ok(menu.includes('/api/auth/logout'), 'sign out hits the existing logout route')
+  // Logout is POST-only (GET navigation would be cross-site abusable) —
+  // the menu issues a same-origin fetch, never an href.
+  assert.ok(menu.includes("fetch('/api/auth/logout', { method: 'POST'"), 'sign out posts to the logout route')
+  assert.ok(!menu.includes('href="/api/auth/logout"'), 'sign out must not be a GET navigation')
   assert.ok(menu.includes('syncNow'), 'sync action calls the shared store pump')
   assert.ok(!menu.includes('api/sync-range'), 'no parallel range-sync wiring in the menu')
   const store = src('src/store/live.ts')
