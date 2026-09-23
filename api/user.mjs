@@ -2,6 +2,7 @@ import { getSession } from '../lib/auth.mjs'
 import { github } from '../lib/config.mjs'
 import { supabase } from '../lib/db.mjs'
 import { getUserSync } from '../lib/sync.mjs'
+import { revokeAllSessions, isSessionLive } from '../lib/sessions.mjs'
 
 // GET    — current session user, installations, sync state.
 // DELETE — permanently delete the caller's Dev Ledger data, then sign out.
@@ -9,7 +10,7 @@ export default async function handler(req, res) {
   const session = await getSession(req, res)
 
   if (req.method === 'DELETE') {
-    if (!session?.userId || !supabase) {
+    if (!session?.userId || !supabase || !(await isSessionLive(session.sid))) {
       res.status(401).json({ error: 'Unauthenticated' })
       return
     }
@@ -17,8 +18,11 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Pass confirm=1 to delete account data' })
       return
     }
+    // Revoke every session server-side first — any other live copies of
+    // this user's cookies die immediately, even before the cascade lands.
+    await revokeAllSessions(session.userId)
     // users row cascades: installations, repositories (+languages), commits,
-    // pull requests, repo_sync, user_sync.
+    // pull requests, repo_sync, user_sync, auth_sessions.
     await supabase.from('users').delete().eq('id', session.userId)
     await session.destroy()
     res.status(200).json({ ok: true, deleted: true })
@@ -30,7 +34,10 @@ export default async function handler(req, res) {
     return
   }
 
-  if (!session?.userId) {
+  // A revoked/unknown sid must not authenticate — the boot gate reads this
+  // endpoint, so a stolen cookie has to die here too. When no DB is present
+  // there is nothing to check (dev bypass path).
+  if (!session?.userId || (supabase && !(await isSessionLive(session.sid)))) {
     res.status(401).json({ authenticated: false })
     return
   }

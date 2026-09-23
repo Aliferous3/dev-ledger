@@ -1,13 +1,14 @@
 import { waitUntil } from '@vercel/functions'
 import { getSession, getAppOctokit } from '../lib/auth.mjs'
 import { supabase } from '../lib/db.mjs'
+import { isSessionLive } from '../lib/sessions.mjs'
 import { kickSync, runSync } from '../lib/sync.mjs'
 
 // GitHub App "Setup URL". After a user installs the app or modifies the
 // repository selection, GitHub redirects here with ?installation_id&setup_action.
 export default async function handler(req, res) {
   const session = await getSession(req, res)
-  if (!session?.userId) {
+  if (!session?.userId || (supabase && !(await isSessionLive(session.sid)))) {
     res.writeHead(302, { Location: '/api/auth/login' })
     res.end()
     return
