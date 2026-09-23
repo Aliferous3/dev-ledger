@@ -413,6 +413,23 @@ html, body, #root {
 
 
 
+/* Archive figure swap — a keyed local remount gets a short fade/rise;
+   the section, tab strip, and page shell persist. Reduced-motion flattens
+   it via the global collapse below. */
+.archive-view {
+  animation: archive-view-in 0.24s ease-out both;
+}
+@keyframes archive-view-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Mobile: retained 12-col figure grids stack vertically below md — zero the
+   column gaps so the fixed gap total can't push past the viewport. */
+@media (max-width: 767px) {
+  #section-04 .grid-cols-12 { column-gap: 0; }
+}
+
 /* Keypad header — slow conic ring spin on the user avatar */
 @keyframes spin-slower {
   to { transform: rotate(360deg); }

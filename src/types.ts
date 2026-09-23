@@ -1,5 +1,12 @@
 export type Period = '7D' | '30D' | '90D' | 'YTD' | '1Y' | 'ALL';
 
+export type ArchiveTab =
+  | 'F · 01 FINGERPRINT'
+  | 'F · 02 SUCCESSION'
+  | 'F · 03 LIFECYCLE'
+  | 'F · 04 MIGRATION'
+  | 'F · 05 SPAN';
+
 export type MetricKey = 'GROWTH' | 'ADDED' | 'DELETED' | 'CHURN' | 'COMMITS';
 
 export interface DayData {
