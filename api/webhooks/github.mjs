@@ -195,6 +195,7 @@ async function onPullRequest(payload) {
     created_at: pr.created_at,
     closed_at: pr.closed_at,
     merged_at: pr.merged_at,
-    title: (pr.title || '').slice(0, 300),
+    // No pr.title — 008_data_minimization dropped the column; PR titles are
+    // user-authored text Dev Ledger deliberately does not persist.
   }, { onConflict: 'user_id,github_pr_id' })
 }
