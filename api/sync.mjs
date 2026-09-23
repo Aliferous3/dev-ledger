@@ -1,6 +1,7 @@
 import { waitUntil } from '@vercel/functions'
 import { requireUser } from '../lib/require-user.mjs'
 import { runSync, getUserSync } from '../lib/sync.mjs'
+import { requestQuery } from '../lib/request-query.mjs'
 
 const shape = (s) =>
   s
@@ -36,7 +37,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const force = req.query?.force === '1'
+    const force = requestQuery(req).force === '1'
     const result = await runSync(userId, { budgetMs: 45_000, force })
     // Only continue post-response when THIS request actually ran a slice
     // that expired mid-work. Previously waitUntil fired on every 'syncing'
