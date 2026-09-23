@@ -74,6 +74,16 @@ export function rateLimitElapsed(sync, now = Date.now()) {
   return !Number.isFinite(resume) || resume <= now
 }
 
+// A 'syncing' row with no recent writer is wedged: live slices beat
+// updated_at every few seconds, so anything older than the slice budget
+// means no worker owns the claim and the UI should offer/drive a resume.
+export const SYNC_STALE_MS = 45_000
+export function isSyncStale(sync, now = Date.now()) {
+  if (sync?.status !== 'syncing') return false
+  const updated = sync?.updatedAt ? new Date(sync.updatedAt).getTime() : NaN
+  return !Number.isFinite(updated) || now - updated > SYNC_STALE_MS
+}
+
 // Passive-poll cadence while the local pump isn't running: short while a
 // sync is in flight (cron or another tab may be driving it), slower while
 // waiting out a rate limit. Null means no polling needed.

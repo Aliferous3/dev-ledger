@@ -11,6 +11,7 @@ import {
   OPACITY_OVERLAP_EXPANDED,
   collapsedFrac,
   collapsedLabel,
+  displayPct,
   monitorCounts,
   monitorRows,
   monitorTag,
@@ -225,7 +226,7 @@ export function SyncMonitor() {
         >
           {status === 'syncing' && !justDone ? (
             <>
-              <Num value={Math.round((sync?.progress || 0) * 100)} suffix="%" />
+              <Num value={displayPct(effSync)} suffix="%" />
               <span>SYNC</span>
             </>
           ) : (
@@ -260,7 +261,7 @@ export function SyncMonitor() {
         <span style={{ color: INK }}>SYNC.MON</span>
         <span style={{ color: DIM }} className="inline-flex items-center">
           {status === 'syncing' && !justDone ? (
-            <Num value={Math.round((sync?.progress || 0) * 100)} suffix="%" />
+            <Num value={displayPct(effSync)} suffix="%" />
           ) : (
             monitorTag(effSync, justDone)
           )}
@@ -349,7 +350,7 @@ export function SyncMonitor() {
         </span>
         <span className="inline-flex items-center">
           {status === 'syncing' && !justDone ? (
-            <Num value={Math.round((sync?.progress || 0) * 100)} suffix="%" />
+            <Num value={displayPct(effSync)} suffix="%" />
           ) : (
             monitorTag(effSync, justDone)
           )}
@@ -368,7 +369,7 @@ export function SyncMonitor() {
           <div className="flex justify-between">
             <span>PROGRESS</span>
             <span className="tabular-nums" style={{ color: ZINC }}>
-              <Num value={Math.round((sync?.progress || 0) * 100)} suffix="%" />
+              <Num value={displayPct(effSync)} suffix="%" />
             </span>
           </div>
           <div className="flex justify-between">
@@ -399,11 +400,22 @@ export function SyncMonitor() {
             <Act clay onClick={() => syncNow()}>RETRY SYNC</Act>
             <Act onClick={() => setShowDetail((v) => !v)}>VIEW DETAILS</Act>
           </>
-        ) : syncing ? (
+        ) : pumping ? (
           <>
-            {/* No duplicate pumps while a run is in flight — the store's
-                pumping guard also early-returns, this is the honest UI. */}
+            {/* Local pump in flight — no duplicate fires (the store's
+                pumping guard also early-returns). */}
             <Act disabled>SYNCING…</Act>
+            <Act onClick={() => openExternal(installsUrl)}>MANAGE REPOSITORIES</Act>
+            <Act onClick={() => setShowDetail((v) => !v)}>VIEW SYNC DETAILS</Act>
+          </>
+        ) : status === 'syncing' ? (
+          <>
+            {/* Backend claims a run but THIS client isn't driving it —
+                either another tab/cron owns the work, or the claim is
+                wedged. RESUME SYNC re-enters the canonical POST pump:
+                acquireSyncLock dedupes, so this is safe either way and is
+                the only recovery path for an abandoned run. */}
+            <Act clay onClick={() => syncNow()}>RESUME SYNC</Act>
             <Act onClick={() => openExternal(installsUrl)}>MANAGE REPOSITORIES</Act>
             <Act onClick={() => setShowDetail((v) => !v)}>VIEW SYNC DETAILS</Act>
           </>

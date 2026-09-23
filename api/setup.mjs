@@ -1,6 +1,7 @@
+import { waitUntil } from '@vercel/functions'
 import { getSession, getAppOctokit } from '../lib/auth.mjs'
 import { supabase } from '../lib/db.mjs'
-import { setUserSync } from '../lib/sync.mjs'
+import { kickSync, runSync } from '../lib/sync.mjs'
 
 // GitHub App "Setup URL". After a user installs the app or modifies the
 // repository selection, GitHub redirects here with ?installation_id&setup_action.
@@ -32,7 +33,10 @@ export default async function handler(req, res) {
           account_login: inst.account?.login,
           account_type: inst.account?.type,
         }, { onConflict: 'user_id,installation_id' })
-        await setUserSync(session.userId, { status: 'syncing', phase: 'discover' })
+        // Kick a real first slice — the 'syncing' claim must be backed by a
+        // worker, otherwise the marker sits wedged until cron.
+        await kickSync(session.userId)
+        waitUntil(runSync(session.userId, { budgetMs: 45_000, force: true }).catch(() => {}))
       }
     } catch {
       // Unknown/foreign installation — never record an unverified id.

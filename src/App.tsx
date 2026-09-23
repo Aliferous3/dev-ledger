@@ -9,6 +9,7 @@ import { RightSidebarNav } from './components/RightSidebarNav';
 import { Section01Measure } from './components/Section01Measure';
 import { Section02Field } from './components/Section02Field';
 import { Section03Index } from './components/Section03Index';
+import { Section04Longitudinal } from './components/Section04Longitudinal';
 import { ActivityPage } from './components/ActivityPage';
 import { CodePage } from './components/CodePage';
 import { M12 } from './ledger/m12';
@@ -119,7 +120,7 @@ export default function App({ me = null }: { me?: Identity | null }) {
   );
 }
 
-/* OVERVIEW — app start through the repository INDEX, inclusive. */
+/* OVERVIEW — app start through the LONGITUDINAL RECORD, inclusive. */
 function OverviewBody({ period }: { period: Period }) {
   const ledger = useLedger();
   return (
@@ -127,6 +128,7 @@ function OverviewBody({ period }: { period: Period }) {
       <M12 i={0}><Section01Measure period={period} daysData={ledger.days} /></M12>
       <M12 i={4}><Section02Field period={period} /></M12>
       <M12 i={8}><Section03Index period={period} /></M12>
+      <M12 i={12}><Section04Longitudinal period={period} /></M12>
     </>
   );
 }

@@ -25,6 +25,8 @@ const shape = (s) =>
 //        anything abandoned, and a best-effort waitUntil continuation covers
 //        the gap when the runtime honors it.
 export default async function handler(req, res) {
+  // Live sync state must never be served stale from a shared cache.
+  res.setHeader('Cache-Control', 'no-store')
   const userId = await requireUser(req, res)
   if (!userId) return
 

@@ -98,6 +98,7 @@ export const PAGE_SECTIONS: Record<PageId, { id: string; name: string }[]> = {
     { id: 'section-01', name: 'MEASURE' },
     { id: 'section-02', name: 'CONTRIBUTIONS' },
     { id: 'section-03', name: 'REPOSITORIES' },
+    { id: 'section-04', name: 'LONGITUDINAL' },
   ],
   activity: [
     { id: 'activity-header', name: 'SUMMARY' },

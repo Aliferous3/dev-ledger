@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { passivePollMs, rateLimitElapsed } from '../ledger/syncModel.mjs';
+import { isSyncStale, passivePollMs, rateLimitElapsed } from '../ledger/syncModel.mjs';
 import type { DayData, Period, RepoItem } from '../types';
 import { DASHBOARD, OBS_START, periodToRange } from '../ledgerData';
 import {
@@ -74,6 +74,7 @@ export interface DashboardData {
     progress: number;
     detail?: unknown;
     lastSyncedAt?: string | null;
+    updatedAt?: string | null;
     error?: string | null;
     resumeAt?: string | null;
   };
@@ -464,7 +465,10 @@ export function useDashboardStore(period: Period): LedgerStore {
         if (!r.ok) return;
         const s = (await r.json()) as DashboardData['sync'];
         setSyncLive(s);
-        if (rateLimitElapsed(s)) syncNow();
+        // Self-heal a wedged 'syncing' claim: no writer has touched the row
+        // within the slice budget, so nobody is driving it — re-enter the
+        // pump. The backend lock CAS makes this safe alongside real runners.
+        if (rateLimitElapsed(s) || isSyncStale(s)) syncNow();
       } catch {
         /* transient poll failure — next tick retries */
       }

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { github } from '../../lib/config.mjs'
 import { supabase } from '../../lib/db.mjs'
-import { runSync, setUserSync } from '../../lib/sync.mjs'
+import { kickSync, runSync, setUserSync } from '../../lib/sync.mjs'
 
 export const config = { api: { bodyParser: false } }
 
@@ -87,7 +87,7 @@ async function onInstallation(payload) {
         account_login: inst.account?.login,
         account_type: inst.account?.type,
       }, { onConflict: 'user_id,installation_id' })
-      await setUserSync(user.id, { status: 'syncing', phase: 'discover' })
+      await kickSync(user.id)
       await runSync(user.id, { budgetMs: 5000, force: true })
     }
   }
@@ -105,7 +105,7 @@ async function onInstallationRepositories(payload) {
     await supabase.from('repositories').delete().eq('user_id', link.user_id).in('github_repo_id', removed)
   }
   if ((payload.repositories_added || []).length) {
-    await setUserSync(link.user_id, { status: 'syncing', phase: 'discover' })
+    await kickSync(link.user_id)
     await runSync(link.user_id, { budgetMs: 5000, force: true })
   }
 }
@@ -120,7 +120,7 @@ async function onPush(payload) {
   // attributes to the user are ingested, so pushes by others cost little.
   await supabase.from('repo_sync')
     .upsert({ user_id: repo.user_id, repository_id: repo.id, phase: 'done' }, { onConflict: 'user_id,repository_id' })
-  await setUserSync(repo.user_id, { status: 'syncing', phase: 'commits' })
+  await kickSync(repo.user_id, 'commits')
   await runSync(repo.user_id, { budgetMs: 5000, force: true })
 }
 

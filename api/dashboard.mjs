@@ -9,6 +9,7 @@ import { rangeCoverageStatus } from '../lib/coverage.mjs'
 // normalized GitHub-ingested rows — never live GitHub calls — and every
 // query is scoped by the internal user id from the authenticated session.
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store')
   const userId = await requireUser(req, res)
   if (!userId) return
 
@@ -139,6 +140,7 @@ export default async function handler(req, res) {
           detail: sync.detail || null,
           lastSyncedAt: sync.last_synced_at,
           resumeAt: sync.resume_at || null,
+          updatedAt: sync.updated_at,
           error: sync.error,
         }
       : { status: 'idle', progress: 0 },
