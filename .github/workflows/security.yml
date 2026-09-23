@@ -3,7 +3,9 @@
 # Design constraints:
 #   * plain pull_request trigger — untrusted fork code never gets secrets or
 #     write tokens; this workflow declares no secrets at all.
-#   * contents: read only — the checkout token cannot write.
+#   * contents: read only — GITHUB_TOKEN can't write, and checkout runs with
+#     persist-credentials: false so the token never lands in the repo's git
+#     config where repository-controlled code (npm test/build) could read it.
 #   * Every third-party action is pinned to a full commit SHA (see comments).
 #   * npm ci --ignore-scripts — dependencies' install lifecycle hooks do not
 #     run in CI (audited: only esbuild/fsevents ship them, both optional-binary
@@ -26,8 +28,15 @@ jobs:
   verify:
     name: test / build / audit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
+      # persist-credentials: false — the read-only GITHUB_TOKEN fetches the
+      # code and is NOT written into the repo's git config. Later steps run
+      # repository-controlled code (npm test / build); a persisted token
+      # would be readable from .git/config by that code for no benefit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24' # matches local dev + Vercel runtime major
@@ -53,9 +62,11 @@ jobs:
   secret-scan:
     name: gitleaks (worktree + full history)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0 # full history — a rotated-out secret still counts
 
       - name: Download + checksum-verify gitleaks v8.30.1

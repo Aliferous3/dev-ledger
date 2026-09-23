@@ -137,6 +137,42 @@ test('security workflow exists and is SHA-pinned + least-privilege', () => {
   assert.doesNotMatch(wf, /\b(printenv|env)\s*$/m, 'no wholesale env dumping');
 });
 
+test('every actions/checkout step sets persist-credentials: false', () => {
+  const wf = src(WORKFLOW);
+  // Split into step blocks (each begins "- uses:" or "- name:") and isolate
+  // the checkout steps — the credential must never persist into .git/config
+  // where later repository-controlled code (npm test/build) could read it.
+  const stepBlocks = wf.split(/\n\s*- (?=uses:|name:)/).slice(1);
+  const checkoutSteps = stepBlocks.filter((b) => /uses:\s*actions\/checkout@/.test(b));
+  assert.ok(checkoutSteps.length >= 2, 'expected at least the verify + secret-scan checkouts');
+  assert.equal(
+    checkoutSteps.length,
+    (wf.match(/uses:\s*actions\/checkout@/g) || []).length,
+    'a checkout step escaped block isolation — recount',
+  );
+  for (const [i, block] of checkoutSteps.entries()) {
+    assert.match(
+      block,
+      /persist-credentials:\s*false/,
+      `checkout step #${i + 1} persists the GITHUB_TOKEN into git config`,
+    );
+  }
+});
+
+test('every security job declares a finite timeout-minutes', () => {
+  const wf = src(WORKFLOW);
+  const jobsSection = wf.split(/^jobs:/m)[1];
+  assert.ok(jobsSection, 'jobs: section missing');
+  const jobIds = [...jobsSection.matchAll(/^ {2}([a-zA-Z][\w-]*):$/gm)].map((m) => m[1]);
+  assert.ok(jobIds.length >= 2, 'expected verify + secret-scan jobs');
+  for (const id of jobIds) {
+    const block = jobsSection
+      .split(new RegExp(`^  ${id}:$`, 'm'))[1]
+      ?.split(/^  [a-zA-Z][\w-]*:$/m)[0] || '';
+    assert.match(block, /timeout-minutes:\s*\d+/, `job "${id}" has no timeout-minutes`);
+  }
+});
+
 test('CI install uses npm ci --ignore-scripts (never npm install)', () => {
   const wf = src(WORKFLOW);
   assert.match(wf, /npm ci --ignore-scripts/);
