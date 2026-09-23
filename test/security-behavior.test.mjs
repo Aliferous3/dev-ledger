@@ -1,0 +1,615 @@
+import { test, before } from 'node:test'
+import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
+
+// Behavioral security tests — the handlers run for real against an
+// in-memory PostgREST-compatible fake and real iron-session cookies.
+// These prove the boundary (session revocation, tenant isolation, replay
+// dedup, destructive scoping) rather than asserting on source strings.
+//
+// Env must be set BEFORE the app modules load (config.mjs snapshots env at
+// import), hence dynamic imports below.
+
+process.env.GITHUB_WEBHOOK_SECRET = 'test-webhook-secret-do-not-use'
+process.env.SESSION_SECRET = 'test-session-secret-at-least-32-characters-long'
+
+const { __setSupabaseForTests } = await import('../lib/db.mjs')
+const { getSession } = await import('../lib/auth.mjs')
+const { requireUser } = await import('../lib/require-user.mjs')
+const sessions = await import('../lib/sessions.mjs')
+const { sessionLeaseMs } = await import('../lib/config.mjs')
+const heartbeatHandler = (await import('../api/auth/heartbeat.mjs')).default
+const logoutHandler = (await import('../api/auth/logout.mjs')).default
+const userHandler = (await import('../api/user.mjs')).default
+const dashboardHandler = (await import('../api/dashboard.mjs')).default
+const disconnectHandler = (await import('../api/repos/disconnect.mjs')).default
+const webhookHandler = (await import('../api/webhooks/github.mjs')).default
+const healthHandler = (await import('../api/health.mjs')).default
+
+/* ── in-memory supabase-js fake ─────────────────────────────────────── */
+
+// unique-key sets for upsert/ignoreDuplicates conflict detection
+const UNIQUE = {
+  users: [['github_user_id']],
+  github_installations: [['user_id', 'installation_id']],
+  repositories: [['id'], ['user_id', 'github_repo_id']],
+  commits: [['id'], ['user_id', 'github_sha']],
+  pull_requests: [['id'], ['user_id', 'github_pr_id']],
+  repo_sync: [['user_id', 'repository_id']],
+  user_sync: [['user_id']],
+  repo_coverage: [['id'], ['user_id', 'repository_id', 'covered_from']],
+  sync_state: [['id'], ['user_id', 'repository_id']],
+  repository_languages: [['id']],
+  auth_sessions: [['sid']],
+  webhook_deliveries: [['delivery_id']],
+  dash_repo_monthly: [],
+  dash_span: [],
+}
+
+function cmpOp(col, op, val) {
+  const v = val === 'null' ? null : val
+  switch (op) {
+    case 'eq': return (r) => r[col] === v
+    case 'neq': return (r) => r[col] !== v
+    case 'is': return (r) => (v === null ? r[col] == null : r[col] === v)
+    case 'lt': return (r) => r[col] != null && r[col] < v
+    case 'lte': return (r) => r[col] != null && r[col] <= v
+    case 'gt': return (r) => r[col] != null && r[col] > v
+    case 'gte': return (r) => r[col] != null && r[col] >= v
+    default: throw new Error(`fake db: unsupported or() op ${op}`)
+  }
+}
+
+function makeDb() {
+  const store = new Map() // table -> rows[]
+  const calls = [] // mutation audit log: {op, table}
+  const t = (name) => store.get(name) || store.set(name, []).get(name)
+
+  function exec(name, q) {
+    const rows = t(name)
+    const match = (r) => q.filters.every((f) => f(r))
+    calls.push({ op: q.op, table: name })
+    if (q.op === 'insert' || q.op === 'upsert') {
+      const inserted = []
+      for (const row of q.rows) {
+        const keys = q.onConflict ? [q.onConflict.split(',')] : UNIQUE[name] || []
+        const hit = rows.find((r) => keys.some((ks) => ks.every((k) => r[k] !== undefined && r[k] === row[k])))
+        if (hit) {
+          if (q.op === 'upsert' && !q.ignore) Object.assign(hit, row)
+          continue // conflict — upsert merged or insert ignored
+        }
+        const copy = { ...row }
+        if (copy.id === undefined && name !== 'auth_sessions' && name !== 'webhook_deliveries') {
+          copy.id = crypto.randomUUID()
+        }
+        rows.push(copy)
+        inserted.push(copy)
+      }
+      return { data: q.selectAfter ? inserted : null, error: null }
+    }
+    if (q.op === 'update') {
+      let n = 0
+      for (const r of rows) if (match(r)) { Object.assign(r, q.sets); n++ }
+      return { data: q.selectAfter ? rows.filter(match) : null, error: null, count: n }
+    }
+    if (q.op === 'delete') {
+      const keep = rows.filter((r) => !match(r))
+      store.set(name, keep)
+      return { data: null, error: null, count: rows.length - keep.length }
+    }
+    // select
+    let out = rows.filter(match)
+    if (q.orderBy) {
+      out = [...out].sort((a, b) =>
+        (a[q.orderBy.c] < b[q.orderBy.c] ? -1 : 1) * (q.orderBy.asc ? 1 : -1))
+    }
+    if (q.lim != null) out = out.slice(0, q.lim)
+    return { data: out, error: null, count: out.length }
+  }
+
+  function from(name) {
+    const q = {
+      op: 'select', filters: [], sets: null, rows: [], orderBy: null, lim: null,
+      onConflict: null, ignore: false, selectAfter: false,
+    }
+    const self = {
+      select(cols, opts = {}) {
+        if (q.op === 'select') q.selectAfter = true
+        else q.selectAfter = true // select() after insert/upsert returns rows
+        q.cols = cols; q.countMode = opts.count; q.head = opts.head
+        return self
+      },
+      insert(r, opts = {}) { q.op = 'insert'; q.rows = Array.isArray(r) ? r : [r]; q.onConflict = opts.onConflict; q.ignore = opts.ignoreDuplicates === true; return self },
+      upsert(r, opts = {}) { q.op = 'upsert'; q.rows = Array.isArray(r) ? r : [r]; q.onConflict = opts.onConflict; q.ignore = opts.ignoreDuplicates === true; return self },
+      update(s) { q.op = 'update'; q.sets = s; return self },
+      delete() { q.op = 'delete'; return self },
+      eq: (c, v) => (q.filters.push(cmpOp(c, 'eq', v)), self),
+      neq: (c, v) => (q.filters.push(cmpOp(c, 'neq', v)), self),
+      is: (c, v) => (q.filters.push(cmpOp(c, 'is', v)), self),
+      in: (c, vs) => (q.filters.push((r) => vs.includes(r[c])), self),
+      lt: (c, v) => (q.filters.push(cmpOp(c, 'lt', v)), self),
+      lte: (c, v) => (q.filters.push(cmpOp(c, 'lte', v)), self),
+      gt: (c, v) => (q.filters.push(cmpOp(c, 'gt', v)), self),
+      gte: (c, v) => (q.filters.push(cmpOp(c, 'gte', v)), self),
+      or(expr) {
+        const parts = expr.split(',').map((p) => {
+          const i = p.indexOf('.'); const j = p.indexOf('.', i + 1)
+          return cmpOp(p.slice(0, i), p.slice(i + 1, j), p.slice(j + 1))
+        })
+        q.filters.push((r) => parts.some((f) => f(r)))
+        return self
+      },
+      order(c, o = {}) { q.orderBy = { c, asc: o.ascending !== false }; return self },
+      limit(n) { q.lim = n; return self },
+      maybeSingle() { const { data } = exec(name, q); return Promise.resolve({ data: data?.[0] ?? null, error: null }) },
+      single() { const { data } = exec(name, q); const row = data?.[0] ?? null; return Promise.resolve({ data: row, error: row ? null : { message: 'PGRST116' } }) },
+      then(res, rej) { Promise.resolve(exec(name, q)).then(res, rej) },
+    }
+    return self
+  }
+
+  // Minimal but real implementations of the dashboard RPCs — the same
+  // aggregation the SQL performs, scoped by p_user. This makes the
+  // isolation assertions behavioral.
+  function rpc(fn, p = {}) {
+    const commits = t('commits').filter((c) => c.user_id === p.p_user)
+    const inRange = (iso) =>
+      (!p.p_from || iso >= `${p.p_from}T00:00:00`) &&
+      (!p.p_to || iso < `${p.p_to}T23:59:59.999`)
+    const ranged = commits.filter((c) => inRange(c.committed_at))
+    if (fn === 'dash_daily') {
+      const m = new Map()
+      for (const c of ranged) {
+        const d = c.committed_at.slice(0, 10)
+        const r = m.get(d) || { date: d, commits: 0, additions: 0, deletions: 0 }
+        r.commits++; r.additions += c.additions || 0; r.deletions += c.deletions || 0
+        m.set(d, r)
+      }
+      return Promise.resolve({ data: [...m.values()].sort((a, b) => a.date.localeCompare(b.date)), error: null })
+    }
+    if (fn === 'dash_repos') {
+      const m = new Map()
+      for (const c of ranged.filter((c) => c.repository_id)) {
+        const r = m.get(c.repository_id) || { repository_id: c.repository_id, commits: 0, additions: 0, deletions: 0, last_commit_at: c.committed_at }
+        r.commits++; r.additions += c.additions || 0; r.deletions += c.deletions || 0
+        if (c.committed_at > r.last_commit_at) r.last_commit_at = c.committed_at
+        m.set(c.repository_id, r)
+      }
+      return Promise.resolve({ data: [...m.values()], error: null })
+    }
+    if (fn === 'dash_rhythm') {
+      const m = new Map()
+      for (const c of ranged) {
+        const d = new Date(c.committed_at)
+        const k = `${d.getUTCDay()}:${d.getUTCHours()}`
+        m.set(k, (m.get(k) || 0) + 1)
+      }
+      const data = [...m.entries()].map(([k, n]) => {
+        const [weekday, hour] = k.split(':').map(Number)
+        return { weekday, hour, commits: n }
+      })
+      return Promise.resolve({ data, error: null })
+    }
+    return Promise.resolve({ data: [], error: null })
+  }
+
+  return { from, rpc, calls, store, t }
+}
+
+let db
+before(() => { db = makeDb(); __setSupabaseForTests(db) })
+
+/* ── req/res/session helpers ────────────────────────────────────────── */
+
+function mockRes() {
+  return {
+    statusCode: 200,
+    body: undefined,
+    headers: {},
+    status(c) { this.statusCode = c; return this },
+    json(b) { this.body = b; return this },
+    setHeader(k, v) { this.headers[k.toLowerCase()] = v },
+    getHeader(k) { return this.headers[k.toLowerCase()] },
+    getHeaders() { return this.headers },
+    writeHead(c, h) { this.statusCode = c; if (h) Object.assign(this.headers, h); return this },
+    end() { return this },
+    redirect() { return this },
+  }
+}
+
+function mockReq(o = {}) { return { method: 'GET', headers: {}, query: {}, ...o } }
+
+function cookieFrom(res) {
+  const sc = res.headers['set-cookie']
+  const list = Array.isArray(sc) ? sc : sc ? [sc] : []
+  return list.map((c) => c.split(';')[0]).join('; ')
+}
+
+// Mint a real sealed session cookie through the production code path.
+async function mintSession({ userId, persistent = true }) {
+  const res = mockRes()
+  const req = mockReq()
+  const s = await getSession(req, res, { persistent })
+  s.userId = userId
+  s.githubUserId = Math.floor(Math.random() * 1e9)
+  s.githubLogin = `u-${userId.slice(0, 6)}`
+  s.persistent = persistent
+  s.sid = await sessions.createAuthSession(userId, { persistent })
+  if (!persistent && sessionLeaseMs > 0) s.leaseUntil = Date.now() + sessionLeaseMs
+  await s.save()
+  return { cookie: cookieFrom(res), sid: s.sid }
+}
+
+function seedUser(login) {
+  const id = crypto.randomUUID()
+  db.t('users').push({ id, github_user_id: Math.floor(Math.random() * 9e17) + 1e17, github_login: login })
+  return id
+}
+
+function seedRepo(userId, name) {
+  const id = crypto.randomUUID()
+  const row = {
+    id, user_id: userId, github_repo_id: Math.floor(Math.random() * 9e17) + 1e17,
+    owner_login: 'x', name, full_name: `x/${name}`, private: false,
+  }
+  db.t('repositories').push(row)
+  return row
+}
+
+function seedCommit(userId, repositoryId, sha, at = new Date().toISOString()) {
+  db.t('commits').push({
+    id: crypto.randomUUID(), user_id: userId, repository_id: repositoryId,
+    github_sha: sha, committed_at: at, additions: 5, deletions: 1,
+  })
+}
+
+/* ── WS6: server-side session revocation ────────────────────────────── */
+
+test('session: valid persistent cookie authenticates', async () => {
+  const userId = seedUser('sess-a')
+  const { cookie } = await mintSession({ userId, persistent: true })
+  const res = mockRes()
+  const uid = await requireUser(mockReq({ headers: { cookie } }), res)
+  assert.equal(uid, userId)
+  assert.equal(res.statusCode, 200)
+})
+
+test('session: tampered cookie fails closed', async () => {
+  const userId = seedUser('sess-b')
+  const { cookie } = await mintSession({ userId })
+  const forged = cookie.slice(0, -6) + 'AAAAAA'
+  const res = mockRes()
+  const uid = await requireUser(mockReq({ headers: { cookie: forged } }), res)
+  assert.equal(uid, null)
+  assert.equal(res.statusCode, 401)
+})
+
+test('session: revoked sid fails even with a valid cookie', async () => {
+  const userId = seedUser('sess-c')
+  const { cookie, sid } = await mintSession({ userId, persistent: true })
+  await sessions.revokeSession(sid)
+  const res = mockRes()
+  assert.equal(await requireUser(mockReq({ headers: { cookie } }), res), null)
+  assert.equal(res.statusCode, 401)
+})
+
+test('session: revokeAllSessions kills a 30-day persistent cookie', async () => {
+  const userId = seedUser('sess-d')
+  const { cookie } = await mintSession({ userId, persistent: true })
+  // sanity: works before revocation
+  assert.equal(await requireUser(mockReq({ headers: { cookie } }), mockRes()), userId)
+  await sessions.revokeAllSessions(userId)
+  assert.equal(await requireUser(mockReq({ headers: { cookie } }), mockRes()), null)
+})
+
+test('session: pre-migration sid-less cookie fails closed', async () => {
+  const userId = seedUser('sess-e')
+  const res = mockRes()
+  const s = await getSession(mockReq(), res, { persistent: true })
+  s.userId = userId
+  s.persistent = true
+  // no sid — legacy cookie shape
+  await s.save()
+  const cookie = cookieFrom(res)
+  assert.equal(await requireUser(mockReq({ headers: { cookie } }), mockRes()), null)
+})
+
+test('session: logout revokes server-side, not just the cookie', async () => {
+  const userId = seedUser('sess-f')
+  const { cookie, sid } = await mintSession({ userId })
+  const res = mockRes()
+  await logoutHandler(mockReq({ headers: { cookie } }), res)
+  assert.equal(res.statusCode, 302)
+  assert.equal(await sessions.isSessionLive(sid), false)
+  // the same cookie can never authenticate again
+  assert.equal(await requireUser(mockReq({ headers: { cookie } }), mockRes()), null)
+})
+
+test('session: DELETE MY DATA revokes all sessions and deletes user rows', async () => {
+  const userId = seedUser('sess-g')
+  const { cookie, sid } = await mintSession({ userId, persistent: true })
+  const res = mockRes()
+  await userHandler(mockReq({ method: 'DELETE', headers: { cookie }, query: { confirm: '1' } }), res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.deleted, true)
+  assert.equal(await sessions.isSessionLive(sid), false)
+  assert.equal(db.t('users').find((u) => u.id === userId), undefined)
+  assert.equal(await requireUser(mockReq({ headers: { cookie } }), mockRes()), null)
+})
+
+test('session: heartbeat renews live non-persistent lease; rejects revoked', async () => {
+  const userId = seedUser('sess-h')
+  const { cookie, sid } = await mintSession({ userId, persistent: false })
+
+  const res = mockRes()
+  await heartbeatHandler(mockReq({ method: 'POST', headers: { cookie } }), res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.ok, true)
+  assert.ok(res.body.leaseUntil > Date.now(), 'lease renewed forward')
+  assert.ok(cookieFrom(res).includes('dev_ledger_session'), 're-sealed cookie emitted')
+
+  // GET must never renew
+  const getRes = mockRes()
+  await heartbeatHandler(mockReq({ method: 'GET', headers: { cookie } }), getRes)
+  assert.equal(getRes.statusCode, 405)
+
+  // revoked session cannot renew
+  await sessions.revokeSession(sid)
+  const res2 = mockRes()
+  await heartbeatHandler(mockReq({ method: 'POST', headers: { cookie } }), res2)
+  assert.equal(res2.statusCode, 401)
+})
+
+test('session: /api/user reports revoked session as unauthenticated', async () => {
+  const userId = seedUser('sess-i')
+  const { cookie, sid } = await mintSession({ userId })
+  const res = mockRes()
+  await userHandler(mockReq({ headers: { cookie } }), res)
+  assert.equal(res.body.authenticated, true)
+  await sessions.revokeSession(sid)
+  const res2 = mockRes()
+  await userHandler(mockReq({ headers: { cookie } }), res2)
+  assert.equal(res2.statusCode, 401)
+  assert.equal(res2.body.authenticated, false)
+})
+
+/* ── WS4: tenant isolation through the real handlers ────────────────── */
+
+test('isolation: dashboard returns only the session user\'s data', async () => {
+  const a = seedUser('iso-a')
+  const b = seedUser('iso-b')
+  const repoA = seedRepo(a, 'alpha-repo')
+  const repoB = seedRepo(b, 'beta-repo')
+  const now = new Date().toISOString()
+  seedCommit(a, repoA.id, 'a1', now)
+  seedCommit(a, repoA.id, 'a2', now)
+  seedCommit(b, repoB.id, 'b1', now)
+
+  const { cookie } = await mintSession({ userId: a, persistent: true })
+  const res = mockRes()
+  // hostile client-supplied user_id must be ignored — session wins
+  await dashboardHandler(mockReq({ headers: { cookie }, query: { range: 'all', user_id: b } }), res)
+  assert.equal(res.statusCode, 200)
+  const names = res.body.repositories.map((r) => r.name)
+  assert.deepEqual(names, ['alpha-repo'])
+  assert.equal(res.body.summary.commits, 2, 'user A sees exactly their own commits')
+  assert.equal(res.body.summary.repos, 1)
+})
+
+test('isolation: disconnected rows still visible to owner, never to others', async () => {
+  const a = seedUser('iso-c')
+  const b = seedUser('iso-d')
+  const repoA = seedRepo(a, 'kept-repo')
+  repoA.disconnected_at = new Date().toISOString()
+  repoA.disconnect_source = 'user'
+  seedRepo(b, 'other-repo')
+  seedCommit(a, repoA.id, 'k1', new Date().toISOString())
+  const { cookie } = await mintSession({ userId: b, persistent: true })
+  const res = mockRes()
+  await dashboardHandler(mockReq({ headers: { cookie }, query: { range: 'all' } }), res)
+  assert.deepEqual(res.body.repositories.map((r) => r.name), ['other-repo'])
+})
+
+/* ── WS10: repository disconnection — keep/delete/resume ────────────── */
+
+test('disconnect: unauthenticated is rejected', async () => {
+  const res = mockRes()
+  await disconnectHandler(mockReq({ method: 'POST', body: { repositoryId: 'x', mode: 'delete' } }), res)
+  assert.equal(res.statusCode, 401)
+})
+
+test('disconnect: keep stops sync but preserves history', async () => {
+  const a = seedUser('dc-a')
+  const repo = seedRepo(a, 'keepme')
+  seedCommit(a, repo.id, 'k1')
+  db.t('repo_sync').push({ user_id: a, repository_id: repo.id, phase: 'done' })
+  db.t('repository_languages').push({ id: crypto.randomUUID(), repository_id: repo.id, language: 'TS', bytes: 100 })
+
+  const { cookie } = await mintSession({ userId: a, persistent: true })
+  const res = mockRes()
+  await disconnectHandler(mockReq({ method: 'POST', headers: { cookie }, body: { repositoryId: repo.id, mode: 'keep' } }), res)
+  assert.equal(res.statusCode, 200)
+  const row = db.t('repositories').find((r) => r.id === repo.id)
+  assert.ok(row.disconnected_at, 'repo marked disconnected')
+  assert.equal(row.disconnect_source, 'user')
+  assert.ok(db.t('commits').some((c) => c.repository_id === repo.id), 'history preserved')
+  assert.ok(db.t('repository_languages').some((l) => l.repository_id === repo.id), 'languages preserved')
+})
+
+test('disconnect: delete removes only that repo\'s rows for that user', async () => {
+  const a = seedUser('dc-b')
+  const repo1 = seedRepo(a, 'delete-me')
+  const repo2 = seedRepo(a, 'stay')
+  seedCommit(a, repo1.id, 'd1')
+  seedCommit(a, repo2.id, 's1')
+  db.t('pull_requests').push({ id: crypto.randomUUID(), user_id: a, repository_id: repo1.id, github_pr_id: 11, number: 1, state: 'merged', created_at: new Date().toISOString() })
+  db.t('pull_requests').push({ id: crypto.randomUUID(), user_id: a, repository_id: repo2.id, github_pr_id: 22, number: 2, state: 'open', created_at: new Date().toISOString() })
+  db.t('repo_sync').push({ user_id: a, repository_id: repo1.id, phase: 'done' })
+  db.t('repo_coverage').push({ id: crypto.randomUUID(), user_id: a, repository_id: repo1.id, covered_from: '2024-01-01', covered_to: '2024-06-01', complete: false })
+  db.t('sync_state').push({ id: crypto.randomUUID(), user_id: a, repository_id: repo1.id })
+  db.t('repository_languages').push({ id: crypto.randomUUID(), repository_id: repo1.id, language: 'TS', bytes: 1 })
+
+  const { cookie } = await mintSession({ userId: a, persistent: true })
+  const res = mockRes()
+  await disconnectHandler(mockReq({ method: 'POST', headers: { cookie }, body: { repositoryId: repo1.id, mode: 'delete' } }), res)
+  assert.equal(res.statusCode, 200)
+
+  assert.equal(db.t('repositories').find((r) => r.id === repo1.id), undefined, 'repo row gone')
+  assert.equal(db.t('commits').filter((c) => c.repository_id === repo1.id).length, 0, 'commits gone')
+  assert.equal(db.t('pull_requests').filter((p) => p.repository_id === repo1.id).length, 0, 'PRs gone')
+  assert.equal(db.t('repo_sync').filter((s) => s.repository_id === repo1.id).length, 0)
+  assert.equal(db.t('repo_coverage').filter((c) => c.repository_id === repo1.id).length, 0)
+  assert.equal(db.t('sync_state').filter((s) => s.repository_id === repo1.id).length, 0)
+  assert.equal(db.t('repository_languages').filter((l) => l.repository_id === repo1.id).length, 0)
+  // unrelated repo of the same user untouched
+  assert.ok(db.t('repositories').some((r) => r.id === repo2.id))
+  assert.ok(db.t('commits').some((c) => c.repository_id === repo2.id))
+})
+
+test('disconnect: user A cannot disconnect or delete user B\'s repository', async () => {
+  const a = seedUser('dc-c')
+  const b = seedUser('dc-d')
+  const repoB = seedRepo(b, 'victim')
+  seedCommit(b, repoB.id, 'v1')
+
+  const { cookie } = await mintSession({ userId: a, persistent: true })
+  for (const mode of ['keep', 'delete']) {
+    const res = mockRes()
+    await disconnectHandler(mockReq({ method: 'POST', headers: { cookie }, body: { repositoryId: repoB.id, mode } }), res)
+    assert.equal(res.statusCode, 404, `mode=${mode} must not reach foreign repo`)
+  }
+  // nothing changed
+  const row = db.t('repositories').find((r) => r.id === repoB.id)
+  assert.equal(row.disconnected_at, undefined)
+  assert.ok(db.t('commits').some((c) => c.repository_id === repoB.id))
+})
+
+test('disconnect: client-supplied user_id in body is ignored', async () => {
+  const a = seedUser('dc-e')
+  const b = seedUser('dc-f')
+  const repoB = seedRepo(b, 'body-forge')
+  const { cookie } = await mintSession({ userId: a, persistent: true })
+  const res = mockRes()
+  await disconnectHandler(mockReq({
+    method: 'POST', headers: { cookie },
+    body: { repositoryId: repoB.id, mode: 'delete', user_id: a }, // forged owner claim
+  }), res)
+  assert.equal(res.statusCode, 404)
+  assert.ok(db.t('repositories').some((r) => r.id === repoB.id))
+})
+
+test('disconnect: resume clears a retained disconnect', async () => {
+  const a = seedUser('dc-g')
+  const repo = seedRepo(a, 'resume-me')
+  repo.disconnected_at = new Date().toISOString()
+  repo.disconnect_source = 'user'
+  const { cookie } = await mintSession({ userId: a, persistent: true })
+  const res = mockRes()
+  await disconnectHandler(mockReq({ method: 'POST', headers: { cookie }, body: { repositoryId: repo.id, mode: 'resume' } }), res)
+  assert.equal(res.statusCode, 200)
+  const row = db.t('repositories').find((r) => r.id === repo.id)
+  assert.equal(row.disconnected_at, null)
+  assert.equal(row.disconnect_source, null)
+})
+
+/* ── WS7: webhook replay dedup ──────────────────────────────────────── */
+
+function webhookReq(payload, { delivery, secret = process.env.GITHUB_WEBHOOK_SECRET, event = 'ping' } = {}) {
+  const raw = Buffer.from(JSON.stringify(payload))
+  const sig = 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex')
+  const req = mockReq({
+    method: 'POST',
+    headers: {
+      'x-hub-signature-256': sig,
+      'x-github-event': event,
+      ...(delivery ? { 'x-github-delivery': delivery } : {}),
+    },
+  })
+  req[Symbol.asyncIterator] = async function* () { yield raw }
+  return req
+}
+
+test('webhook: invalid signature rejected before dedup', async () => {
+  const res = mockRes()
+  await webhookHandler(webhookReq({}, { secret: 'wrong', delivery: 'd0' }), res)
+  assert.equal(res.statusCode, 401)
+})
+
+test('webhook: first delivery processed, exact replay is a duplicate no-op', async () => {
+  const a = seedUser('wh-a')
+  const repo = seedRepo(a, 'removed-repo')
+  db.t('github_installations').push({ id: crypto.randomUUID(), user_id: a, installation_id: 4242 })
+  const payload = {
+    action: 'removed',
+    installation: { id: 4242 },
+    repositories_removed: [{ id: repo.github_repo_id }],
+    repositories_added: [],
+  }
+  const delivery = crypto.randomUUID()
+
+  const res1 = mockRes()
+  await webhookHandler(webhookReq(payload, { delivery, event: 'installation_repositories' }), res1)
+  assert.equal(res1.statusCode, 200)
+  assert.equal(res1.body.ok, true)
+  assert.ok(db.t('repositories').find((r) => r.id === repo.id).disconnected_at, 'first delivery marked repo')
+  assert.equal(db.t('repositories').find((r) => r.id === repo.id).disconnect_source, 'github')
+
+  const mutationsAfterFirst = db.calls.length
+  const res2 = mockRes()
+  await webhookHandler(webhookReq(payload, { delivery, event: 'installation_repositories' }), res2)
+  assert.equal(res2.statusCode, 200)
+  assert.equal(res2.body.duplicate, true)
+  // the replay is acknowledged without re-running the business mutation
+  const replays = db.calls.slice(mutationsAfterFirst).filter((c) => c.table !== 'webhook_deliveries')
+  assert.equal(replays.length, 0, 'replay applied no business mutations')
+})
+
+test('webhook: a different delivery id for the same payload processes normally', async () => {
+  const res = mockRes()
+  await webhookHandler(webhookReq({}, { delivery: crypto.randomUUID(), event: 'ping' }), res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.ok, true)
+  assert.equal(res.body.duplicate, undefined)
+})
+
+/* ── WS8: minimal public health ─────────────────────────────────────── */
+
+test('health: public response is minimal — no auth/db/env disclosure', async () => {
+  const res = mockRes()
+  await healthHandler(mockReq(), res)
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(Object.keys(res.body), ['ok'])
+  assert.equal(res.body.ok, true)
+})
+
+/* ── WS3 guards: migration states the security posture ──────────────── */
+
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+test('migration: RLS + revokes + invoker functions + new tables present', () => {
+  const sql = readFileSync(path.join(ROOT, 'migrations/007_security_hardening.sql'), 'utf8')
+  // every user-data table has RLS enabled
+  for (const tbl of ['users', 'github_installations', 'repositories', 'repository_languages',
+    'commits', 'pull_requests', 'repo_sync', 'user_sync', 'repo_coverage']) {
+    assert.match(sql, new RegExp(`alter table public\\.${tbl}\\s+enable row level security`), `RLS missing on ${tbl}`)
+  }
+  // privileged RPCs are invoker-side now, granted only to service_role
+  for (const fn of ['dash_daily', 'dash_repos', 'dash_rhythm']) {
+    assert.match(sql, new RegExp(`${fn}\\([\\s\\S]*?security invoker`, 'i'), `${fn} not security invoker`)
+    assert.match(sql, new RegExp(`revoke all on function public\\.${fn}`), `${fn} not revoked`)
+    assert.match(sql, new RegExp(`grant execute on function public\\.${fn}[\\s\\S]*?to service_role`), `${fn} not granted to service_role`)
+  }
+  // browser roles lose everything; views pinned invoker
+  assert.match(sql, /revoke all on all tables\s+in schema public from public, anon, authenticated/)
+  assert.match(sql, /security_invoker = on/)
+  // new tables exist with RLS
+  assert.match(sql, /create table if not exists public\.auth_sessions/)
+  assert.match(sql, /alter table public\.auth_sessions enable row level security/)
+  assert.match(sql, /create table if not exists public\.webhook_deliveries/)
+  assert.match(sql, /alter table public\.webhook_deliveries enable row level security/)
+  assert.match(sql, /add column if not exists disconnected_at/)
+})

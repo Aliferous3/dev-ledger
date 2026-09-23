@@ -56,16 +56,41 @@ test('no real/private repo identifiers anywhere in src/', () => {
   }
 });
 
+function allDistFiles(dir = path.join(ROOT, 'dist'), acc = []) {
+  if (!existsSync(dir)) return acc;
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) allDistFiles(p, acc);
+    else acc.push(p);
+  }
+  return acc;
+}
+
 test('built production artifact contains zero fixture identifiers', () => {
-  const dist = path.join(ROOT, 'dist', 'index.html');
-  if (!existsSync(dist)) {
+  const files = allDistFiles();
+  if (!files.length) {
     // build hasn't run in this environment — the scan is enforced by CI
     // and by `npm run build` + test locally; skip rather than fake a pass.
     return;
   }
-  const html = readFileSync(dist, 'utf8');
-  for (const id of [...FORBIDDEN_IDENTIFIERS, ...FICTIONAL_FIXTURE_NAMES]) {
-    assert.ok(!html.includes(id), `dist/index.html contains "${id}"`);
+  for (const f of files) {
+    const content = readFileSync(f, 'utf8');
+    const rel = path.relative(ROOT, f).replace(/\\/g, '/');
+    for (const id of [...FORBIDDEN_IDENTIFIERS, ...FICTIONAL_FIXTURE_NAMES]) {
+      assert.ok(!content.includes(id), `${rel} contains "${id}"`);
+    }
+    // server-side secret env names must never reach the client bundle
+    for (const secret of [
+      'SUPABASE_SERVICE_ROLE_KEY',
+      'GITHUB_CLIENT_SECRET',
+      'GITHUB_APP_PRIVATE_KEY',
+      'GITHUB_WEBHOOK_SECRET',
+      'SESSION_SECRET',
+      'CRON_SECRET',
+      'DATABASE_URL',
+    ]) {
+      assert.ok(!content.includes(secret), `${rel} leaks ${secret}`);
+    }
   }
 });
 
@@ -82,7 +107,7 @@ test('fixture rendering is dev-gated — prod failure resolves to empty store', 
   const live = bare('src/store/live.ts');
   assert.match(live, /import\.meta\.env\.DEV/);
   assert.match(live, /FIXTURES_ENABLED \? fixtureStore\('1Y'\) : emptyStore/);
-  assert.match(live, /: emptyStore\(period, syncNow, pumpingState\)/);
+  assert.match(live, /: emptyStore\(period, syncNow, pumpingState/);
   // the prod empty store is permanently resolving (skeletons), no telemetry
   assert.match(live, /function emptyStore\(/);
   assert.match(live, /resolving: true/);
@@ -108,5 +133,58 @@ test('fixture modules live only under src/fixtures/ and never self-import prod d
     if (rel.startsWith('src/fixtures/')) continue;
     const content = readFileSync(f, 'utf8');
     assert.doesNotMatch(content, /from '\.\.\/fixtures'|from '\.\/fixtures'/, `${rel} imports the fixture barrel`);
+  }
+});
+
+/* ── WS5: CSP — production script-src must not allow inline JS ── */
+
+test('production CSP has no script-src unsafe-inline', () => {
+  const vercel = src('vercel.json');
+  const csp = vercel.match(/Content-Security-Policy[\s\S]*?"value": "([^"]+)"/)?.[1];
+  assert.ok(csp, 'CSP header missing from vercel.json');
+  const scriptSrc = csp.split(';').find((d) => d.trim().startsWith('script-src'));
+  assert.ok(scriptSrc, 'script-src directive missing');
+  assert.doesNotMatch(scriptSrc, /unsafe-inline/);
+  assert.doesNotMatch(scriptSrc, /unsafe-eval/);
+  // other invariants preserved
+  for (const d of ["object-src 'none'", "base-uri 'self'", "frame-ancestors 'none'", "connect-src 'self'"]) {
+    assert.ok(csp.includes(d), `CSP missing ${d}`);
+  }
+});
+
+test('production build emits external hashed JS (no single-file inlining)', () => {
+  const vite = src('vite.config.ts');
+  assert.doesNotMatch(vite, /viteSingleFile/);
+  const files = allDistFiles();
+  if (!files.length) return; // build not run — enforced when it has
+  const html = files.find((f) => f.endsWith('index.html'));
+  const htmlText = readFileSync(html, 'utf8');
+  assert.doesNotMatch(htmlText, /<script(?![^>]*\bsrc=)[^>]*>[^<\s]/, 'index.html contains an inline script block');
+});
+
+/* ── WS9: self-hosted fonts — no Google Fonts in source, artifact, or CSP ── */
+
+test('no Google Fonts references in source or CSP', () => {
+  const forbidden = ['fonts.googleapis.com', 'fonts.gstatic.com'];
+  for (const f of [path.join(ROOT, 'index.html'), ...allSourceFiles(), path.join(ROOT, 'vercel.json')]) {
+    const content = readFileSync(f, 'utf8');
+    for (const host of forbidden) {
+      assert.ok(!content.includes(host), `${path.relative(ROOT, f)} references ${host}`);
+    }
+  }
+  // fonts are actually bundled via fontsource imports
+  const main = src('src/main.tsx');
+  assert.match(main, /@fontsource/);
+});
+
+test('built production artifact does not contact Google Fonts', () => {
+  const files = allDistFiles();
+  if (!files.length) return;
+  for (const f of files) {
+    const content = readFileSync(f, 'utf8');
+    const rel = path.relative(ROOT, f).replace(/\\/g, '/');
+    for (const host of ['fonts.googleapis.com', 'fonts.gstatic.com']) {
+      assert.ok(!content.includes(host), `${rel} references ${host}`);
+    }
   }
 });
