@@ -188,3 +188,19 @@ test('built production artifact does not contact Google Fonts', () => {
     }
   }
 });
+
+
+/* ── WS11: data minimization — do not persist human-authored GitHub text ── */
+
+test('sync does not request or persist commit headlines / PR titles', () => {
+  const sync = src('lib/sync.mjs');
+  assert.doesNotMatch(sync, /messageHeadline/);
+  assert.doesNotMatch(sync, /\bmessage:\s*\(node\./);
+  assert.doesNotMatch(sync, /\btitle:\s*\(item\./);
+});
+
+test('008 migration drops unused commit message and PR title columns', () => {
+  const sql = src('migrations/008_data_minimization.sql');
+  assert.match(sql, /alter table public\.commits\s+drop column if exists message/i);
+  assert.match(sql, /alter table public\.pull_requests\s+drop column if exists title/i);
+});
