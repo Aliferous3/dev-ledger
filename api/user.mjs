@@ -4,6 +4,7 @@ import { supabase } from '../lib/db.mjs'
 import { getUserSync } from '../lib/sync.mjs'
 import { revokeAllSessions, isSessionLive } from '../lib/sessions.mjs'
 import { requestQuery } from '../lib/request-query.mjs'
+import { forbidCrossSite } from '../lib/same-origin.mjs'
 
 // GET    — current session user, installations, sync state.
 // POST   — repository disconnect/retain/delete/resume action.
@@ -12,6 +13,9 @@ export default async function handler(req, res) {
   const session = await getSession(req, res)
 
   if (req.method === 'DELETE') {
+    // Permanent account deletion — must not be triggerable cross-site.
+    // Reject before session revocation or any DB mutation.
+    if (forbidCrossSite(req, res)) return
     if (!session?.userId || !supabase || !(await isSessionLive(session.sid))) {
       res.status(401).json({ error: 'Unauthenticated' })
       return
@@ -33,6 +37,8 @@ export default async function handler(req, res) {
 
 
   if (req.method === 'POST') {
+    // Repository disconnect/keep/delete — mutations stay same-origin only.
+    if (forbidCrossSite(req, res)) return
     if (!session?.userId || !supabase || !(await isSessionLive(session.sid))) {
       res.status(401).json({ error: 'Unauthenticated' })
       return

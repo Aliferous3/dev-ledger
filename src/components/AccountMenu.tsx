@@ -125,6 +125,17 @@ export function AccountMenu() {
     return () => menu?.removeEventListener('keydown', onKey);
   }, [open, settingsOpen]);
 
+  // Logout is a POST+JSON endpoint now (GET would be cross-site abusable);
+  // on success we navigate to '/' exactly like the old 302 did.
+  const signOut = async () => {
+    try {
+      const res = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+      if (res.ok) window.location.href = '/';
+    } catch {
+      /* network failure — session persists; user can retry */
+    }
+  };
+
   const deleteData = async () => {
     if (deleting) return;
     setDeleting(true);
@@ -366,11 +377,16 @@ export function AccountMenu() {
             )}
           </div>
 
-          {/* sign out — existing logout route clears session & persistent variants */}
+          {/* sign out — POST-only same-origin logout; we navigate after success */}
           <div className="border-t border-neutral-800/70 py-1">
-            <a role="menuitem" href="/api/auth/logout" className={`${itemCls} text-neutral-400`}>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={signOut}
+              className={`${itemCls} text-neutral-400`}
+            >
               {caret}SIGN OUT
-            </a>
+            </button>
           </div>
         </div>
       )}
