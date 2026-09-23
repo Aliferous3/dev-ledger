@@ -5,6 +5,7 @@ import { getUserSync } from '../lib/sync.mjs'
 import { revokeAllSessions, isSessionLive } from '../lib/sessions.mjs'
 
 // GET    — current session user, installations, sync state.
+// POST   — repository disconnect/retain/delete/resume action.
 // DELETE — permanently delete the caller's Dev Ledger data, then sign out.
 export default async function handler(req, res) {
   const session = await getSession(req, res)
@@ -26,6 +27,69 @@ export default async function handler(req, res) {
     await supabase.from('users').delete().eq('id', session.userId)
     await session.destroy()
     res.status(200).json({ ok: true, deleted: true })
+    return
+  }
+
+
+  if (req.method === 'POST') {
+    if (!session?.userId || !supabase || !(await isSessionLive(session.sid))) {
+      res.status(401).json({ error: 'Unauthenticated' })
+      return
+    }
+
+    let body = req.body
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body) } catch { body = null }
+    }
+
+    const repositoryId = body?.repositoryId
+    const mode = body?.mode
+    if (!repositoryId || !['keep', 'delete', 'resume'].includes(mode)) {
+      res.status(400).json({ error: 'repositoryId and mode (keep|delete|resume) required' })
+      return
+    }
+
+    const userId = session.userId
+    const { data: repo } = await supabase
+      .from('repositories')
+      .select('id, full_name, disconnected_at')
+      .eq('id', repositoryId)
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (!repo) {
+      res.status(404).json({ error: 'Repository not found' })
+      return
+    }
+
+    if (mode === 'keep') {
+      await supabase
+        .from('repositories')
+        .update({ disconnected_at: new Date().toISOString(), disconnect_source: 'user' })
+        .eq('id', repo.id)
+        .eq('user_id', userId)
+      res.status(200).json({ ok: true, mode: 'keep' })
+      return
+    }
+
+    if (mode === 'resume') {
+      await supabase
+        .from('repositories')
+        .update({ disconnected_at: null, disconnect_source: null })
+        .eq('id', repo.id)
+        .eq('user_id', userId)
+      res.status(200).json({ ok: true, mode: 'resume' })
+      return
+    }
+
+    const repoId = repo.id
+    await supabase.from('pull_requests').delete().eq('user_id', userId).eq('repository_id', repoId)
+    await supabase.from('commits').delete().eq('user_id', userId).eq('repository_id', repoId)
+    await supabase.from('repo_coverage').delete().eq('user_id', userId).eq('repository_id', repoId)
+    await supabase.from('repo_sync').delete().eq('user_id', userId).eq('repository_id', repoId)
+    await supabase.from('repository_languages').delete().eq('repository_id', repoId)
+    await supabase.from('repositories').delete().eq('id', repoId).eq('user_id', userId)
+    res.status(200).json({ ok: true, mode: 'delete' })
     return
   }
 
