@@ -46,6 +46,32 @@ export default async function handler(req, res) {
     return
   }
 
+  // Replay dedup: X-GitHub-Delivery is unique per send. Insert-first — the
+  // primary key serializes concurrent duplicates; a conflict means this
+  // exact delivery already ran, so acknowledge it as a no-op (GitHub would
+  // otherwise keep retrying). Signature verification stays primary — the
+  // delivery id is only ever trusted AFTER a valid HMAC.
+  const deliveryId = req.headers['x-github-delivery']
+  if (supabase && deliveryId) {
+    try {
+      // bound the dedup table — 30-day retention, pruned opportunistically
+      await supabase
+        .from('webhook_deliveries')
+        .delete()
+        .lt('received_at', new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString())
+      const { data: inserted } = await supabase
+        .from('webhook_deliveries')
+        .insert({ delivery_id: String(deliveryId), event: event || null }, { onConflict: 'delivery_id', ignoreDuplicates: true })
+        .select('delivery_id')
+      if (!inserted?.length) {
+        res.status(200).json({ ok: true, duplicate: true })
+        return
+      }
+    } catch {
+      // dedup store unavailable — process anyway; handlers are idempotent
+    }
+  }
+
   try {
     if (event === 'installation') {
       await onInstallation(payload)
@@ -67,8 +93,13 @@ async function onInstallation(payload) {
   if (!inst) return
   if (payload.action === 'deleted') {
     // Mark sync revoked but keep historical analytics until the user deletes
-    // their account — the UI surfaces a "Reconnect GitHub" state.
+    // their account — the UI surfaces a "Reconnect GitHub" state. Repos under
+    // this installation transition to disconnected (source 'github') so a
+    // later reinstall cleanly reconnects them to their retained history.
     const { data: rows } = await supabase.from('github_installations').select('user_id').eq('installation_id', inst.id)
+    await supabase.from('repositories')
+      .update({ disconnected_at: new Date().toISOString(), disconnect_source: 'github' })
+      .eq('installation_id', inst.id)
     await supabase.from('github_installations').delete().eq('installation_id', inst.id)
     for (const r of rows || []) {
       await setUserSync(r.user_id, { status: 'revoked', error: 'GitHub access was revoked' })
@@ -102,7 +133,12 @@ async function onInstallationRepositories(payload) {
 
   const removed = (payload.repositories_removed || []).map((r) => r.id)
   if (removed.length) {
-    await supabase.from('repositories').delete().eq('user_id', link.user_id).in('github_repo_id', removed)
+    // De-authorized on GitHub → disconnected, history retained. The user
+    // can still choose DISCONNECT & DELETE explicitly later.
+    await supabase.from('repositories')
+      .update({ disconnected_at: new Date().toISOString(), disconnect_source: 'github' })
+      .eq('user_id', link.user_id)
+      .in('github_repo_id', removed)
   }
   if ((payload.repositories_added || []).length) {
     await kickSync(link.user_id)
@@ -110,12 +146,28 @@ async function onInstallationRepositories(payload) {
   }
 }
 
-async function onPush(payload) {
+// Resolve the owning tenant through the installation id — github_repo_id
+// alone is NOT unique per tenant (two Dev Ledger users can track the same
+// public repo), so an unscoped lookup could attribute work cross-tenant.
+async function repoForInstallationRepo(payload) {
   const repoId = payload.repository?.id
-  if (!repoId) return
+  const installationId = payload.installation?.id
+  if (!repoId || !installationId) return null
+  const { data: link } = await supabase
+    .from('github_installations').select('user_id').eq('installation_id', installationId).maybeSingle()
+  if (!link) return null
   const { data: repo } = await supabase
-    .from('repositories').select('id, user_id').eq('github_repo_id', repoId).maybeSingle()
-  if (!repo) return
+    .from('repositories')
+    .select('id, user_id, disconnected_at')
+    .eq('user_id', link.user_id)
+    .eq('github_repo_id', repoId)
+    .maybeSingle()
+  return repo
+}
+
+async function onPush(payload) {
+  const repo = await repoForInstallationRepo(payload)
+  if (!repo || repo.disconnected_at) return // unknown, foreign, or retained
   // Mark the repo for incremental commit sync — only commits GitHub
   // attributes to the user are ingested, so pushes by others cost little.
   await supabase.from('repo_sync')
@@ -126,11 +178,9 @@ async function onPush(payload) {
 
 async function onPullRequest(payload) {
   const pr = payload.pull_request
-  const repoId = payload.repository?.id
-  if (!pr || !repoId) return
-  const { data: repo } = await supabase
-    .from('repositories').select('id, user_id').eq('github_repo_id', repoId).maybeSingle()
-  if (!repo) return
+  if (!pr) return
+  const repo = await repoForInstallationRepo(payload)
+  if (!repo || repo.disconnected_at) return // unknown, foreign, or retained
   const { data: user } = await supabase
     .from('users').select('github_user_id').eq('id', repo.user_id).single()
   if (!user || pr.user?.id !== user.github_user_id) return // not the user's PR
