@@ -4,9 +4,10 @@ import { github, appUrl, sessionLeaseMs } from '../../lib/config.mjs'
 import { supabase } from '../../lib/db.mjs'
 import { kickSync, runSync, setUserSync, SYNC_DETAIL_INIT } from '../../lib/sync.mjs'
 import { createAuthSession, gcAuthSessions, isSessionLive } from '../../lib/sessions.mjs'
+import { requestQuery } from '../../lib/request-query.mjs'
 
 export default async function handler(req, res) {
-  const { code, state, installation_id: installationId, setup_action: setupAction } = req.query || {}
+  const { code, state, installation_id: installationId, setup_action: setupAction } = requestQuery(req)
   const session = await getSession(req, res)
 
   // GitHub App setup redirect (post-install/update) carries installation_id
