@@ -3,6 +3,7 @@ import { github } from '../lib/config.mjs'
 import { supabase } from '../lib/db.mjs'
 import { getUserSync } from '../lib/sync.mjs'
 import { revokeAllSessions, isSessionLive } from '../lib/sessions.mjs'
+import { requestQuery } from '../lib/request-query.mjs'
 
 // GET    — current session user, installations, sync state.
 // POST   — repository disconnect/retain/delete/resume action.
@@ -15,7 +16,7 @@ export default async function handler(req, res) {
       res.status(401).json({ error: 'Unauthenticated' })
       return
     }
-    if ((req.query?.confirm || '') !== '1') {
+    if ((requestQuery(req).confirm || '') !== '1') {
       res.status(400).json({ error: 'Pass confirm=1 to delete account data' })
       return
     }
