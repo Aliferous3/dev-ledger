@@ -2,6 +2,7 @@ import { getSession } from '../../lib/auth.mjs'
 import { sessionLeaseMs } from '../../lib/config.mjs'
 import { isSessionLive } from '../../lib/sessions.mjs'
 import { supabase } from '../../lib/db.mjs'
+import { forbidCrossSite } from '../../lib/same-origin.mjs'
 
 // POST /api/auth/heartbeat — keeps a non-persistent session's inactivity
 // lease alive while a Dev Ledger tab is open. Pure cookie re-seal: no DB
@@ -15,6 +16,9 @@ export default async function handler(req, res) {
     res.status(405).json({ error: 'Method not allowed' })
     return
   }
+  // The heartbeat re-seals the session cookie — a state change that must
+  // stay same-origin (a cross-site page must not extend a victim's lease).
+  if (forbidCrossSite(req, res)) return
   const session = await getSession(req, res)
   // Revocation check only applies when a database backs sessions — without
   // one there are no auth_sessions rows to revoke and nothing to check.

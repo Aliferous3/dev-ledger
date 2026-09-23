@@ -1,5 +1,6 @@
 import { waitUntil } from '@vercel/functions'
 import { requireUser } from '../lib/require-user.mjs'
+import { forbidCrossSite } from '../lib/same-origin.mjs'
 import { runRangeSync, findOutsideCommits, getCoverage, getUserSync } from '../lib/sync.mjs'
 import { rangeCoverageStatus, coversRange } from '../lib/coverage.mjs'
 import { validateRange } from '../lib/range.mjs'
@@ -12,12 +13,15 @@ import { requestQuery } from '../lib/request-query.mjs'
 // complete it also reports commits found on GitHub in repositories outside the
 // installation, so the UI can explain "zero" honestly.
 export default async function handler(req, res) {
-  const userId = await requireUser(req, res)
-  if (!userId) return
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' })
     return
   }
+  // Cross-site rejection happens before auth/DB work — a foreign origin
+  // must not even trigger a session-liveness read on the victim's behalf.
+  if (forbidCrossSite(req, res)) return
+  const userId = await requireUser(req, res)
+  if (!userId) return
 
   let from, to
   try {

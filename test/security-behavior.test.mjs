@@ -17,7 +17,11 @@ const { __setSupabaseForTests } = await import('../lib/db.mjs')
 const { getSession } = await import('../lib/auth.mjs')
 const { requireUser } = await import('../lib/require-user.mjs')
 const sessions = await import('../lib/sessions.mjs')
-const { sessionLeaseMs } = await import('../lib/config.mjs')
+const { sessionLeaseMs, appUrl } = await import('../lib/config.mjs')
+const syncHandler = (await import('../api/sync.mjs')).default
+const syncRangeHandler = (await import('../api/sync-range.mjs')).default
+const cronHandler = (await import('../api/cron/sync.mjs')).default
+const setupHandler = (await import('../api/setup.mjs')).default
 const heartbeatHandler = (await import('../api/auth/heartbeat.mjs')).default
 const logoutHandler = (await import('../api/auth/logout.mjs')).default
 const userHandler = (await import('../api/user.mjs')).default
@@ -25,6 +29,10 @@ const dashboardHandler = (await import('../api/dashboard.mjs')).default
 const disconnectHandler = userHandler
 const webhookHandler = (await import('../api/webhooks/github.mjs')).default
 const healthHandler = (await import('../api/health.mjs')).default
+
+// The configured application origin — what a real browser sends on the
+// app's own POST/DELETE fetches.
+const ORIGIN = new URL(appUrl).origin
 
 /* ── in-memory supabase-js fake ─────────────────────────────────────── */
 
@@ -318,8 +326,8 @@ test('session: logout revokes server-side, not just the cookie', async () => {
   const userId = seedUser('sess-f')
   const { cookie, sid } = await mintSession({ userId })
   const res = mockRes()
-  await logoutHandler(mockReq({ headers: { cookie } }), res)
-  assert.equal(res.statusCode, 302)
+  await logoutHandler(mockReq({ method: 'POST', headers: { cookie, origin: ORIGIN } }), res)
+  assert.equal(res.statusCode, 200)
   assert.equal(await sessions.isSessionLive(sid), false)
   // the same cookie can never authenticate again
   assert.equal(await requireUser(mockReq({ headers: { cookie } }), mockRes()), null)
@@ -329,7 +337,7 @@ test('session: DELETE MY DATA revokes all sessions and deletes user rows', async
   const userId = seedUser('sess-g')
   const { cookie, sid } = await mintSession({ userId, persistent: true })
   const res = mockRes()
-  await userHandler(mockReq({ method: 'DELETE', headers: { cookie }, query: { confirm: '1' } }), res)
+  await userHandler(mockReq({ method: 'DELETE', headers: { cookie, origin: ORIGIN }, url: '/api/user?confirm=1' }), res)
   assert.equal(res.statusCode, 200)
   assert.equal(res.body.deleted, true)
   assert.equal(await sessions.isSessionLive(sid), false)
@@ -342,7 +350,7 @@ test('session: heartbeat renews live non-persistent lease; rejects revoked', asy
   const { cookie, sid } = await mintSession({ userId, persistent: false })
 
   const res = mockRes()
-  await heartbeatHandler(mockReq({ method: 'POST', headers: { cookie } }), res)
+  await heartbeatHandler(mockReq({ method: 'POST', headers: { cookie, origin: ORIGIN } }), res)
   assert.equal(res.statusCode, 200)
   assert.equal(res.body.ok, true)
   assert.ok(res.body.leaseUntil > Date.now(), 'lease renewed forward')
@@ -356,7 +364,7 @@ test('session: heartbeat renews live non-persistent lease; rejects revoked', asy
   // revoked session cannot renew
   await sessions.revokeSession(sid)
   const res2 = mockRes()
-  await heartbeatHandler(mockReq({ method: 'POST', headers: { cookie } }), res2)
+  await heartbeatHandler(mockReq({ method: 'POST', headers: { cookie, origin: ORIGIN } }), res2)
   assert.equal(res2.statusCode, 401)
 })
 
@@ -414,7 +422,7 @@ test('isolation: disconnected rows still visible to owner, never to others', asy
 
 test('disconnect: unauthenticated is rejected', async () => {
   const res = mockRes()
-  await disconnectHandler(mockReq({ method: 'POST', body: { repositoryId: 'x', mode: 'delete' } }), res)
+  await disconnectHandler(mockReq({ method: 'POST', headers: { origin: ORIGIN }, body: { repositoryId: 'x', mode: 'delete' } }), res)
   assert.equal(res.statusCode, 401)
 })
 
@@ -427,7 +435,7 @@ test('disconnect: keep stops sync but preserves history', async () => {
 
   const { cookie } = await mintSession({ userId: a, persistent: true })
   const res = mockRes()
-  await disconnectHandler(mockReq({ method: 'POST', headers: { cookie }, body: { repositoryId: repo.id, mode: 'keep' } }), res)
+  await disconnectHandler(mockReq({ method: 'POST', headers: { cookie, origin: ORIGIN }, body: { repositoryId: repo.id, mode: 'keep' } }), res)
   assert.equal(res.statusCode, 200)
   const row = db.t('repositories').find((r) => r.id === repo.id)
   assert.ok(row.disconnected_at, 'repo marked disconnected')
@@ -450,7 +458,7 @@ test('disconnect: delete removes only that repo\'s rows for that user', async ()
 
   const { cookie } = await mintSession({ userId: a, persistent: true })
   const res = mockRes()
-  await disconnectHandler(mockReq({ method: 'POST', headers: { cookie }, body: { repositoryId: repo1.id, mode: 'delete' } }), res)
+  await disconnectHandler(mockReq({ method: 'POST', headers: { cookie, origin: ORIGIN }, body: { repositoryId: repo1.id, mode: 'delete' } }), res)
   assert.equal(res.statusCode, 200)
 
   assert.equal(db.t('repositories').find((r) => r.id === repo1.id), undefined, 'repo row gone')
@@ -473,7 +481,7 @@ test('disconnect: user A cannot disconnect or delete user B\'s repository', asyn
   const { cookie } = await mintSession({ userId: a, persistent: true })
   for (const mode of ['keep', 'delete']) {
     const res = mockRes()
-    await disconnectHandler(mockReq({ method: 'POST', headers: { cookie }, body: { repositoryId: repoB.id, mode } }), res)
+    await disconnectHandler(mockReq({ method: 'POST', headers: { cookie, origin: ORIGIN }, body: { repositoryId: repoB.id, mode } }), res)
     assert.equal(res.statusCode, 404, `mode=${mode} must not reach foreign repo`)
   }
   // nothing changed
@@ -489,7 +497,7 @@ test('disconnect: client-supplied user_id in body is ignored', async () => {
   const { cookie } = await mintSession({ userId: a, persistent: true })
   const res = mockRes()
   await disconnectHandler(mockReq({
-    method: 'POST', headers: { cookie },
+    method: 'POST', headers: { cookie, origin: ORIGIN },
     body: { repositoryId: repoB.id, mode: 'delete', user_id: a }, // forged owner claim
   }), res)
   assert.equal(res.statusCode, 404)
@@ -503,7 +511,7 @@ test('disconnect: resume clears a retained disconnect', async () => {
   repo.disconnect_source = 'user'
   const { cookie } = await mintSession({ userId: a, persistent: true })
   const res = mockRes()
-  await disconnectHandler(mockReq({ method: 'POST', headers: { cookie }, body: { repositoryId: repo.id, mode: 'resume' } }), res)
+  await disconnectHandler(mockReq({ method: 'POST', headers: { cookie, origin: ORIGIN }, body: { repositoryId: repo.id, mode: 'resume' } }), res)
   assert.equal(res.statusCode, 200)
   const row = db.t('repositories').find((r) => r.id === repo.id)
   assert.equal(row.disconnected_at, null)
@@ -610,4 +618,283 @@ test('migration: RLS + revokes + invoker functions + new tables present', () => 
   assert.match(sql, /create table if not exists public\.webhook_deliveries/)
   assert.match(sql, /alter table public\.webhook_deliveries enable row level security/)
   assert.match(sql, /add column if not exists disconnected_at/)
+})
+
+/* ── same-origin / CSRF hardening ───────────────────────────────────── */
+
+const FOREIGN = 'https://evil.example'
+const fetchSite = (v) => (v ? { 'sec-fetch-site': v } : {})
+
+// The protected browser-mutation surface. Each entry invokes the handler
+// with a valid session cookie + the headers under test.
+async function protectedRoutes(userId) {
+  const { cookie } = await mintSession({ userId, persistent: true })
+  return [
+    {
+      name: 'POST /api/sync',
+      call: async (headers) => { const res = mockRes(); await syncHandler(mockReq({ method: 'POST', headers: { cookie, ...headers }, url: '/api/sync' }), res); return res },
+    },
+    {
+      name: 'POST /api/sync-range',
+      call: async (headers) => { const res = mockRes(); await syncRangeHandler(mockReq({ method: 'POST', headers: { cookie, ...headers }, url: '/api/sync-range?from=2024-01-01&to=2024-01-31' }), res); return res },
+    },
+    {
+      name: 'POST /api/user (disconnect)',
+      call: async (headers) => { const res = mockRes(); await userHandler(mockReq({ method: 'POST', headers: { cookie, ...headers }, body: { repositoryId: 'x', mode: 'keep' } }), res); return res },
+    },
+    {
+      name: 'DELETE /api/user',
+      call: async (headers) => { const res = mockRes(); await userHandler(mockReq({ method: 'DELETE', headers: { cookie, ...headers }, url: '/api/user?confirm=1' }), res); return res },
+    },
+    {
+      name: 'POST /api/auth/heartbeat',
+      call: async (headers) => { const res = mockRes(); await heartbeatHandler(mockReq({ method: 'POST', headers: { cookie, ...headers } }), res); return res },
+    },
+    {
+      name: 'POST /api/auth/logout',
+      call: async (headers) => { const res = mockRes(); await logoutHandler(mockReq({ method: 'POST', headers: { cookie, ...headers } }), res); return res },
+    },
+  ]
+}
+
+test('same-origin: every protected mutation accepts the configured origin', async () => {
+  const userId = seedUser('so-ok')
+  for (const route of await protectedRoutes(userId)) {
+    const res = await route.call({ origin: ORIGIN, 'sec-fetch-site': 'same-origin' })
+    assert.notEqual(res.statusCode, 403, `${route.name} rejected a valid same-origin request`)
+    assert.notEqual(res.statusCode, 405, `${route.name} should accept POST`)
+  }
+})
+
+test('same-origin: foreign / malformed / missing Origin => 403 everywhere', async () => {
+  const userId = seedUser('so-bad')
+  for (const route of await protectedRoutes(userId)) {
+    for (const headers of [{ origin: FOREIGN }, { origin: 'not-a-url' }, {}]) {
+      const res = await route.call(headers)
+      assert.equal(res.statusCode, 403, `${route.name} accepted origin=${headers.origin ?? '<missing>'}`)
+      assert.deepEqual(res.body, { error: 'Forbidden' })
+    }
+  }
+})
+
+test('same-origin: Sec-Fetch-Site must be exactly same-origin when present', async () => {
+  const userId = seedUser('so-sfs')
+  for (const route of await protectedRoutes(userId)) {
+    for (const v of ['cross-site', 'same-site', 'none']) {
+      const res = await route.call({ origin: ORIGIN, 'sec-fetch-site': v })
+      assert.equal(res.statusCode, 403, `${route.name} accepted Sec-Fetch-Site: ${v}`)
+    }
+    // absent is tolerated (older browsers); present+same-origin passes
+    const res = await route.call({ origin: ORIGIN })
+    assert.notEqual(res.statusCode, 403, `${route.name} rejected absent Sec-Fetch-Site with valid Origin`)
+  }
+})
+
+test('ordering: cross-site DELETE /api/user revokes nothing, deletes nothing', async () => {
+  const userId = seedUser('so-victim')
+  const { cookie, sid } = await mintSession({ userId, persistent: true })
+  const mutationsBefore = db.calls.length
+  const res = mockRes()
+  await userHandler(mockReq({
+    method: 'DELETE', headers: { cookie, origin: FOREIGN }, url: '/api/user?confirm=1',
+  }), res)
+  assert.equal(res.statusCode, 403)
+  assert.equal(db.calls.length, mutationsBefore, 'cross-site request ran zero DB operations')
+  assert.equal(await sessions.isSessionLive(sid), true, 'session must NOT be revoked by a forged request')
+  assert.ok(db.t('users').some((u) => u.id === userId), 'user row must survive')
+})
+
+test('ordering: cross-site logout does not revoke the victim session', async () => {
+  const userId = seedUser('so-victim2')
+  const { cookie, sid } = await mintSession({ userId })
+  const res = mockRes()
+  await logoutHandler(mockReq({ method: 'POST', headers: { cookie, origin: FOREIGN } }), res)
+  assert.equal(res.statusCode, 403)
+  assert.equal(await sessions.isSessionLive(sid), true)
+  // and the cookie was not destroyed either — no expiry Set-Cookie
+  const sc = res.headers['set-cookie']
+  assert.ok(!sc || !(Array.isArray(sc) ? sc : [sc]).some((c) => /Max-Age=0/.test(c)))
+})
+
+test('ordering: cross-site POST /api/user disconnect mutates nothing', async () => {
+  const userId = seedUser('so-victim3')
+  const repo = seedRepo(userId, 'csrf-target')
+  const { cookie } = await mintSession({ userId })
+  const res = mockRes()
+  await userHandler(mockReq({
+    method: 'POST', headers: { cookie, origin: FOREIGN },
+    body: { repositoryId: repo.id, mode: 'delete' },
+  }), res)
+  assert.equal(res.statusCode, 403)
+  const row = db.t('repositories').find((r) => r.id === repo.id)
+  assert.ok(row, 'repo row untouched')
+  assert.equal(row.disconnected_at, undefined)
+})
+
+// getSession() is NOT strictly read-only: an expired non-persistent lease
+// calls session.destroy(), which emits a Set-Cookie expiry. Minting a
+// session with leaseUntil already in the past therefore turns the presence
+// of 'set-cookie' on the response into a probe for "session code ran".
+async function mintExpiredLeaseSession(userId) {
+  const res = mockRes()
+  const s = await getSession(mockReq(), res, { persistent: false })
+  s.userId = userId
+  s.githubLogin = `u-${userId.slice(0, 6)}`
+  s.persistent = false
+  s.sid = await sessions.createAuthSession(userId, { persistent: false })
+  s.leaseUntil = Date.now() - 60_000
+  await s.save()
+  return { cookie: cookieFrom(res), sid: s.sid }
+}
+
+test('ordering: cross-site POST/DELETE /api/user never reaches getSession', async () => {
+  const userId = seedUser('so-presession')
+  const { cookie, sid } = await mintExpiredLeaseSession(userId)
+
+  for (const method of ['POST', 'DELETE']) {
+    const before = db.calls.length
+    const res = mockRes()
+    await userHandler(mockReq({
+      method,
+      headers: { cookie, origin: FOREIGN },
+      url: '/api/user?confirm=1',
+      body: { repositoryId: 'x', mode: 'keep' },
+    }), res)
+    assert.equal(res.statusCode, 403, `${method} must be 403`)
+    assert.deepEqual(res.body, { error: 'Forbidden' })
+    assert.equal(res.headers['set-cookie'], undefined,
+      `${method}: getSession ran — a destroy/expiry Set-Cookie was emitted on a forged request`)
+    assert.equal(db.calls.length, before, `${method}: zero DB operations`)
+  }
+  assert.equal(await sessions.isSessionLive(sid), true, 'sid must not be revoked')
+
+  // Control: same expired-lease cookie, valid origin — getSession DOES run,
+  // destroys the stale cookie (observable Set-Cookie), then 401s. This keeps
+  // the 'no set-cookie' assertion above non-vacuous.
+  const control = mockRes()
+  await userHandler(mockReq({
+    method: 'POST', headers: { cookie, origin: ORIGIN },
+    body: { repositoryId: 'x', mode: 'keep' },
+  }), control)
+  assert.equal(control.statusCode, 401)
+  const sc = control.headers['set-cookie']
+  assert.ok(sc && (Array.isArray(sc) ? sc : [sc]).some((c) => /expires=|max-age=0/i.test(c)),
+    'control: same-origin request must show the getSession destroy cookie — probe is live')
+})
+
+test('/api/user rejects unsupported methods 405 before touching the session', async () => {
+  const userId = seedUser('so-405')
+  const { cookie } = await mintExpiredLeaseSession(userId)
+  const res = mockRes()
+  await userHandler(mockReq({ method: 'PATCH', headers: { cookie } }), res)
+  assert.equal(res.statusCode, 405)
+  assert.equal(res.headers['set-cookie'], undefined, '405 path must not parse/emit session state')
+})
+
+/* ── method safety ──────────────────────────────────────────────────── */
+
+test('logout: GET is rejected 405, POST is the only accepted method', async () => {
+  const userId = seedUser('so-method')
+  const { cookie } = await mintSession({ userId })
+  const get = mockRes()
+  await logoutHandler(mockReq({ method: 'GET', headers: { cookie, origin: ORIGIN } }), get)
+  assert.equal(get.statusCode, 405)
+  for (const m of ['PUT', 'DELETE']) {
+    const r = mockRes()
+    await logoutHandler(mockReq({ method: m, headers: { cookie, origin: ORIGIN } }), r)
+    assert.equal(r.statusCode, 405, `${m} must be rejected`)
+  }
+  const post = mockRes()
+  await logoutHandler(mockReq({ method: 'POST', headers: { cookie, origin: ORIGIN } }), post)
+  assert.equal(post.statusCode, 200)
+  assert.equal(post.body.ok, true)
+})
+
+test('read-only GETs require no Origin', async () => {
+  const userId = seedUser('so-read')
+  const { cookie } = await mintSession({ userId })
+  // GET /api/sync — status read, no Origin needed
+  const sync = mockRes()
+  await syncHandler(mockReq({ method: 'GET', headers: { cookie } }), sync)
+  assert.equal(sync.statusCode, 200)
+  // GET /api/user — identity read
+  const user = mockRes()
+  await userHandler(mockReq({ method: 'GET', headers: { cookie } }), user)
+  assert.equal(user.statusCode, 200)
+  assert.equal(user.body.authenticated, true)
+})
+
+/* ── exemptions: server-to-server / redirect flows unguarded ────────── */
+
+test('exempt: webhook rejects unsigned WITHOUT consulting origin (401 not 403)', async () => {
+  const res = mockRes()
+  await webhookHandler(webhookReq({}, { secret: 'wrong' }), res)
+  assert.equal(res.statusCode, 401)
+})
+
+test('exempt: validly-signed webhook POST processes with no Origin header', async () => {
+  const res = mockRes()
+  await webhookHandler(webhookReq({}, { delivery: crypto.randomUUID(), event: 'ping' }), res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.ok, true)
+})
+
+test('exempt: cron sync authenticates by secret, not origin', async () => {
+  // No secret configured → fail closed, but importantly NOT 403 (no origin check)
+  const res = mockRes()
+  await cronHandler(mockReq({ method: 'GET' }), res)
+  assert.equal(res.statusCode, 401)
+  assert.notEqual(res.statusCode, 403)
+})
+
+test('exempt: OAuth callback is a GitHub redirect — no Origin required', async () => {
+  const res = mockRes()
+  await import('../api/auth/callback.mjs').then((m) => m.default(mockReq({ method: 'GET', url: '/api/auth/callback' }), res))
+  assert.equal(res.statusCode, 400) // bad/missing state — reached business logic, not 403
+})
+
+test('exempt: GitHub App setup redirect is not origin-gated', async () => {
+  const res = mockRes()
+  await setupHandler(mockReq({ method: 'GET', url: '/api/setup' }), res)
+  assert.equal(res.statusCode, 302) // redirects to login — no 403
+})
+
+/* ── data minimization: webhook never persists PR title ─────────────── */
+
+test('webhook: pull_request event persists no title column', async () => {
+  const a = seedUser('wh-pr')
+  db.t('users').find((u) => u.id === a).github_user_id = 777
+  const repo = seedRepo(a, 'pr-repo')
+  db.t('github_installations').push({ id: crypto.randomUUID(), user_id: a, installation_id: 9090 })
+  const payload = {
+    action: 'opened',
+    installation: { id: 9090 },
+    repository: { id: repo.github_repo_id },
+    pull_request: {
+      id: 555, number: 7, state: 'open',
+      title: 'SECRET PR TITLE THAT MUST NOT BE STORED',
+      created_at: new Date().toISOString(),
+      merged_at: null, closed_at: null,
+      user: { id: 777, login: 'wh-pr' },
+    },
+  }
+  const res = mockRes()
+  await webhookHandler(webhookReq(payload, { delivery: crypto.randomUUID(), event: 'pull_request' }), res)
+  assert.equal(res.statusCode, 200)
+  const row = db.t('pull_requests').find((p) => p.github_pr_id === 555)
+  assert.ok(row, 'PR row was upserted')
+  assert.ok(!('title' in row), 'PR title must never be persisted')
+  // nothing in the store contains the title text
+  for (const [tbl, rows] of db.store) {
+    for (const r of rows) {
+      assert.ok(!JSON.stringify(r).includes('SECRET PR TITLE'), `${tbl} leaked PR title`)
+    }
+  }
+})
+
+test('webhook source: handler contains no PR title write', () => {
+  const src = readFileSync(path.join(ROOT, 'api/webhooks/github.mjs'), 'utf8')
+  // no `title:` key in the pull_requests upsert (comment mentions are ok)
+  const upsertBlock = src.match(/pull_requests'\)\.upsert\(\{[\s\S]*?\}\)/)?.[0] ?? ''
+  assert.doesNotMatch(upsertBlock, /title\s*:/, 'webhook writes pull_requests.title')
 })

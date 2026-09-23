@@ -4,11 +4,23 @@ import { supabase } from '../lib/db.mjs'
 import { getUserSync } from '../lib/sync.mjs'
 import { revokeAllSessions, isSessionLive } from '../lib/sessions.mjs'
 import { requestQuery } from '../lib/request-query.mjs'
+import { forbidCrossSite } from '../lib/same-origin.mjs'
 
 // GET    — current session user, installations, sync state.
 // POST   — repository disconnect/retain/delete/resume action.
 // DELETE — permanently delete the caller's Dev Ledger data, then sign out.
 export default async function handler(req, res) {
+  // Mutations must fail closed before getSession() runs: it can destroy an
+  // expired session, which emits a Set-Cookie — a cross-site request must not
+  // even reach cookie-writing code.
+  if (req.method === 'POST' || req.method === 'DELETE') {
+    if (forbidCrossSite(req, res)) return
+  }
+  if (!['GET', 'POST', 'DELETE'].includes(req.method)) {
+    res.status(405).json({ error: 'Method not allowed' })
+    return
+  }
+
   const session = await getSession(req, res)
 
   if (req.method === 'DELETE') {
@@ -33,6 +45,7 @@ export default async function handler(req, res) {
 
 
   if (req.method === 'POST') {
+    // Repository disconnect/keep/delete — mutations stay same-origin only.
     if (!session?.userId || !supabase || !(await isSessionLive(session.sid))) {
       res.status(401).json({ error: 'Unauthenticated' })
       return
@@ -91,11 +104,6 @@ export default async function handler(req, res) {
     await supabase.from('repository_languages').delete().eq('repository_id', repoId)
     await supabase.from('repositories').delete().eq('id', repoId).eq('user_id', userId)
     res.status(200).json({ ok: true, mode: 'delete' })
-    return
-  }
-
-  if (req.method !== 'GET') {
-    res.status(405).json({ error: 'Method not allowed' })
     return
   }
 

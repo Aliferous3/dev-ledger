@@ -1,5 +1,6 @@
 import { waitUntil } from '@vercel/functions'
 import { requireUser } from '../lib/require-user.mjs'
+import { forbidCrossSite } from '../lib/same-origin.mjs'
 import { runSync, getUserSync } from '../lib/sync.mjs'
 import { requestQuery } from '../lib/request-query.mjs'
 
@@ -28,15 +29,13 @@ const shape = (s) =>
 export default async function handler(req, res) {
   // Live sync state must never be served stale from a shared cache.
   res.setHeader('Cache-Control', 'no-store')
-  const userId = await requireUser(req, res)
-  if (!userId) return
-
-  if (req.method === 'GET') {
-    res.status(200).json(shape(await getUserSync(userId)))
-    return
-  }
 
   if (req.method === 'POST') {
+    // Browser-triggered ingestion — a cross-site page must not be able to
+    // burn the user's GitHub rate limit through their ambient cookie.
+    if (forbidCrossSite(req, res)) return
+    const userId = await requireUser(req, res)
+    if (!userId) return
     const force = requestQuery(req).force === '1'
     const result = await runSync(userId, { budgetMs: 45_000, force })
     // Only continue post-response when THIS request actually ran a slice
@@ -49,6 +48,13 @@ export default async function handler(req, res) {
       waitUntil(runSync(userId, { budgetMs: 45_000, resume: true }).catch(() => {}))
     }
     res.status(200).json(shape(result))
+    return
+  }
+
+  if (req.method === 'GET') {
+    const userId = await requireUser(req, res)
+    if (!userId) return
+    res.status(200).json(shape(await getUserSync(userId)))
     return
   }
 

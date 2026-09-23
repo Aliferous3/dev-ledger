@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { appUrl } from '../lib/config.mjs'
 import { requireUser } from '../lib/require-user.mjs'
 import dashboardHandler from '../api/dashboard.mjs'
 import syncHandler from '../api/sync.mjs'
@@ -23,7 +24,16 @@ function mockRes() {
 }
 
 function mockReq(overrides = {}) {
-  return { method: 'GET', headers: {}, query: {}, ...overrides }
+  // Handlers read query via requestQuery(req) (WHATWG URL over req.url) —
+  // translate the legacy `query` override into the real url so tests match.
+  const { query, ...rest } = overrides
+  const req = { method: 'GET', headers: {}, ...rest }
+  if (query && Object.keys(query).length) {
+    const params = new URLSearchParams()
+    for (const [k, v] of Object.entries(query)) params.set(k, v)
+    req.url = `${req.url?.split('?')[0] || '/'}?${params}`
+  }
+  return req
 }
 
 test('unauthenticated requests are rejected with 401', async () => {
@@ -43,7 +53,12 @@ test('unauthenticated /api/user reports not authenticated', async () => {
 
 test('unauthenticated DELETE /api/user is rejected', async () => {
   const res = mockRes()
-  await userHandler(mockReq({ method: 'DELETE', query: { confirm: '1' } }), res)
+  // valid same-origin headers so the request reaches the auth check —
+  // the CSRF layer's 403s are covered by the same-origin suite
+  await userHandler(
+    mockReq({ method: 'DELETE', headers: { origin: new URL(appUrl).origin }, query: { confirm: '1' } }),
+    res,
+  )
   assert.equal(res.statusCode, 401)
 })
 
