@@ -90,6 +90,8 @@ export default async function handler(req, res) {
       lastCommitAt: st?.last_commit_at || null,
       lastCommit: st?.last_commit_at ? dayKey(st.last_commit_at) : (r.pushed_at ? dayKey(r.pushed_at) : null),
       lastActivityAt: r.pushed_at || null,
+      // retained repos keep their history in the ledger but ingest nothing
+      disconnected: Boolean(r.disconnected_at),
     }
   })
 

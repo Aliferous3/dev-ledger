@@ -1,12 +1,14 @@
-import type { Period } from './types';
-import { DATA_365 } from './store/metricsData';
+import type { Period } from '../types';
+import { DATA_365 } from './metricsData';
+import { periodToRange } from '../ledger/periods';
 
-// Static fixture in the production /api/dashboard response shape — feeds the
-// retained Quiet Instrument components (Historical Lanes, Archive figures)
-// with the same data contract they consume in the real app.
+// DEV-ONLY synthetic fixture in the production /api/dashboard response
+// shape — feeds the design-mode preview with completely fictional
+// repositories, owners, and statistics. Aliased to an inert stub in
+// production builds; never ships user-derived data.
 
-export const OBS_START = '2024-01-01';
-export const OBS_END = '2026-09-20';
+export const OBS_START = '2024-02-01';
+export const OBS_END = '2026-09-14';
 
 interface RepoSeed {
   id: string;
@@ -22,66 +24,66 @@ interface RepoSeed {
 
 const REPO_SEEDS: RepoSeed[] = [
   {
-    id: 'r1', name: 'lexica-aeterna', path: 'Aliferous3/lexica-aeterna', private: true,
-    primaryLanguage: 'TypeScript', languageBytes: 2_100_000,
-    langs: [['TypeScript', 1_980_000], ['CSS', 82_000], ['HTML', 38_000]],
+    id: 'r1', name: 'northstar-api', path: 'octo-demo/northstar-api', private: true,
+    primaryLanguage: 'TypeScript', languageBytes: 1_840_000,
+    langs: [['TypeScript', 1_720_000], ['CSS', 76_000], ['HTML', 44_000]],
     monthly: {
-      '2026-05': [120, 96_000, 4_000],
-      '2026-08': [540, 812_000, 31_000],
-      '2026-09': [630, 901_000, 42_000],
+      '2026-04': [96, 71_000, 3_100],
+      '2026-07': [410, 642_000, 24_000],
+      '2026-08': [434, 701_000, 31_000],
     },
   },
   {
-    id: 'r2', name: 'Influencer-Tracker', path: 'Aliferous3/Influencer-Tracker', private: true,
-    primaryLanguage: 'TypeScript', languageBytes: 1_700_000,
-    langs: [['TypeScript', 1_620_000], ['JavaScript', 80_000]],
+    id: 'r2', name: 'quartz-ui', path: 'octo-demo/quartz-ui', private: true,
+    primaryLanguage: 'TypeScript', languageBytes: 1_240_000,
+    langs: [['TypeScript', 1_180_000], ['JavaScript', 60_000]],
     monthly: {
-      '2024-03': [6, 8_400, 900],
-      '2024-04': [9, 14_200, 1_800],
-      '2024-05': [4, 5_100, 600],
-      '2024-06': [3, 3_400, 500],
-      '2025-01': [8, 11_800, 1_400],
+      '2024-04': [5, 6_900, 800],
+      '2024-05': [8, 11_700, 1_500],
+      '2024-06': [3, 4_200, 500],
+      '2024-07': [3, 2_900, 400],
+      '2025-02': [7, 9_800, 1_200],
     },
   },
   {
-    id: 'r3', name: 'dev-ledger', path: 'Aliferous3/dev-ledger', private: true,
-    primaryLanguage: 'JavaScript', languageBytes: 39_000,
-    langs: [['JavaScript', 31_000], ['CSS', 6_200], ['HTML', 1_800]],
+    id: 'r3', name: 'sample-cli', path: 'octo-demo/sample-cli', private: true,
+    primaryLanguage: 'JavaScript', languageBytes: 52_000,
+    langs: [['JavaScript', 41_000], ['CSS', 8_400], ['HTML', 2_600]],
     monthly: {
-      '2026-07': [12, 9_800, 2_100],
-      '2026-08': [18, 16_400, 3_200],
-      '2026-09': [12, 11_200, 2_400],
+      '2026-06': [14, 11_200, 2_400],
+      '2026-07': [20, 18_100, 3_700],
+      '2026-08': [13, 12_800, 2_700],
     },
   },
   {
-    id: 'r4', name: 'gold-bot', path: 'Aliferous3/gold-bot', private: true,
-    primaryLanguage: 'Python', languageBytes: 39_000,
-    langs: [['Python', 37_500], ['Shell', 1_500]],
+    id: 'r4', name: 'atlas-worker', path: 'octo-demo/atlas-worker', private: true,
+    primaryLanguage: 'Python', languageBytes: 47_000,
+    langs: [['Python', 45_000], ['Shell', 2_000]],
     monthly: {
-      '2026-06': [30, 21_000, 4_800],
-      '2026-07': [24, 17_600, 4_100],
+      '2026-05': [33, 23_000, 5_200],
+      '2026-06': [28, 19_400, 4_600],
     },
   },
   {
-    id: 'r5', name: 'taskbar-kitty', path: 'Aliferous3/taskbar-kitty', private: true,
-    primaryLanguage: 'Python', languageBytes: 5_500,
-    langs: [['Python', 5_100], ['PowerShell', 400]],
+    id: 'r5', name: 'demo-dashboard', path: 'octo-demo/demo-dashboard', private: true,
+    primaryLanguage: 'Python', languageBytes: 8_200,
+    langs: [['Python', 7_600], ['Shell', 600]],
     monthly: {
-      '2025-11': [6, 4_200, 700],
-      '2025-12': [4, 2_600, 500],
+      '2025-10': [7, 4_800, 800],
+      '2025-11': [6, 3_400, 600],
     },
   },
   {
-    id: 'r6', name: 'Live-Flight-Radar-Scanner-M5Stack', path: 'Aliferous3/Live-Flight-Radar-Scanner-M5Stack', private: false,
-    primaryLanguage: 'C++', languageBytes: 527,
-    langs: [['C++', 527]],
-    monthly: { '2024-08': [2, 600, 40] },
+    id: 'r6', name: 'zephyr-sensor-fw', path: 'octo-demo/zephyr-sensor-fw', private: false,
+    primaryLanguage: 'C++', languageBytes: 640,
+    langs: [['C++', 640]],
+    monthly: { '2024-09': [3, 700, 50] },
   },
   {
-    id: 'r7', name: 'Aliferous3', path: 'Aliferous3/Aliferous3', private: false,
+    id: 'r7', name: 'octo-demo', path: 'octo-demo/octo-demo', private: false,
     primaryLanguage: '', languageBytes: 2,
     langs: [['Markdown', 2]],
-    monthly: { '2024-01': [1, 40, 0] },
+    monthly: { '2024-02': [1, 40, 0] },
   },
 ];
 
@@ -122,7 +124,7 @@ const repoLangs = Object.fromEntries(
 const langTotals = new Map<string, number>();
 for (const r of REPO_SEEDS) for (const [l, b] of r.langs) langTotals.set(l, (langTotals.get(l) || 0) + b);
 // Minor strata observed across the corpus
-for (const [l, b] of [['Java', 240], ['Dockerfile', 180]] as [string, number][])
+for (const [l, b] of [['Rust', 310], ['Dockerfile', 240]] as [string, number][])
   langTotals.set(l, (langTotals.get(l) || 0) + b);
 
 const repositories = REPO_SEEDS.map((r) => {
@@ -146,7 +148,7 @@ const repositories = REPO_SEEDS.map((r) => {
   };
 });
 
-// Daily series for the Historical Lanes — reuse the ZIP's generated year so
+// Daily series for the Historical Lanes — reuse the generated year so
 // lanes, the contribution field, and FIG. A/B all read the same record.
 const daily = DATA_365.map((d) => ({
   date: d.date,
@@ -155,8 +157,8 @@ const daily = DATA_365.map((d) => ({
   deleted: d.deleted,
 }));
 
-// ~439 opened PRs weighted onto active days.
-let prsRemaining = 439;
+// ~312 opened PRs weighted onto active days.
+let prsRemaining = 312;
 const activeDays = DATA_365.filter((d) => d.commits > 0);
 const prsDaily: { date: string; opened: number; merged: number }[] = [];
 activeDays.forEach((d, i) => {
@@ -172,7 +174,7 @@ const totalDeleted = repoMonthly.reduce((a, m) => a + m.deleted, 0);
 const totalActiveDays = repoMonthly.reduce((a, m) => a + m.activeDays, 0);
 
 export const DASHBOARD = {
-  generatedAt: '2026-09-20T00:00:00.000Z',
+  generatedAt: '2026-09-14T00:00:00.000Z',
   range: { from: OBS_START, to: OBS_END },
   summary: {
     repos: repositories.length,
@@ -183,11 +185,11 @@ export const DASHBOARD = {
     allDeleted: totalDeleted,
     allChurn: totalAdded + totalDeleted,
     activeDays: totalActiveDays,
-    longestStreak: 23,
-    peakDayCommits: 114,
+    longestStreak: 19,
+    peakDayCommits: 96,
     languageBytes: [...langTotals.values()].reduce((a, b) => a + b, 0),
   },
-  github: { connected: true, pullRequests: 439, mergedPrs: 426, revoked: false },
+  github: { connected: true, pullRequests: 312, mergedPrs: 303, revoked: false },
   sync: { status: 'idle', progress: 0 },
   rangeCoverage: { status: 'complete' },
   repositories,
@@ -203,7 +205,7 @@ export const DASHBOARD = {
     span: {
       firstActive: OBS_START,
       lastActive: OBS_END,
-      activeDays: 89,
+      activeDays: 74,
       totalCommits,
       totalAdded,
       totalDeleted,
@@ -211,31 +213,13 @@ export const DASHBOARD = {
   },
 };
 
-const FIELD_END = '2026-09-20';
+const FIELD_END = '2026-09-14';
 
-// ZIP period label → a makeRange()-shaped range. `endIso` defaults to the
-// fixture window edge; live data passes the real last-observed day.
-export function periodToRange(
-  period: Period,
-  endIso: string = FIELD_END,
-  allFromIso: string = OBS_START,
-): { mode: string; from: string | null; to: string | null } {
-  const end = endIso;
-  const shift = (days: number) => {
-    const d = new Date(end + 'T00:00:00Z');
-    d.setUTCDate(d.getUTCDate() - days);
-    return d.toISOString().slice(0, 10);
-  };
-  switch (period) {
-    case '7D': return { mode: '7d', from: shift(6), to: end };
-    case '30D': return { mode: '30d', from: shift(29), to: end };
-    case '90D': return { mode: '90d', from: shift(89), to: end };
-    case 'YTD': return { mode: 'ytd', from: `${end.slice(0, 4)}-01-01`, to: end };
-    case 'ALL': return { mode: 'all', from: allFromIso, to: end };
-    case '1Y':
-    default: return { mode: '1y', from: shift(364), to: end };
-  }
+// Fixture convenience wrapper — live.ts imports the real periodToRange
+// from '../ledger/periods' for production ranges.
+export function fixturePeriodToRange(period: Period) {
+  return periodToRange(period, FIELD_END, OBS_START);
 }
 
 export const ARCHIVE_RANGE = { mode: 'all', from: OBS_START, to: OBS_END };
-export const MONTH_SPAN = [...monthIter('2024-01', '2026-09')];
+export const MONTH_SPAN = [...monthIter('2024-02', '2026-09')];

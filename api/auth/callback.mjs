@@ -3,6 +3,7 @@ import { getSession, getUserOctokit, getAppOctokit } from '../../lib/auth.mjs'
 import { github, appUrl, sessionLeaseMs } from '../../lib/config.mjs'
 import { supabase } from '../../lib/db.mjs'
 import { kickSync, runSync, setUserSync, SYNC_DETAIL_INIT } from '../../lib/sync.mjs'
+import { createAuthSession, gcAuthSessions, isSessionLive } from '../../lib/sessions.mjs'
 
 export default async function handler(req, res) {
   const { code, state, installation_id: installationId, setup_action: setupAction } = req.query || {}
@@ -12,7 +13,7 @@ export default async function handler(req, res) {
   // and a fresh code, but no OAuth state. With an existing session, link the
   // installation directly; without one, restart login so OAuth completes.
   if (installationId && setupAction) {
-    if (!session.userId) {
+    if (!session.userId || (supabase && !(await isSessionLive(session.sid)))) {
       res.writeHead(302, { Location: '/api/auth/login' })
       res.end()
       return
@@ -120,7 +121,11 @@ export default async function handler(req, res) {
     session.userId = dbUser.id
     session.githubUserId = user.id
     session.githubLogin = user.login
+    // Server-side session record — revocation (logout / delete / kill-all)
+    // kills this sid and the sealed cookie dies with it.
+    session.sid = await createAuthSession(dbUser.id, { persistent: session.persistent === true })
     await session.save()
+    waitUntil(gcAuthSessions().catch(() => {}))
 
     // Discover every installation of this app accessible to the user token.
     const { data: discovered } = await userOctokit.rest.apps
@@ -165,6 +170,8 @@ export default async function handler(req, res) {
     session.userId = String(user.id)
     session.githubUserId = user.id
     session.githubLogin = user.login
+    // No database → no auth_sessions table; cookie-only session (dev).
+    session.sid = null
     await session.save()
   }
 

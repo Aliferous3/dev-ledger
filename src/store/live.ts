@@ -1,32 +1,39 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { isSyncStale, passivePollMs, rateLimitElapsed } from '../ledger/syncModel.mjs';
+import { periodToRange } from '../ledger/periods';
 import type { DayData, Period, RepoItem } from '../types';
-import { DASHBOARD, OBS_START, periodToRange } from '../ledgerData';
 import {
-  END,
-  cells as fixtureCells,
   cellsFromDaily,
-  languages as fixtureLanguages,
-  weeks as fixtureWeeks,
   weeksFromCells,
   type DayCell,
   type Week,
 } from '../fieldData';
-import { fmtBytes, fmtCompact, LANGUAGES, type LangRow } from '../codeData';
-import { DATA_365, REPOSITORIES } from './metricsData';
+import { fmtBytes, fmtCompact, type LangRow } from '../codeData';
+// Dev-only demo fixtures — '../fixtures' resolves to an inert stub in
+// production builds, so none of this data ever ships.
 import {
+  DASHBOARD,
+  OBS_START,
+  OBS_END,
+  DATA_365,
+  REPOSITORIES,
+  END,
+  cells as fixtureCells,
+  languages as fixtureLanguages,
+  weeks as fixtureWeeks,
+  LANGUAGES,
   RHYTHM_DAYS,
   RHYTHM_HIGHLIGHTS,
   RHYTHM_MATRIX,
   RHYTHM_WINDOWS,
-} from '../activityData';
+} from '../fixtures';
 
-/* Production data layer: the restored /api/dashboard endpoint returns the
-   exact shape the fixture DASHBOARD already models (the fixture was written
-   as a same-shaped stand-in). This module fetches the real payload, keeps
-   the module-level fixtures as the offline/unauthenticated fallback, and
-   normalizes everything into the shapes the sections consume — so no UI
-   component ever sees a raw API row. */
+/* Production data layer: the /api/dashboard endpoint returns the shape the
+   fixtures model. This module fetches the real payload and normalizes it
+   into the shapes the sections consume — no UI component ever sees a raw
+   API row. Bundled fixtures are a DEV-ONLY preview path (import.meta.env.DEV);
+   a production API failure renders a safe loading state, never demo
+   telemetry. */
 
 export interface RepoRow {
   id: string;
@@ -44,6 +51,8 @@ export interface RepoRow {
   lastCommitAt: string | null;
   lastCommit: string | null;
   lastActivityAt: string | null;
+  /** retained repos keep history but ingest nothing */
+  disconnected?: boolean;
 }
 
 export interface DashboardData {
@@ -151,6 +160,8 @@ export interface LedgerStore {
   syncNow: () => void;
   /** true while a syncNow pump is in flight */
   pumping: boolean;
+  /** re-fetch all dashboard payloads (e.g. after a repo disconnect) */
+  refresh: () => void;
 }
 
 const PERIOD_MODE: Record<Period, string> = {
@@ -319,6 +330,8 @@ function reposFromRows(rows: RepoRow[], endIso: string): RepoItem[] {
     // 52°..144° spread, radius by commit share (sqrt-tempered).
     angle: 50 + (i * 96) / Math.max(n - 1, 1),
     radius: 0.18 + 0.62 * Math.sqrt(r.commits / maxCommits),
+    rid: r.id,
+    disconnected: r.disconnected === true,
   }));
 }
 
@@ -343,8 +356,13 @@ function langRowsFrom(langs: { name: string; bytes: number }[]): LangRow[] {
 
 const FIXTURE: DashboardData = DASHBOARD as DashboardData;
 
+// Bundled fixtures exist ONLY for the Vite dev/design preview. Production
+// builds resolve '../fixtures' to an inert stub, and this flag additionally
+// guarantees no code path ever renders demo data outside dev mode.
+const FIXTURES_ENABLED = import.meta.env.DEV;
+
 function fixtureStore(period: Period): LedgerStore {
-  const endIso = '2026-09-20';
+  const endIso = OBS_END;
   return {
     live: false,
     resolving: false,
@@ -360,10 +378,67 @@ function fixtureStore(period: Period): LedgerStore {
     end: END,
     endIso,
     allFromIso: OBS_START,
-    range: periodToRange(period),
+    range: periodToRange(period, endIso, OBS_START),
     rhythm: FIXTURE_RHYTHM,
     syncNow: () => {},
     pumping: false,
+    refresh: () => {},
+  };
+}
+
+// Production failure state: /api/dashboard unreachable → a safe, empty,
+// permanently-resolving store (surfaces render skeletons, not telemetry).
+const EMPTY_DASH: DashboardData = {
+  generatedAt: '',
+  range: { from: null, to: null },
+  summary: {
+    repos: 0, commits: 0, sourceAdded: 0, sourceDeleted: 0,
+    allAdded: 0, allDeleted: 0, allChurn: 0, activeDays: 0,
+    longestStreak: 0, peakDayCommits: 0, languageBytes: 0,
+  },
+  github: { connected: false, pullRequests: 0, mergedPrs: 0, revoked: false },
+  sync: { status: 'idle', progress: 0 },
+  rangeCoverage: { status: 'idle' },
+  repositories: [],
+  languages: [],
+  daily: [],
+  prsDaily: [],
+  rhythm: [],
+  workShape: { repoLangs: {}, repoMonthly: [], span: null },
+};
+
+const EMPTY_RHYTHM: RhythmBundle = {
+  matrix: Array.from({ length: 7 }, () => new Array<number>(24).fill(0)),
+  days: [],
+  windows: [],
+  highlights: {
+    peakWeekday: '—', peakWeekdayTotal: 0, peakHour: '—',
+    peakWindow: '—', weekdayShare: '—', weekendShare: '—',
+  },
+};
+
+function emptyStore(period: Period, syncNow: () => void, pumping: boolean, refresh: () => void = () => {}): LedgerStore {
+  const endIso = isoToday();
+  return {
+    live: false,
+    resolving: true,
+    dash: EMPTY_DASH,
+    all: EMPTY_DASH,
+    days: [],
+    cells: [],
+    weeks: [],
+    repos: [],
+    langs: [],
+    langRows: [],
+    langTotal: 0,
+    end: new Date(endIso + 'T00:00:00'),
+    endIso,
+    allFromIso: endIso,
+    range: periodToRange(period, endIso, endIso),
+    rhythm: EMPTY_RHYTHM,
+    syncNow,
+    pumping,
+    refresh,
   };
 }
 
@@ -444,6 +519,13 @@ export function useDashboardStore(period: Period): LedgerStore {
     })();
   }, []);
 
+  // Re-pull every dashboard payload — used after mutations like a repo
+  // disconnect so the ledger reflects the new state immediately.
+  const refresh = useCallback(() => {
+    requested.current.clear();
+    setFetchTick((t) => t + 1);
+  }, []);
+
   const live = payloads.all != null || payloads[mode] != null;
   const all = payloads.all ?? FIXTURE;
   const dashBase = payloads[mode] ?? all;
@@ -485,9 +567,14 @@ export function useDashboardStore(period: Period): LedgerStore {
   return useMemo<LedgerStore>(() => {
     // Fixture fallback still wires the REAL sync pump — SYNC NOW must fire
     // the canonical /api/sync POST even when the dashboard payload isn't
-    // live (vite preview, transient fetch failure). If no API exists the
-    // POST fails fast and the pump settles back to fixture state.
-    if (!live) return { ...fixtureStore(period), resolving, syncNow, pumping: pumpingState };
+    // live. Bundled fixtures are dev-only: in production a failed/absent
+    // API yields a permanently-resolving empty store (skeletons), never
+    // demo telemetry.
+    if (!live) {
+      return FIXTURES_ENABLED
+        ? { ...fixtureStore(period), resolving, syncNow, pumping: pumpingState, refresh }
+        : emptyStore(period, syncNow, pumpingState, refresh);
+    }
 
     const endIso =
       all.daily[all.daily.length - 1]?.date ??
@@ -518,15 +605,19 @@ export function useDashboardStore(period: Period): LedgerStore {
       rhythm: rhythmFromRows(dash.rhythm),
       syncNow,
       pumping: pumpingState,
+      refresh,
     };
-  }, [live, all, dash, period, syncNow, pumpingState, resolving]);
+  }, [live, all, dash, period, syncNow, pumpingState, resolving, refresh]);
 }
 
 export const LedgerContext = createContext<LedgerStore | null>(null);
 
 export function useLedger(): LedgerStore {
   const store = useContext(LedgerContext);
-  if (!store) return fixtureStore('1Y'); // standalone render → fixture fallback
+  if (!store) {
+    // standalone render → fixture fallback in dev, empty store in prod
+    return FIXTURES_ENABLED ? fixtureStore('1Y') : emptyStore('1Y', () => {}, false);
+  }
   return store;
 }
 

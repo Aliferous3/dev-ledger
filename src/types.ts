@@ -33,4 +33,9 @@ export interface RepoItem {
   // Polar coords for constellation radar: angle in deg, radius (0..1)
   angle: number;
   radius: number;
+  // Internal repository uuid (live data only) — needed for the explicit
+  // disconnect flow. Dev fixtures leave it undefined.
+  rid?: string;
+  /** retained: history kept, ingestion stopped */
+  disconnected?: boolean;
 }

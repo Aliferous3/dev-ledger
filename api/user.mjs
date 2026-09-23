@@ -2,14 +2,16 @@ import { getSession } from '../lib/auth.mjs'
 import { github } from '../lib/config.mjs'
 import { supabase } from '../lib/db.mjs'
 import { getUserSync } from '../lib/sync.mjs'
+import { revokeAllSessions, isSessionLive } from '../lib/sessions.mjs'
 
 // GET    — current session user, installations, sync state.
+// POST   — repository disconnect/retain/delete/resume action.
 // DELETE — permanently delete the caller's Dev Ledger data, then sign out.
 export default async function handler(req, res) {
   const session = await getSession(req, res)
 
   if (req.method === 'DELETE') {
-    if (!session?.userId || !supabase) {
+    if (!session?.userId || !supabase || !(await isSessionLive(session.sid))) {
       res.status(401).json({ error: 'Unauthenticated' })
       return
     }
@@ -17,11 +19,77 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Pass confirm=1 to delete account data' })
       return
     }
+    // Revoke every session server-side first — any other live copies of
+    // this user's cookies die immediately, even before the cascade lands.
+    await revokeAllSessions(session.userId)
     // users row cascades: installations, repositories (+languages), commits,
-    // pull requests, repo_sync, user_sync.
+    // pull requests, repo_sync, user_sync, auth_sessions.
     await supabase.from('users').delete().eq('id', session.userId)
     await session.destroy()
     res.status(200).json({ ok: true, deleted: true })
+    return
+  }
+
+
+  if (req.method === 'POST') {
+    if (!session?.userId || !supabase || !(await isSessionLive(session.sid))) {
+      res.status(401).json({ error: 'Unauthenticated' })
+      return
+    }
+
+    let body = req.body
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body) } catch { body = null }
+    }
+
+    const repositoryId = body?.repositoryId
+    const mode = body?.mode
+    if (!repositoryId || !['keep', 'delete', 'resume'].includes(mode)) {
+      res.status(400).json({ error: 'repositoryId and mode (keep|delete|resume) required' })
+      return
+    }
+
+    const userId = session.userId
+    const { data: repo } = await supabase
+      .from('repositories')
+      .select('id, full_name, disconnected_at')
+      .eq('id', repositoryId)
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (!repo) {
+      res.status(404).json({ error: 'Repository not found' })
+      return
+    }
+
+    if (mode === 'keep') {
+      await supabase
+        .from('repositories')
+        .update({ disconnected_at: new Date().toISOString(), disconnect_source: 'user' })
+        .eq('id', repo.id)
+        .eq('user_id', userId)
+      res.status(200).json({ ok: true, mode: 'keep' })
+      return
+    }
+
+    if (mode === 'resume') {
+      await supabase
+        .from('repositories')
+        .update({ disconnected_at: null, disconnect_source: null })
+        .eq('id', repo.id)
+        .eq('user_id', userId)
+      res.status(200).json({ ok: true, mode: 'resume' })
+      return
+    }
+
+    const repoId = repo.id
+    await supabase.from('pull_requests').delete().eq('user_id', userId).eq('repository_id', repoId)
+    await supabase.from('commits').delete().eq('user_id', userId).eq('repository_id', repoId)
+    await supabase.from('repo_coverage').delete().eq('user_id', userId).eq('repository_id', repoId)
+    await supabase.from('repo_sync').delete().eq('user_id', userId).eq('repository_id', repoId)
+    await supabase.from('repository_languages').delete().eq('repository_id', repoId)
+    await supabase.from('repositories').delete().eq('id', repoId).eq('user_id', userId)
+    res.status(200).json({ ok: true, mode: 'delete' })
     return
   }
 
@@ -30,7 +98,10 @@ export default async function handler(req, res) {
     return
   }
 
-  if (!session?.userId) {
+  // A revoked/unknown sid must not authenticate — the boot gate reads this
+  // endpoint, so a stolen cookie has to die here too. When no DB is present
+  // there is nothing to check (dev bypass path).
+  if (!session?.userId || (supabase && !(await isSessionLive(session.sid)))) {
     res.status(401).json({ authenticated: false })
     return
   }
