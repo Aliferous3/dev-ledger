@@ -4,6 +4,7 @@ import { parseRange } from '../lib/range.mjs'
 import { summarizeDaily, dayKey } from '../lib/analytics.mjs'
 import { getUserSync, getCoverage } from '../lib/sync.mjs'
 import { rangeCoverageStatus } from '../lib/coverage.mjs'
+import { requestQuery } from '../lib/request-query.mjs'
 
 // Single read endpoint for the dashboard. All data comes from our stored,
 // normalized GitHub-ingested rows — never live GitHub calls — and every
@@ -15,7 +16,7 @@ export default async function handler(req, res) {
 
   let from, to
   try {
-    ;({ from, to } = parseRange(req.query || {}))
+    ;({ from, to } = parseRange(requestQuery(req)))
   } catch (e) {
     res.status(400).json({ error: e.message })
     return

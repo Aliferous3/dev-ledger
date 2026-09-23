@@ -1,11 +1,13 @@
 import crypto from 'node:crypto'
 import { getSession } from '../../lib/auth.mjs'
 import { github, appUrl } from '../../lib/config.mjs'
+import { requestQuery } from '../../lib/request-query.mjs'
 
 export default async function handler(req, res) {
   // Opt-in persistence: ?remember=1 → 30-day cookie, otherwise a true
   // browser-session cookie (no Max-Age/Expires).
-  const remember = req.query?.remember === '1' || req.query?.remember === 'true'
+  const query = requestQuery(req)
+  const remember = query.remember === '1' || query.remember === 'true'
   const session = await getSession(req, res, { persistent: remember })
   // Random state bound to the sealed session + a 15-minute freshness bound
   // enforced at the callback.

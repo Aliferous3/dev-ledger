@@ -4,6 +4,7 @@ import { runRangeSync, findOutsideCommits, getCoverage, getUserSync } from '../l
 import { rangeCoverageStatus, coversRange } from '../lib/coverage.mjs'
 import { validateRange } from '../lib/range.mjs'
 import { supabase } from '../lib/db.mjs'
+import { requestQuery } from '../lib/request-query.mjs'
 
 // POST /api/sync-range?from=YYYY-MM-DD&to=YYYY-MM-DD
 // Backfills exactly the requested window in-request (bounded slice, resumable
@@ -20,7 +21,8 @@ export default async function handler(req, res) {
 
   let from, to
   try {
-    ;({ from, to } = validateRange(req.query?.from || null, req.query?.to || null))
+    const query = requestQuery(req)
+    ;({ from, to } = validateRange(query.from || null, query.to || null))
   } catch (e) {
     res.status(400).json({ error: e.message })
     return
