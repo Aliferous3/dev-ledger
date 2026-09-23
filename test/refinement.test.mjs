@@ -228,8 +228,8 @@ test('vapour effect is login-only — authenticated pages never import it', () =
 
 /* ── 6 · overview section nav ── */
 
-test('overview exposes exactly three in-page section anchors', () => {
-  assert.deepEqual(PAGE_SECTIONS.overview.map((a) => a.name), ['MEASURE', 'CONTRIBUTIONS', 'REPOSITORIES'])
+test('overview exposes exactly four in-page section anchors', () => {
+  assert.deepEqual(PAGE_SECTIONS.overview.map((a) => a.name), ['MEASURE', 'CONTRIBUTIONS', 'REPOSITORIES', 'LONGITUDINAL'])
   assert.equal(PAGES.length, 3)
 })
 
@@ -257,14 +257,29 @@ test('rail marks the active section and exposes keyboard-accessible buttons', ()
 
 /* ── 7 · shared section-heading token ── */
 
-test('Shape of Your Work section is removed — no heading, file, or rail entry', () => {
-  assert.ok(!existsSync(path.join(ROOT, 'src/components/Section04Archive.tsx')), 'Section04Archive should be deleted')
-  assert.ok(!existsSync(path.join(ROOT, 'src/retained/WorkShape.jsx')), 'WorkShape should be deleted')
+test('longitudinal section restored — figures back, giant heading stays gone', () => {
+  assert.ok(existsSync(path.join(ROOT, 'src/components/Section04Longitudinal.tsx')), 'Section04Longitudinal restored')
+  assert.ok(existsSync(path.join(ROOT, 'src/retained/WorkShape.jsx')), 'WorkShape figures restored')
+  const s4 = src('src/components/Section04Longitudinal.tsx')
+  // The giant hero heading must NOT return — only the analytics did
+  assert.doesNotMatch(s4, /The Shape of Your Work/)
+  assert.doesNotMatch(s4, /<h2/)
+  // all five figures present
+  for (const t of ['FINGERPRINT', 'SUCCESSION', 'LIFECYCLE', 'MIGRATION', 'SPAN']) {
+    assert.match(s4, new RegExp(t), `missing figure ${t}`)
+  }
+  // local figure switching — keyed view, never the global preloader
+  assert.doesNotMatch(s4, /useBootTransition|BootLog|fire\(/)
+  assert.match(s4, /onClick=\{\(\) => setActiveTab\(tab\)\}/)
+  assert.match(s4, /key=\{activeTab\} className="archive-view"/)
+  // skeleton while genuinely resolving, not a fake figure
+  assert.match(s4, /resolving[\s\S]*SkRegion/)
   const app = src('src/App.tsx')
-  assert.doesNotMatch(app, /Section04Archive|Shape of Your Work/)
-  assert.ok(!PAGE_SECTIONS.overview.some((a) => a.id === 'section-04'), 'no ARCHIVE rail entry')
+  assert.match(app, /Section04Longitudinal/)
+  assert.equal(PAGE_SECTIONS.overview.length, 4)
+  assert.equal(PAGE_SECTIONS.overview[3].id, 'section-04')
   const css = src('src/index.css')
-  assert.doesNotMatch(css, /archive-view|#section-04/, 'orphaned archive CSS should be gone')
+  assert.match(css, /\.archive-view\s*\{[\s\S]*archive-view-in/)
 })
 
 /* ── 8 · sync pill overlap translucency ── */
@@ -332,13 +347,75 @@ test('pumping folds into effective status → immediate expand + RUN rows', () =
   assert.match(sm, /monitorRows\(effSync\)/)
 })
 
-/* ── archive subsections removed — nothing may reference the dead views ── */
+/* ── sync wedge invariants — the production regression shape ── */
 
-test('no archive figure names leak into the shipped UI', () => {
-  for (const f of ['src/App.tsx', 'src/pages.ts', 'src/index.css']) {
+// The exact persisted row observed wedged in production: a partial
+// {status:'syncing', phase:'discover'} kick marker over a previously
+// completed run left progress=1 and the finished detail in place.
+const WEDGED = {
+  status: 'syncing', phase: 'discover', progress: 1,
+  detail: {
+    repos: { done: 7, total: 7 },
+    history: { done: 7, total: 7, active: 0, commits: 0 },
+    pulls: { done: true, count: 0 },
+  },
+}
+
+test('syncing can never display 100% — overall progress requires completion', () => {
+  assert.equal(monitorTag(WEDGED), '99%')
+  assert.ok(collapsedFrac(WEDGED) < 1)
+  assert.equal(monitorTag({ status: 'complete', progress: 1 }), '100%')
+  assert.equal(monitorTag({ status: 'syncing', phase: 'done', progress: 1 }), '100%') // phase done = backend finished
+})
+
+test('DISCOVER is OK once a repo count exists — never RUN against known total', () => {
+  const rows = monitorRows(WEDGED)
+  assert.equal(rows[0].st, 'ok')
+  // a genuine fresh run (zero counts) still shows DISCOVER working
+  const fresh = monitorRows({ status: 'syncing', phase: 'discover', progress: 0, detail: { repos: { done: 0, total: 0 }, history: { done: 0, total: 0 }, pulls: { done: false } } })
+  assert.equal(fresh[0].st, 'run')
+  assert.equal(fresh[1].st, '--')
+})
+
+test('wedged composite row cannot produce 100% + RUN contradiction', () => {
+  const rows = monitorRows(WEDGED)
+  const anyRun = rows.some((r) => r.st === 'run')
+  if (anyRun) assert.notEqual(monitorTag(WEDGED), '100%')
+  // finalizing pending while header reads DONE is impossible
+  assert.notEqual(collapsedLabel(WEDGED), 'DONE')
+})
+
+test('kick markers write a consistent fresh row — no stale progress/detail', () => {
+  const lib = bare('lib/sync.mjs')
+  assert.match(lib, /SYNC_DETAIL_INIT/)
+  assert.match(lib, /export function kickSync\(userId, phase = 'discover'\)/)
+  assert.match(lib, /status: 'syncing', phase, progress: 0, detail: SYNC_DETAIL_INIT/)
+  // every kick site uses it — no bare syncing markers remain
+  for (const f of ['api/setup.mjs', 'api/auth/callback.mjs', 'api/webhooks/github.mjs']) {
     const s = bare(f)
-    assert.doesNotMatch(s, /FINGERPRINT|SUCCESSION|LIFECYCLE|MIGRATION|archive-view/, `${f} leaked archive`)
+    assert.doesNotMatch(s, /setUserSync\([^)]*\{ status: 'syncing'/, `${f} wrote a bare syncing marker`)
   }
+  // range sync start also resets progress
+  assert.match(lib, /status: 'syncing', phase: 'range', progress: 0/)
+})
+
+test('backend-syncing without a local pump offers RESUME SYNC, not a dead button', () => {
+  const sm = bare('src/components/SyncMonitor.tsx')
+  assert.match(sm, /<Act clay onClick=\{\(\) => syncNow\(\)\}>RESUME SYNC<\/Act>/)
+  // disabled SYNCING… only while the local pump is actually in flight
+  assert.match(sm, /: pumping \? \(/)
+})
+
+test('stale syncing rows self-heal: passive poll re-enters the pump', () => {
+  const model = bare('src/ledger/syncModel.mjs')
+  assert.match(model, /export function isSyncStale/)
+  const live = bare('src/store/live.ts')
+  assert.match(live, /rateLimitElapsed\(s\) \|\| isSyncStale\(s\)/)
+})
+
+test('sync + dashboard responses are never cacheable', () => {
+  assert.match(bare('api/sync.mjs'), /Cache-Control', 'no-store'/)
+  assert.match(bare('api/dashboard.mjs'), /Cache-Control', 'no-store'/)
 })
 
 /* ── login M12 entrance ── */

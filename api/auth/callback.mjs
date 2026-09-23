@@ -1,7 +1,8 @@
+import { waitUntil } from '@vercel/functions'
 import { getSession, getUserOctokit, getAppOctokit } from '../../lib/auth.mjs'
 import { github, appUrl, sessionLeaseMs } from '../../lib/config.mjs'
 import { supabase } from '../../lib/db.mjs'
-import { setUserSync } from '../../lib/sync.mjs'
+import { kickSync, runSync, setUserSync, SYNC_DETAIL_INIT } from '../../lib/sync.mjs'
 
 export default async function handler(req, res) {
   const { code, state, installation_id: installationId, setup_action: setupAction } = req.query || {}
@@ -32,7 +33,10 @@ export default async function handler(req, res) {
           account_login: inst.account?.login,
           account_type: inst.account?.type,
         }, { onConflict: 'user_id,installation_id' })
-        await setUserSync(session.userId, { status: 'syncing', phase: 'discover' })
+        // Kick a real first slice — a bare 'syncing' marker with no worker
+        // leaves a wedged claim (and stale progress/detail) behind.
+        await kickSync(session.userId)
+        waitUntil(runSync(session.userId, { budgetMs: 45_000, force: true }).catch(() => {}))
       }
     }
     res.writeHead(302, { Location: '/' })
@@ -151,9 +155,11 @@ export default async function handler(req, res) {
     }
 
     if (installations.length) {
-      await setUserSync(dbUser.id, { status: 'syncing', phase: 'discover' })
+      // Kick a real first slice — the 'syncing' claim is backed by a worker.
+      await kickSync(dbUser.id)
+      waitUntil(runSync(dbUser.id, { budgetMs: 45_000, force: true }).catch(() => {}))
     } else {
-      await setUserSync(dbUser.id, { status: 'needs_install', phase: 'discover' })
+      await setUserSync(dbUser.id, { status: 'needs_install', phase: 'discover', progress: 0, detail: SYNC_DETAIL_INIT })
     }
   } else {
     session.userId = String(user.id)

@@ -81,10 +81,11 @@ export function monitorRows(sync) {
   const histDone = num(history.done);
 
   return [
-    // DISCOVER — backend-confirmed: the phase pointer leaving 'discover'
-    // is itself the backend's completion signal (repos.total stays 0 for a
-    // genuinely empty account, so a count can't be the gate).
-    row(0, reposTotal > 0 ? 1 : null, pIdx > 0),
+    // DISCOVER — complete once its output exists: repos.total is written
+    // only after the full repository list is upserted, so total > 0 means
+    // discovery genuinely finished. Never RUN against a known repo count —
+    // a wedged 'syncing' row must not pin DISCOVER open forever.
+    row(0, reposTotal > 0 ? 1 : null, reposTotal > 0 || pIdx > 0),
     // METADATA — real done/total: repo metadata pass (concurrent w/ commits)
     row(
       1,
@@ -110,11 +111,24 @@ export function monitorRows(sync) {
   ];
 }
 
+// Absolute invariant: 100% is displayed ONLY when the backend confirms
+// completion (status 'complete', phase 'done', or the just-done hold).
+// A 'syncing' row can never display 100 — stale progress=1 left behind by
+// a partial patch must not render as a finished run.
+export function displayProgress(sync, justDone = false) {
+  const status = sync?.status || 'idle';
+  if (justDone || status === 'complete' || sync?.phase === 'done') return 1;
+  if (status === 'syncing') return Math.min(0.99, Math.max(0, sync?.progress || 0));
+  return Math.max(0, Math.min(1, sync?.progress || 0));
+}
+export const displayPct = (sync, justDone = false) =>
+  Math.round(displayProgress(sync, justDone) * 100);
+
 // Collapsed-bar grammar: meter + short status token.
 export function collapsedLabel(sync, justDone = false) {
   const status = sync?.status || 'idle';
   if (justDone || status === 'complete' || sync?.phase === 'done') return 'DONE';
-  if (status === 'syncing') return `${Math.round((sync?.progress || 0) * 100)}% SYNC`;
+  if (status === 'syncing') return `${displayPct(sync)}% SYNC`;
   if (status === 'rate_limited') return 'RATE LIM';
   if (status === 'error') return 'EXIT 1';
   if (status === 'revoked') return 'EACCES';
@@ -127,14 +141,14 @@ export function collapsedFrac(sync, justDone = false) {
   if (status === 'revoked') return 0;
   if (status === 'error') return Math.max(0.05, sync?.progress || 0);
   if (status === 'idle') return 0;
-  return Math.max(0, Math.min(1, sync?.progress || 0));
+  return displayProgress(sync);
 }
 
 // Expanded header right-hand readout — real values only.
 export function monitorTag(sync, justDone = false) {
   const status = sync?.status || 'idle';
   if (justDone || status === 'complete' || sync?.phase === 'done') return '100%';
-  if (status === 'syncing') return `${Math.round((sync?.progress || 0) * 100)}%`;
+  if (status === 'syncing') return `${displayPct(sync)}%`;
   if (status === 'rate_limited') return 'RATE LIMITED';
   if (status === 'error') return 'EXIT 1';
   if (status === 'revoked') return 'EACCES';
