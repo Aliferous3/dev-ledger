@@ -45,11 +45,14 @@ jobs:
       - name: Clean install (lockfile, no lifecycle scripts)
         run: npm ci --ignore-scripts
 
-      - name: Test suite
-        run: npm test
-
+      # Build BEFORE the suite: test/security.test.mjs artifact checks scan
+      # dist/ — on CI a missing dist/ is a hard failure, so this order is
+      # what makes the production bundle actually get security-scanned.
       - name: Production build
         run: npm run build
+
+      - name: Test suite (incl. dist/ artifact security scan)
+        run: npm test
 
       - name: Dependency audit (fail on >= moderate)
         run: npm audit --audit-level=moderate

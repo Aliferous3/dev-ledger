@@ -188,6 +188,25 @@ test('CI runs tests, build, and a gated npm audit', () => {
   assert.match(wf, /npm audit --audit-level=(moderate|high|critical)/);
 });
 
+test('CI builds BEFORE testing — the artifact scan must inspect a real dist/', () => {
+  const wf = src(WORKFLOW);
+  const buildIdx = wf.indexOf('npm run build');
+  const testIdx = wf.indexOf('npm test');
+  assert.ok(buildIdx > -1 && testIdx > -1, 'workflow must run both build and test');
+  assert.ok(
+    buildIdx < testIdx,
+    'npm run build must precede npm test — otherwise test/security.test.mjs ' +
+      'artifact checks run against a nonexistent dist/ and scan nothing',
+  );
+  // and the artifact tests themselves must fail closed on CI, not skip
+  const secTest = src('test/security.test.mjs');
+  assert.match(
+    secTest,
+    /process\.env\.CI/,
+    'artifact checks must fail when dist/ is absent under CI — a silent skip is a silent bypass',
+  );
+});
+
 test('secret scanning is a checksum-verified pinned binary', () => {
   const wf = src(WORKFLOW);
   assert.match(wf, /gitleaks_\d+\.\d+\.\d+_linux_x64\.tar\.gz/, 'gitleaks version must be pinned');
