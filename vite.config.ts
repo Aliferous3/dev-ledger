@@ -9,11 +9,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [react(), tailwindcss(), viteSingleFile()],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
-    },
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "src") },
+      // Dev-only demo fixtures never ship: in production builds the fixture
+      // barrel resolves to an inert stub, so no demo telemetry (real or
+      // fictional) enters the bundle. The store additionally gates fixture
+      // rendering on import.meta.env.DEV.
+      ...(command === "build"
+        ? [
+            {
+              find: "../fixtures",
+              replacement: path
+                .resolve(__dirname, "src/fixtures/stub.ts")
+                .replace(/\\/g, "/"),
+            },
+          ]
+        : []),
+    ],
   },
-});
+}));
