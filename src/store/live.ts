@@ -51,6 +51,8 @@ export interface RepoRow {
   lastCommitAt: string | null;
   lastCommit: string | null;
   lastActivityAt: string | null;
+  /** retained repos keep history but ingest nothing */
+  disconnected?: boolean;
 }
 
 export interface DashboardData {
@@ -158,6 +160,8 @@ export interface LedgerStore {
   syncNow: () => void;
   /** true while a syncNow pump is in flight */
   pumping: boolean;
+  /** re-fetch all dashboard payloads (e.g. after a repo disconnect) */
+  refresh: () => void;
 }
 
 const PERIOD_MODE: Record<Period, string> = {
@@ -326,6 +330,8 @@ function reposFromRows(rows: RepoRow[], endIso: string): RepoItem[] {
     // 52°..144° spread, radius by commit share (sqrt-tempered).
     angle: 50 + (i * 96) / Math.max(n - 1, 1),
     radius: 0.18 + 0.62 * Math.sqrt(r.commits / maxCommits),
+    rid: r.id,
+    disconnected: r.disconnected === true,
   }));
 }
 
@@ -376,6 +382,7 @@ function fixtureStore(period: Period): LedgerStore {
     rhythm: FIXTURE_RHYTHM,
     syncNow: () => {},
     pumping: false,
+    refresh: () => {},
   };
 }
 
@@ -410,7 +417,7 @@ const EMPTY_RHYTHM: RhythmBundle = {
   },
 };
 
-function emptyStore(period: Period, syncNow: () => void, pumping: boolean): LedgerStore {
+function emptyStore(period: Period, syncNow: () => void, pumping: boolean, refresh: () => void = () => {}): LedgerStore {
   const endIso = isoToday();
   return {
     live: false,
@@ -431,6 +438,7 @@ function emptyStore(period: Period, syncNow: () => void, pumping: boolean): Ledg
     rhythm: EMPTY_RHYTHM,
     syncNow,
     pumping,
+    refresh,
   };
 }
 
@@ -511,6 +519,13 @@ export function useDashboardStore(period: Period): LedgerStore {
     })();
   }, []);
 
+  // Re-pull every dashboard payload — used after mutations like a repo
+  // disconnect so the ledger reflects the new state immediately.
+  const refresh = useCallback(() => {
+    requested.current.clear();
+    setFetchTick((t) => t + 1);
+  }, []);
+
   const live = payloads.all != null || payloads[mode] != null;
   const all = payloads.all ?? FIXTURE;
   const dashBase = payloads[mode] ?? all;
@@ -557,8 +572,8 @@ export function useDashboardStore(period: Period): LedgerStore {
     // demo telemetry.
     if (!live) {
       return FIXTURES_ENABLED
-        ? { ...fixtureStore(period), resolving, syncNow, pumping: pumpingState }
-        : emptyStore(period, syncNow, pumpingState);
+        ? { ...fixtureStore(period), resolving, syncNow, pumping: pumpingState, refresh }
+        : emptyStore(period, syncNow, pumpingState, refresh);
     }
 
     const endIso =
@@ -590,8 +605,9 @@ export function useDashboardStore(period: Period): LedgerStore {
       rhythm: rhythmFromRows(dash.rhythm),
       syncNow,
       pumping: pumpingState,
+      refresh,
     };
-  }, [live, all, dash, period, syncNow, pumpingState, resolving]);
+  }, [live, all, dash, period, syncNow, pumpingState, resolving, refresh]);
 }
 
 export const LedgerContext = createContext<LedgerStore | null>(null);

@@ -48,11 +48,15 @@ const caret = <span aria-hidden className="text-neutral-700">&gt;</span>;
 
 export function AccountMenu() {
   const me = useIdentity();
-  const { dash, live, syncNow, pumping } = useLedger();
+  const { dash, live, syncNow, pumping, repos, refresh } = useLedger();
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Per-repo disconnect flow: which repo is expanded + in-flight action.
+  const [repoAction, setRepoAction] = useState<string | null>(null);
+  const [repoBusy, setRepoBusy] = useState<string | null>(null);
+  const [repoError, setRepoError] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -71,6 +75,8 @@ export function AccountMenu() {
     setOpen(false);
     setSettingsOpen(false);
     setConfirmDelete(false);
+    setRepoAction(null);
+    setRepoError(null);
   }, []);
 
   // Outside click + Escape close; Escape returns focus to the trigger.
@@ -128,6 +134,32 @@ export function AccountMenu() {
       else setDeleting(false);
     } catch {
       setDeleting(false);
+    }
+  };
+
+  // Explicit per-repo disconnect — the user always chooses keep vs delete;
+  // nothing is silently inferred. mode 'resume' re-enables a retained repo.
+  const disconnectRepo = async (rid: string, mode: 'keep' | 'delete' | 'resume') => {
+    if (repoBusy) return;
+    setRepoBusy(rid);
+    setRepoError(null);
+    try {
+      const res = await fetch('/api/repos/disconnect', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repositoryId: rid, mode }),
+      });
+      if (res.ok) {
+        setRepoAction(null);
+        refresh();
+      } else {
+        setRepoError('ACTION FAILED — REPO UNCHANGED');
+      }
+    } catch {
+      setRepoError('ACTION FAILED — REPO UNCHANGED');
+    } finally {
+      setRepoBusy(null);
     }
   };
 
@@ -233,6 +265,73 @@ export function AccountMenu() {
                   SESSION · {me?.authenticated ? 'AUTHENTICATED' : '—'}<br />
                   REPOSITORY ACCESS IS MANAGED ON GITHUB.
                 </div>
+
+                {live && repos.some((r) => r.rid) && (
+                  <div className="mt-2.5 space-y-1.5">
+                    <div className="mono-tag text-[8px] tracking-[0.18em] text-neutral-600">REPOSITORIES</div>
+                    {repos.filter((r) => r.rid).map((r) => (
+                      <div key={r.rid} className="border border-neutral-800/70 px-2 py-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="mono-tag text-[8px] tracking-[0.14em] text-neutral-400 truncate lowercase">
+                            {r.name}{r.disconnected ? ' · SYNC STOPPED' : ''}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRepoAction(repoAction === r.rid ? null : r.rid!);
+                              setRepoError(null);
+                            }}
+                            disabled={repoBusy === r.rid}
+                            className="mono-tag text-[8px] tracking-[0.14em] text-neutral-500 hover:text-neutral-200 transition-colors disabled:opacity-50 shrink-0"
+                          >
+                            {repoBusy === r.rid ? '…' : repoAction === r.rid ? 'CLOSE' : r.disconnected ? 'OPTIONS' : 'DISCONNECT'}
+                          </button>
+                        </div>
+                        {repoAction === r.rid && (
+                          <div className="mt-1.5 pt-1.5 border-t border-neutral-800/50 space-y-1">
+                            {r.disconnected && (
+                              <button
+                                type="button"
+                                onClick={() => disconnectRepo(r.rid!, 'resume')}
+                                className="mono-tag block text-[8px] tracking-[0.14em] text-neutral-400 hover:text-neutral-100 transition-colors"
+                              >
+                                &gt; RESUME SYNCING
+                              </button>
+                            )}
+                            {!r.disconnected && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => disconnectRepo(r.rid!, 'keep')}
+                                  className="mono-tag block text-[8px] tracking-[0.14em] text-neutral-400 hover:text-neutral-100 transition-colors"
+                                >
+                                  &gt; STOP SYNCING, KEEP HISTORY
+                                </button>
+                                <div className="mono-tag text-[7px] tracking-[0.1em] text-neutral-600 leading-relaxed">
+                                  STOPS FUTURE INGESTION — COLLECTED ANALYTICS STAY.
+                                </div>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => disconnectRepo(r.rid!, 'delete')}
+                              className="mono-tag block text-[8px] tracking-[0.14em] text-red-500/70 hover:text-red-400 transition-colors"
+                            >
+                              ! DISCONNECT &amp; DELETE HISTORY
+                            </button>
+                            <div className="mono-tag text-[7px] tracking-[0.1em] text-neutral-600 leading-relaxed">
+                              PERMANENTLY REMOVES THIS REPO'S STORED DATA. GITHUB APP ACCESS IS MANAGED ON GITHUB.
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {repoError && (
+                      <div className="mono-tag text-[8px] tracking-[0.14em] text-red-400/90">{repoError}</div>
+                    )}
+                  </div>
+                )}
+
                 {confirmDelete ? (
                   <div className="mt-2.5">
                     <div className="mono-tag text-[8px] tracking-[0.18em] text-red-400/90">DELETE ALL DEV LEDGER DATA?</div>
