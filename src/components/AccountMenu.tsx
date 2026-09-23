@@ -144,7 +144,7 @@ export function AccountMenu() {
     setRepoBusy(rid);
     setRepoError(null);
     try {
-      const res = await fetch('/api/repos/disconnect', {
+      const res = await fetch('/api/user', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
