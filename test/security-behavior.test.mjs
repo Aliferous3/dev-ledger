@@ -731,6 +731,66 @@ test('ordering: cross-site POST /api/user disconnect mutates nothing', async () 
   assert.equal(row.disconnected_at, undefined)
 })
 
+// getSession() is NOT strictly read-only: an expired non-persistent lease
+// calls session.destroy(), which emits a Set-Cookie expiry. Minting a
+// session with leaseUntil already in the past therefore turns the presence
+// of 'set-cookie' on the response into a probe for "session code ran".
+async function mintExpiredLeaseSession(userId) {
+  const res = mockRes()
+  const s = await getSession(mockReq(), res, { persistent: false })
+  s.userId = userId
+  s.githubLogin = `u-${userId.slice(0, 6)}`
+  s.persistent = false
+  s.sid = await sessions.createAuthSession(userId, { persistent: false })
+  s.leaseUntil = Date.now() - 60_000
+  await s.save()
+  return { cookie: cookieFrom(res), sid: s.sid }
+}
+
+test('ordering: cross-site POST/DELETE /api/user never reaches getSession', async () => {
+  const userId = seedUser('so-presession')
+  const { cookie, sid } = await mintExpiredLeaseSession(userId)
+
+  for (const method of ['POST', 'DELETE']) {
+    const before = db.calls.length
+    const res = mockRes()
+    await userHandler(mockReq({
+      method,
+      headers: { cookie, origin: FOREIGN },
+      url: '/api/user?confirm=1',
+      body: { repositoryId: 'x', mode: 'keep' },
+    }), res)
+    assert.equal(res.statusCode, 403, `${method} must be 403`)
+    assert.deepEqual(res.body, { error: 'Forbidden' })
+    assert.equal(res.headers['set-cookie'], undefined,
+      `${method}: getSession ran — a destroy/expiry Set-Cookie was emitted on a forged request`)
+    assert.equal(db.calls.length, before, `${method}: zero DB operations`)
+  }
+  assert.equal(await sessions.isSessionLive(sid), true, 'sid must not be revoked')
+
+  // Control: same expired-lease cookie, valid origin — getSession DOES run,
+  // destroys the stale cookie (observable Set-Cookie), then 401s. This keeps
+  // the 'no set-cookie' assertion above non-vacuous.
+  const control = mockRes()
+  await userHandler(mockReq({
+    method: 'POST', headers: { cookie, origin: ORIGIN },
+    body: { repositoryId: 'x', mode: 'keep' },
+  }), control)
+  assert.equal(control.statusCode, 401)
+  const sc = control.headers['set-cookie']
+  assert.ok(sc && (Array.isArray(sc) ? sc : [sc]).some((c) => /expires=|max-age=0/i.test(c)),
+    'control: same-origin request must show the getSession destroy cookie — probe is live')
+})
+
+test('/api/user rejects unsupported methods 405 before touching the session', async () => {
+  const userId = seedUser('so-405')
+  const { cookie } = await mintExpiredLeaseSession(userId)
+  const res = mockRes()
+  await userHandler(mockReq({ method: 'PATCH', headers: { cookie } }), res)
+  assert.equal(res.statusCode, 405)
+  assert.equal(res.headers['set-cookie'], undefined, '405 path must not parse/emit session state')
+})
+
 /* ── method safety ──────────────────────────────────────────────────── */
 
 test('logout: GET is rejected 405, POST is the only accepted method', async () => {
