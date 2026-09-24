@@ -223,9 +223,10 @@ Reconstruct from app settings (values in `.env.example` names, non-secret):
   (GitHub supports ≥2 concurrent client secrets for overlap) → update
   Vercel → redeploy → revoke old.
 - **`GITHUB_WEBHOOK_SECRET`:** coordinated cutover per the rotation
-  runbook — single field both sides; update GitHub → Vercel → redeploy;
-  deliveries failing 401 during the gap are manually/API redeliverable
-  for 3 days.
+  runbook — single field both sides; update the Vercel Production env first,
+  redeploy, then immediately update the GitHub App webhook secret to the same
+  value. Deliveries failing 401 during the short mismatch window are
+  manually/API redeliverable for 3 days.
 
 ## Scenario F — lost self-generated secret
 
