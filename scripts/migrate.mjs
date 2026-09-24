@@ -2,41 +2,13 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import postgres from 'postgres'
+import { loadOperatorEnv, databaseUrl } from './operator-env.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-// Single source of truth: .env at the project root. Existing process
-// environment variables are not overridden.
-try {
-  process.loadEnvFile(path.join(root, '.env'))
-} catch {
-  // .env is optional when configuration comes from the real environment
-}
-
-function projectRef() {
-  if (process.env.SUPABASE_PROJECT_REF) return process.env.SUPABASE_PROJECT_REF
-  const raw = process.env.SUPABASE_URL
-  return raw ? new URL(raw).hostname.split('.')[0] : null
-}
-
-// Direct db.<ref>.supabase.co is IPv6-only; the session pooler is reachable
-// over IPv4. Build the URL from parts so passwords containing URI-reserved
-// characters are always percent-encoded correctly.
-function databaseUrl() {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL
-  const password = process.env.SUPABASE_DB_PASSWORD
-  const ref = projectRef()
-  if (!password || !ref) {
-    throw new Error(
-      'Set DATABASE_URL, or SUPABASE_DB_PASSWORD with SUPABASE_URL (or SUPABASE_PROJECT_REF)'
-    )
-  }
-  const host = process.env.SUPABASE_DB_HOST || 'aws-0-ap-southeast-2.pooler.supabase.com'
-  const port = process.env.SUPABASE_DB_PORT || '6543'
-  const user = encodeURIComponent(`postgres.${ref}`)
-  const pass = encodeURIComponent(password)
-  return `postgresql://${user}:${pass}@${host}:${port}/postgres`
-}
+// Operator credentials: real environment first, then .env.local, then .env
+// (shared loader — see operator-env.mjs). Values are never printed.
+loadOperatorEnv()
 
 const url = databaseUrl()
 const target = new URL(url)

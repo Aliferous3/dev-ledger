@@ -85,3 +85,44 @@ jobs:
 
       - name: Scan git history + tree for credentials
         run: ./gitleaks git --redact=100 --exit-code=2 .
+
+  # Synthetic recovery drill — proves migrations + pg_dump/pg_restore round-trip
+  # on a throwaway Postgres 17 service. Uses NO repository secrets: the only
+  # credential is a synthetic service-container password that lives and dies
+  # inside the job. The drill itself refuses any non-localhost target.
+  recovery-drill:
+    name: recovery drill (synthetic, postgres 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: drill-ci-only-synthetic
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Clean install (lockfile, no lifecycle scripts)
+        run: npm ci --ignore-scripts
+
+      # pg_dump/pg_restore resolve via PATH if a matching major exists, else
+      # the postgres:17 docker image — either way credentials ride in PG*
+      # environment variables, never argv.
+      - name: Synthetic backup → migrate → restore → verify
+        run: npm run db:drill
+        env:
+          DRILL_DATABASE_URL: postgres://postgres:drill-ci-only-synthetic@localhost:5432/postgres

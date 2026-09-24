@@ -39,6 +39,12 @@ api/qa-session.mjs
 .gitleaks-dl/
 sbom*.json
 
+# backup/recovery artifacts — dumps contain real user data, never commit
+.recovery/
+*.dump
+*.dump.sha256
+*.backup
+
 # local build cache
 .vite/
 
