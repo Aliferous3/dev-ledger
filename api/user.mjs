@@ -5,6 +5,7 @@ import { getUserSync } from '../lib/sync.mjs'
 import { revokeAllSessions, isSessionLive } from '../lib/sessions.mjs'
 import { requestQuery } from '../lib/request-query.mjs'
 import { forbidCrossSite } from '../lib/same-origin.mjs'
+import { securityEvent, sessionDenied } from '../lib/security-events.mjs'
 
 // GET    — current session user, installations, sync state.
 // POST   — repository disconnect/retain/delete/resume action.
@@ -25,6 +26,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'DELETE') {
     if (!session?.userId || !supabase || !(await isSessionLive(session.sid))) {
+      if (session?.userId && supabase) sessionDenied(req, session)
       res.status(401).json({ error: 'Unauthenticated' })
       return
     }
@@ -38,7 +40,10 @@ export default async function handler(req, res) {
     // users row cascades: installations, repositories (+languages), commits,
     // pull requests, repo_sync, user_sync, auth_sessions.
     await supabase.from('users').delete().eq('id', session.userId)
+    // destroy() clears session.userId — capture the actor first.
+    const actorId = session.userId
     await session.destroy()
+    securityEvent('account_deleted', { req, actorId })
     res.status(200).json({ ok: true, deleted: true })
     return
   }
@@ -47,6 +52,7 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     // Repository disconnect/keep/delete — mutations stay same-origin only.
     if (!session?.userId || !supabase || !(await isSessionLive(session.sid))) {
+      if (session?.userId && supabase) sessionDenied(req, session)
       res.status(401).json({ error: 'Unauthenticated' })
       return
     }
@@ -111,6 +117,7 @@ export default async function handler(req, res) {
   // endpoint, so a stolen cookie has to die here too. When no DB is present
   // there is nothing to check (dev bypass path).
   if (!session?.userId || (supabase && !(await isSessionLive(session.sid)))) {
+    if (session?.userId) sessionDenied(req, session)
     res.status(401).json({ authenticated: false })
     return
   }

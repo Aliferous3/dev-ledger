@@ -5,6 +5,7 @@ import { supabase } from '../../lib/db.mjs'
 import { kickSync, runSync, setUserSync, SYNC_DETAIL_INIT } from '../../lib/sync.mjs'
 import { createAuthSession, gcAuthSessions, isSessionLive } from '../../lib/sessions.mjs'
 import { requestQuery } from '../../lib/request-query.mjs'
+import { securityEvent } from '../../lib/security-events.mjs'
 
 export default async function handler(req, res) {
   const { code, state, installation_id: installationId, setup_action: setupAction } = requestQuery(req)
@@ -58,6 +59,7 @@ export default async function handler(req, res) {
     }
   }
   if (!stateOk) {
+    securityEvent('auth_callback_failed', { req, reasonCode: 'state_mismatch' })
     res.status(400).json({ error: 'Invalid OAuth state' })
     return
   }
@@ -94,6 +96,7 @@ export default async function handler(req, res) {
       tokenData?.error,
       tokenData?.error_description
     )
+    securityEvent('auth_callback_failed', { req, reasonCode: 'token_exchange' })
     res.status(400).json({ error: 'GitHub token exchange failed' })
     return
   }
@@ -116,6 +119,7 @@ export default async function handler(req, res) {
       .select()
       .single()
     if (error) {
+      securityEvent('auth_callback_failed', { req, reasonCode: 'user_upsert' })
       res.status(500).json({ error: 'Database error' })
       return
     }

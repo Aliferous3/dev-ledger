@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { github } from '../../lib/config.mjs'
 import { supabase } from '../../lib/db.mjs'
 import { kickSync, runSync, setUserSync } from '../../lib/sync.mjs'
+import { securityEvent } from '../../lib/security-events.mjs'
 
 export const config = { api: { bodyParser: false } }
 
@@ -33,7 +34,14 @@ export default async function handler(req, res) {
     return
   }
   const raw = await rawBody(req)
-  if (!verifySignature(raw, req.headers['x-hub-signature-256'])) {
+  const signature = req.headers['x-hub-signature-256']
+  if (!verifySignature(raw, signature)) {
+    // A present-but-wrong HMAC is an attack signal; a missing one is more
+    // likely a stray probe — distinguish, but record both.
+    const reasonCode = !github.webhookSecret
+      ? 'secret_unconfigured'
+      : !signature ? 'signature_missing' : 'signature_mismatch'
+    securityEvent('webhook_signature_invalid', { req, reasonCode })
     res.status(401).json({ error: 'Invalid signature' })
     return
   }
@@ -64,6 +72,7 @@ export default async function handler(req, res) {
         .insert({ delivery_id: String(deliveryId), event: event || null }, { onConflict: 'delivery_id', ignoreDuplicates: true })
         .select('delivery_id')
       if (!inserted?.length) {
+        securityEvent('webhook_replay_blocked', { req, sourceId: deliveryId })
         res.status(200).json({ ok: true, duplicate: true })
         return
       }
