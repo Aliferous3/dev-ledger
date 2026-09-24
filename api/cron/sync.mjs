@@ -1,5 +1,6 @@
 import { supabase } from '../../lib/db.mjs'
 import { runSync } from '../../lib/sync.mjs'
+import { waitUntil } from '@vercel/functions'
 import { securityEvent, pruneSecurityEvents } from '../../lib/security-events.mjs'
 
 // Vercel Cron continuation. Continues any sync that is mid-flight or paused
@@ -12,17 +13,21 @@ export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET
   if (!secret || req.headers.authorization !== `Bearer ${secret}`) {
     securityEvent('cron_auth_failed', {
-      req, route: '/api/cron/sync', status: 401, severity: 'warning',
+      req,
       reasonCode: secret ? 'bearer_mismatch' : 'secret_unconfigured',
     })
     res.status(401).json({ error: 'Unauthorized' })
     return
   }
 
-  // 30-day retention for the security event log, piggybacked on this
-  // existing authenticated run — never throws, never delays the response
-  // path beyond one bounded delete.
-  await pruneSecurityEvents()
+  // 30-day retention for the security event log as background work on this
+  // authenticated invocation — the sync run below starts immediately and
+  // prune latency/failure can never delay or fail the response.
+  try {
+    waitUntil(pruneSecurityEvents())
+  } catch {
+    /* outside a Vercel invocation the detached promise still runs */
+  }
 
   const { data: rows } = await supabase
     .from('user_sync')

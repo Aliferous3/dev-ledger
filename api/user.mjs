@@ -43,9 +43,7 @@ export default async function handler(req, res) {
     // destroy() clears session.userId — capture the actor first.
     const actorId = session.userId
     await session.destroy()
-    securityEvent('account_deleted', {
-      req, status: 200, severity: 'warning', actorId,
-    })
+    securityEvent('account_deleted', { req, actorId })
     res.status(200).json({ ok: true, deleted: true })
     return
   }

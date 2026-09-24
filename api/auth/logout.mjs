@@ -23,9 +23,6 @@ export default async function handler(req, res) {
   // destroy() clears session.userId — capture the actor first.
   const actorId = session.userId
   await session.destroy()
-  securityEvent('logout_completed', {
-    req, route: '/api/auth/logout', status: 200,
-    severity: 'info', actorId,
-  })
+  securityEvent('logout_completed', { req, actorId })
   res.status(200).json({ ok: true })
 }

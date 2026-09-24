@@ -59,10 +59,7 @@ export default async function handler(req, res) {
     }
   }
   if (!stateOk) {
-    securityEvent('auth_callback_failed', {
-      req, route: '/api/auth/callback', status: 400,
-      severity: 'warning', reasonCode: 'state_mismatch',
-    })
+    securityEvent('auth_callback_failed', { req, reasonCode: 'state_mismatch' })
     res.status(400).json({ error: 'Invalid OAuth state' })
     return
   }
@@ -99,10 +96,7 @@ export default async function handler(req, res) {
       tokenData?.error,
       tokenData?.error_description
     )
-    securityEvent('auth_callback_failed', {
-      req, route: '/api/auth/callback', status: 400,
-      severity: 'warning', reasonCode: 'token_exchange',
-    })
+    securityEvent('auth_callback_failed', { req, reasonCode: 'token_exchange' })
     res.status(400).json({ error: 'GitHub token exchange failed' })
     return
   }
@@ -125,10 +119,7 @@ export default async function handler(req, res) {
       .select()
       .single()
     if (error) {
-      securityEvent('auth_callback_failed', {
-        req, route: '/api/auth/callback', status: 500,
-        severity: 'warning', reasonCode: 'user_upsert',
-      })
+      securityEvent('auth_callback_failed', { req, reasonCode: 'user_upsert' })
       res.status(500).json({ error: 'Database error' })
       return
     }

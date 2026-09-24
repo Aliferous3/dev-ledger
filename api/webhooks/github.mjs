@@ -41,11 +41,7 @@ export default async function handler(req, res) {
     const reasonCode = !github.webhookSecret
       ? 'secret_unconfigured'
       : !signature ? 'signature_missing' : 'signature_mismatch'
-    securityEvent('webhook_signature_invalid', {
-      req, route: '/api/webhooks/github', status: 401,
-      severity: reasonCode === 'signature_mismatch' ? 'high' : 'warning',
-      reasonCode,
-    })
+    securityEvent('webhook_signature_invalid', { req, reasonCode })
     res.status(401).json({ error: 'Invalid signature' })
     return
   }
@@ -76,11 +72,7 @@ export default async function handler(req, res) {
         .insert({ delivery_id: String(deliveryId), event: event || null }, { onConflict: 'delivery_id', ignoreDuplicates: true })
         .select('delivery_id')
       if (!inserted?.length) {
-        securityEvent('webhook_replay_blocked', {
-          req, route: '/api/webhooks/github', status: 200,
-          severity: 'info', reasonCode: 'duplicate_delivery',
-          sourceId: deliveryId,
-        })
+        securityEvent('webhook_replay_blocked', { req, sourceId: deliveryId })
         res.status(200).json({ ok: true, duplicate: true })
         return
       }
