@@ -75,7 +75,7 @@ test('resolveTimeZone returns the browser/node IANA zone', () => {
   const tz = resolveTimeZone()
   assert.ok(tz.length > 0)
   assert.equal(tz, Intl.DateTimeFormat().resolvedOptions().timeZone)
-  assert.match(tz, /\//) // IANA form Continent/City — not an ambiguous abbreviation
+  assert.match(tz, /\/|^UTC$/, 'IANA form Continent/City (or UTC) — not an ambiguous abbreviation')
 })
 
 /* ── source-level guards (no DOM runner) ── */

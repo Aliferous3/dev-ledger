@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # npm dependencies — weekly, minor+patch grouped into one PR so volume stays
+  # low; majors arrive individually for deliberate review. PRs are never merged
+  # automatically — every update lands behind human review + the security gate.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      minor-patch:
+        update-types: [minor, patch]
+
+  # Keep pinned Action SHAs current — dependabot bumps the SHA + tag comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3

@@ -66,13 +66,25 @@ function allDistFiles(dir = path.join(ROOT, 'dist'), acc = []) {
   return acc;
 }
 
-test('built production artifact contains zero fixture identifiers', () => {
+// Artifact scans must inspect a REAL build. On CI (CI=true) a missing dist/
+// is a hard failure — the workflow builds before testing — while a local
+// pre-build `npm test` may still skip instead of faking a pass.
+function distFilesOrSkip() {
   const files = allDistFiles();
   if (!files.length) {
-    // build hasn't run in this environment — the scan is enforced by CI
-    // and by `npm run build` + test locally; skip rather than fake a pass.
-    return;
+    assert.ok(
+      !process.env.CI,
+      'dist/ is absent on CI — the artifact scan never inspected a bundle. ' +
+        'Run `npm run build` BEFORE `npm test` in the workflow.',
+    );
+    return null;
   }
+  return files;
+}
+
+test('built production artifact contains zero fixture identifiers', () => {
+  const files = distFilesOrSkip();
+  if (!files) return;
   for (const f of files) {
     const content = readFileSync(f, 'utf8');
     const rel = path.relative(ROOT, f).replace(/\\/g, '/');
@@ -82,15 +94,23 @@ test('built production artifact contains zero fixture identifiers', () => {
     // server-side secret env names must never reach the client bundle
     for (const secret of [
       'SUPABASE_SERVICE_ROLE_KEY',
+      'SUPABASE_DB_PASSWORD',
       'GITHUB_CLIENT_SECRET',
       'GITHUB_APP_PRIVATE_KEY',
       'GITHUB_WEBHOOK_SECRET',
       'SESSION_SECRET',
       'CRON_SECRET',
       'DATABASE_URL',
+      'VERCEL_TOKEN',
     ]) {
       assert.ok(!content.includes(secret), `${rel} leaks ${secret}`);
     }
+    // high-confidence credential material — a bundle never legitimately
+    // contains PEM blocks, GitHub PATs, or JWTs
+    assert.doesNotMatch(content, /-----BEGIN [A-Z ]*PRIVATE KEY-----/, `${rel} contains PEM private-key material`);
+    assert.doesNotMatch(content, /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}/, `${rel} contains a GitHub token`);
+    assert.doesNotMatch(content, /github_pat_[A-Za-z0-9_]{20,}/, `${rel} contains a fine-grained GitHub PAT`);
+    assert.doesNotMatch(content, /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/, `${rel} contains a JWT`);
   }
 });
 
@@ -155,8 +175,8 @@ test('production CSP has no script-src unsafe-inline', () => {
 test('production build emits external hashed JS (no single-file inlining)', () => {
   const vite = src('vite.config.ts');
   assert.doesNotMatch(vite, /viteSingleFile/);
-  const files = allDistFiles();
-  if (!files.length) return; // build not run — enforced when it has
+  const files = distFilesOrSkip();
+  if (!files) return;
   const html = files.find((f) => f.endsWith('index.html'));
   const htmlText = readFileSync(html, 'utf8');
   assert.doesNotMatch(htmlText, /<script(?![^>]*\bsrc=)[^>]*>[^<\s]/, 'index.html contains an inline script block');
@@ -178,8 +198,8 @@ test('no Google Fonts references in source or CSP', () => {
 });
 
 test('built production artifact does not contact Google Fonts', () => {
-  const files = allDistFiles();
-  if (!files.length) return;
+  const files = distFilesOrSkip();
+  if (!files) return;
   for (const f of files) {
     const content = readFileSync(f, 'utf8');
     const rel = path.relative(ROOT, f).replace(/\\/g, '/');

@@ -1,0 +1,84 @@
+# Dev Ledger security gate — runs on every PR and every push to main.
+#
+# Design constraints:
+#   * plain pull_request trigger — untrusted fork code never gets secrets or
+#     write tokens; this workflow declares no secrets at all.
+#   * contents: read only — GITHUB_TOKEN can't write, and checkout runs with
+#     persist-credentials: false so the token never lands in the repo's git
+#     config where repository-controlled code (npm test/build) could read it.
+#   * Every third-party action is pinned to a full commit SHA (see comments).
+#   * npm ci --ignore-scripts — dependencies' install lifecycle hooks do not
+#     run in CI (audited: only esbuild/fsevents ship them, both optional-binary
+#     fallbacks whose platform packages install as normal optional deps).
+#   * Gitleaks runs as a checksum-verified pinned binary — never an unpinned
+#     action, never remote code piped to a shell. The SHA-256 below is taken
+#     from the checksums file published alongside gitleaks v8.30.1.
+
+name: security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: test / build / audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # persist-credentials: false — the read-only GITHUB_TOKEN fetches the
+      # code and is NOT written into the repo's git config. Later steps run
+      # repository-controlled code (npm test / build); a persisted token
+      # would be readable from .git/config by that code for no benefit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24' # matches local dev + Vercel runtime major
+          cache: npm
+
+      - name: Clean install (lockfile, no lifecycle scripts)
+        run: npm ci --ignore-scripts
+
+      # Build BEFORE the suite: test/security.test.mjs artifact checks scan
+      # dist/ — on CI a missing dist/ is a hard failure, so this order is
+      # what makes the production bundle actually get security-scanned.
+      - name: Production build
+        run: npm run build
+
+      - name: Test suite (incl. dist/ artifact security scan)
+        run: npm test
+
+      - name: Dependency audit (fail on >= moderate)
+        run: npm audit --audit-level=moderate
+
+      - name: SBOM (ephemeral CycloneDX validation — not committed)
+        run: |
+          npm sbom --sbom-format=cyclonedx > sbom.json
+          node -e "const b=require('./sbom.json');if(b.bomFormat!=='CycloneDX'||!Array.isArray(b.components)||!b.components.length)process.exit(1);console.log('SBOM ok:',b.components.length,'components')"
+
+  secret-scan:
+    name: gitleaks (worktree + full history)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # full history — a rotated-out secret still counts
+
+      - name: Download + checksum-verify gitleaks v8.30.1
+        run: |
+          curl -fsSL -o gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" \
+            | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+
+      - name: Scan git history + tree for credentials
+        run: ./gitleaks git --redact=100 --exit-code=2 .
