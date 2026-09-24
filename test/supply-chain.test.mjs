@@ -2,26 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+import { ROOT, SERVER_ONLY_SECRETS } from './secret-inventory.mjs';
+
 const src = (rel) => readFileSync(path.join(ROOT, rel), 'utf8');
 const load = (rel) => JSON.parse(src(rel));
 
-/* ── server-only env classification (source of truth for the guards) ── */
-
+/* ── server-only env classification ── */
+// SERVER_ONLY_SECRETS is derived from security/secret-inventory.json by
+// test/secret-inventory.mjs — a new secret cannot silently miss this guard.
 // Never allowed in browser code, as VITE_* names, or in the bundle.
-const SERVER_ONLY_SECRETS = [
-  'SESSION_SECRET',
-  'GITHUB_CLIENT_SECRET',
-  'GITHUB_APP_PRIVATE_KEY',
-  'GITHUB_WEBHOOK_SECRET',
-  'SUPABASE_SERVICE_ROLE_KEY',
-  'SUPABASE_DB_PASSWORD',
-  'CRON_SECRET',
-  'DATABASE_URL',
-  'VERCEL_TOKEN',
-];
 
 // Vite built-ins — the only import.meta.env.* a client module may read.
 // Deny-by-default: Dev Ledger ships no custom VITE_* variables.
