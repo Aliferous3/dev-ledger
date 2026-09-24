@@ -45,7 +45,7 @@ Provider docs this runbook is based on:
 [ ] Store the replacement in the correct location (Vercel env / GitHub App settings / local .env.local)
 [ ] Redeploy if the secret lives in a Vercel environment variable
 [ ] Verify the affected path (per-secret steps below)
-[ ] Check Vercel Runtime Logs + security_events for new errors
+[ ] Check Vercel Runtime Logs + the security_events table for new errors
 [ ] Revoke/delete the old credential at the provider
 [ ] Verify the affected path again
 [ ] Record the rotation (name + date — never the value)
@@ -56,18 +56,27 @@ Provider docs this runbook is based on:
 
 Shared verification primitives referenced below:
 
-- **Runtime logs:** Vercel dashboard → project → Logs (Runtime). Look for
-  structured `security_internal_error` / rejection events and 5xx spikes.
-- **`security_events`:** query the table via the Supabase dashboard
-  (service-role only) — e.g. fresh `session_invalid`, `webhook_signature_invalid`,
-  `cron_auth_failed`, `auth_callback_failed` rows signal a bad rotation.
+- **Runtime logs:** Vercel dashboard → project → Logs (Runtime). Runtime Logs
+  carry the **full event taxonomy** — every event emits a structured JSON
+  line here. Look for `security_internal_error` and rejection events
+  (`same_origin_blocked`, `webhook_signature_invalid`, `cron_auth_failed`,
+  `auth_callback_failed`) plus 5xx spikes.
+- **`security_events` (Supabase):** query the table via the Supabase
+  dashboard (service-role only). The table holds **only the
+  anti-amplification persist subset** — `session_invalid`, `session_revoked`,
+  `logout_completed`, `account_deleted`, `webhook_replay_blocked`. Perimeter
+  rejections (`same_origin_blocked`, `webhook_signature_invalid`,
+  `cron_auth_failed`, `auth_callback_failed`, `security_internal_error`) are
+  **console-only by design** — anonymous traffic must not be able to force
+  DB writes. Check Runtime Logs for those, not the table.
 - **Health:** `GET https://devledger-app.vercel.app/api/health` → 200.
 - **Auth path:** sign in through the OAuth flow in a private window.
 - **Sync path:** authenticated `POST /api/sync` → confirm rows update.
 - **Webhook path:** GitHub App settings → Recent Deliveries → redeliver a
   ping, expect 200.
 - **Cron path:** check the cron run in Vercel's deployment/cron view after the
-  next scheduled tick, or watch for `cron_auth_failed` events.
+  next scheduled tick, or watch Runtime Logs for `cron_auth_failed` lines
+  (console-only event — it never reaches `security_events`).
 
 ---
 
@@ -109,8 +118,9 @@ Shared verification primitives referenced below:
   under the old key. Old-hash rows age out naturally via 30-day retention
   (`pruneSecurityEvents` in `/api/cron/sync`). Unset is also safe — hashes
   become `null`.
-- **Overlap:** N/A — a single active key is fine; correlation is best-effort,
-  never on an auth path.
+- **Overlap:** none — a single active key; historical and future hashes
+  cannot be correlated across the change, but rotation causes **zero
+  availability impact** (correlation is best-effort, never on an auth path).
 - **Procedure:**
   1. Generate a new random key (≥32 bytes).
   2. Update the Vercel env var → redeploy.
@@ -139,8 +149,9 @@ Shared verification primitives referenced below:
   1. Generate a new random string.
   2. Update the Vercel Production env var.
   3. Redeploy (required — env changes only apply to new deployments).
-  4. Verify: wait for the next scheduled run; confirm no `cron_auth_failed`
-     events and that `security_events` pruning still runs.
+  4. Verify: wait for the next scheduled run; confirm Runtime Logs show no
+     `cron_auth_failed` lines (console-only event) and that
+     `security_events` pruning still runs.
 - **Rollback:** restore the old value and redeploy.
 - **Emergency:** rotate immediately — a leaked `CRON_SECRET` lets anyone
   trigger sync runs (DB/ingress amplification). Follow the same steps; there
@@ -183,9 +194,9 @@ Shared verification primitives referenced below:
 - **Procedure:**
   1. App settings → **Client secrets → Generate a new client secret**.
   2. Update the Vercel env var → redeploy.
-  3. Verify: complete a fresh OAuth sign-in in a private window. Watch for
-     `auth_callback_failed` / `token_exchange` events — none means the new
-     secret works.
+  3. Verify: complete a fresh OAuth sign-in in a private window. Watch
+     Runtime Logs for `auth_callback_failed` / `token_exchange` lines
+     (console-only events) — none means the new secret works.
   4. Delete the old secret in **Client secrets**.
   5. Re-verify a sign-in.
 - **Rollback:** restore the old value + redeploy while it still exists.
@@ -208,9 +219,12 @@ Shared verification primitives referenced below:
   2. Redeploy.
   3. Immediately update the GitHub App webhook secret.
   4. During the gap (deploy propagation + the dashboard edit) deliveries
-     return 401 (`webhook_signature_invalid` events). Rejected deliveries are
-     dropped — recover them via app settings → **Recent Deliveries →
-     Redeliver** after both sides match.
+     fail with 401 — watch Runtime Logs for `webhook_signature_invalid`
+     lines (console-only event). **GitHub does not automatically redeliver
+     failed deliveries** — after both secrets match, open app settings →
+     **Recent Deliveries** and manually redeliver each failed delivery (or
+     use the redelivery API). GitHub currently allows redelivery of
+     deliveries from the past **3 days**.
   5. Verify: redeliver a recent delivery → expect 200 and ingestion.
 - **Alternative order** (rotate GitHub first, then Vercel): same-size gap —
   pick whichever coordination is faster.
@@ -225,7 +239,11 @@ Shared verification primitives referenced below:
 
 - **What it does:** the server-side Supabase credential (`lib/config.mjs`
   `serviceKey`) — bypasses RLS for sync writes, session/sid lookup,
-  `security_events` inserts. Losing it = total backend DB failure.
+  `security_events` inserts. A wrong or revoked key is **user-visible
+  downtime**: `requireUser`/`isSessionLive` hit `auth_sessions`, so
+  authenticated API calls fail/401, sync stops, and every DB-backed feature
+  breaks until the key is corrected. Existing session *records* are not
+  deleted — restoring a valid key recovers sessions without forced re-login.
 - **Where it lives:** Vercel env (Production), issued by Supabase.
 - **Current provider reality (important):** Supabase is deprecating the
   legacy `anon`/`service_role` JWT keys in favor of `sb_publishable_` /
@@ -306,10 +324,13 @@ Different posture from routine rotation: **contain first, then rotate.**
 4. **Revoke sessions where relevant:** rotating `SESSION_SECRET` already
    invalidates all sessions — the correct response to any compromise that may
    have exposed session material.
-5. **Inspect evidence:** `security_events` rows and Vercel Runtime Logs for
-   the exposure window — `session_invalid`/`session_revoked` spikes,
-   `webhook_signature_invalid`, `cron_auth_failed`, unexpected
-   `account_deleted`.
+5. **Inspect evidence:** Runtime Logs carry the full taxonomy — look for
+   `session_invalid`/`session_revoked` spikes, `webhook_signature_invalid`,
+   `cron_auth_failed`, `auth_callback_failed`, unexpected `account_deleted`.
+   The `security_events` table shows only the persisted subset
+   (`session_invalid`, `session_revoked`, `logout_completed`,
+   `account_deleted`, `webhook_replay_blocked`) — perimeter rejections are
+   console-only and will only appear in Runtime Logs.
 6. **Check for source leaks:** run gitleaks over worktree + full history
    (the CI workflow already does both); scrub/rotate anything found.
 7. **Document the incident** — timeline, scope, actions — without writing

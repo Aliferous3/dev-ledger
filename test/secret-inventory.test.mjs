@@ -29,8 +29,10 @@ const KNOWN_PUBLIC_CONFIG = [
   'GITHUB_APP_SLUG',
   'GITHUB_CLIENT_ID',
   'SESSION_LEASE_MINUTES',
+  'SESSION_COOKIE_NAME',
   'SUPABASE_DB_HOST',
   'SUPABASE_DB_PORT',
+  'SUPABASE_PROJECT_REF',
 ];
 
 test('inventory schema is strict — required fields, known classes, no extras', () => {
