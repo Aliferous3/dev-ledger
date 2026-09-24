@@ -14,6 +14,7 @@ import "@fontsource-variable/newsreader/opsz.css";
 import "@fontsource-variable/newsreader/opsz-italic.css";
 import "./index.css";
 import App from "./App";
+import { SecurityPrivacyPage } from "./security/SecurityPrivacyPage";
 import { LoginScreen } from "./ledger/LoginScreen";
 import { BootLogOverlay, BootLogPreloader } from "./transitions/BootLog";
 import type { Identity } from "./store/live";
@@ -129,8 +130,23 @@ function Gate() {
   );
 }
 
+/* Public-route layer — sits ABOVE the authenticated Gate. /security (and
+   the /privacy alias, canonicalized here for non-Vercel servers) renders
+   the trust record without touching /api/user, so it works with no
+   session and no backend. The authenticated PAGES registry is untouched:
+   top-level destinations remain exactly OVERVIEW / ACTIVITY / CODE. */
+function Root() {
+  const p = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (p === "/privacy") {
+    history.replaceState({}, "", "/security");
+    return <SecurityPrivacyPage />;
+  }
+  if (p === "/security") return <SecurityPrivacyPage />;
+  return <Gate />;
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Gate />
+    <Root />
   </StrictMode>
 );
