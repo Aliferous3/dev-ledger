@@ -260,8 +260,8 @@ export function SecurityPrivacyPage() {
               ['DELETE MY DATA', 'Revokes every active session, then deletes your account record — cascading through installations, repositories, languages, commits, pull requests, and sync state.'],
             ]} />
             <p className="text-sm text-neutral-400 leading-relaxed max-w-[62ch] mt-4">
-              Two honest caveats: privacy-safe security telemetry may outlive deletion for
-              its bounded retention window (section 09), and backups follow the recovery
+              Two honest caveats: privacy-safe security telemetry may outlive deletion under
+              its retention policy (section 09), and backups follow the recovery
               retention policy (section 10) rather than deleting in place.
             </p>
           </section>
@@ -272,8 +272,8 @@ export function SecurityPrivacyPage() {
             <p className="text-sm text-neutral-400 leading-relaxed max-w-[62ch]">
               Designated security events — CSRF blocks, invalid session records, webhook
               signature failures, replay attempts, sign-outs, account deletions — emit a
-              fixed-field record. A designated subset persists for 30 days; the rest exists
-              only as structured runtime logs.
+              fixed-field record. A designated subset is subject to a 30-day cleanup policy;
+              the rest exists only as structured runtime logs.
             </p>
             <FieldList rows={[
               ['RECORDED', 'Event type, severity, route and method, status, request id, reason code, and HMAC-derived correlation hashes that can group repeated events without storing the raw actor or source identifier in the security-event record.'],
