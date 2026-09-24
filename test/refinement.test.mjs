@@ -273,7 +273,7 @@ test('longitudinal section restored — figures back, giant heading stays gone',
   assert.match(s4, /onClick=\{\(\) => setActiveTab\(tab\)\}/)
   assert.match(s4, /key=\{activeTab\} className="archive-view"/)
   // skeleton while genuinely resolving, not a fake figure
-  assert.match(s4, /resolving[\s\S]*SkRegion/)
+  assert.match(s4, /resolving[\s\S]*SkChart/)
   const app = src('src/App.tsx')
   assert.match(app, /Section04Longitudinal/)
   assert.equal(PAGE_SECTIONS.overview.length, 4)

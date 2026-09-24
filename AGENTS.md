@@ -17,7 +17,7 @@ One sealed iron-session cookie `dev_ledger_session` (`lib/config.mjs`, `lib/auth
 
 ## Supply-chain / CI security
 
-- `.github/workflows/security.yml` runs on every PR + push to main: `npm ci --ignore-scripts` → `npm test` → `npm run build` → `npm audit --audit-level=moderate` → ephemeral CycloneDX SBOM validation. `permissions: contents: read`, plain `pull_request` trigger, zero secrets declared. Install scripts are disabled deliberately — only `esbuild`/`fsevents` ship them (optional-binary fallbacks; platform binaries arrive as optional deps).
+- `.github/workflows/security.yml` runs on every PR + push to main: `npm ci --ignore-scripts` → `npm run build` → `npm run typecheck` (strict `tsc --noEmit` — every PR is typechecked) → `npm test` (includes the dist/ artifact scan — build runs first so it inspects a real bundle) → `npm audit --audit-level=moderate` → ephemeral CycloneDX SBOM validation. `permissions: contents: read`, plain `pull_request` trigger, zero secrets declared. Install scripts are disabled deliberately — only `esbuild`/`fsevents` ship them (optional-binary fallbacks; platform binaries arrive as optional deps).
 - Secret scanning: gitleaks v8.30.1 as a sha256-verified pinned binary (checksum in workflow), `gitleaks git` over full history, `--redact=100`. Current tree + history: clean.
 - Every Action is pinned to a full commit SHA with a `# vX.Y.Z` comment — never `@main`/`@v4`. Dependabot (`.github/dependabot.yml`) bumps npm (minor+patch grouped, weekly) and github-actions SHAs weekly; nothing auto-merges.
 - Lockfile policy (enforced by `test/supply-chain.test.mjs`): all packages must resolve from `registry.npmjs.org` with integrity hashes; `file:`/`git:`/`http:`/`link:` specs are rejected.

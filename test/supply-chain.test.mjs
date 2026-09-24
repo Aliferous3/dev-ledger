@@ -181,11 +181,28 @@ test('CI install uses npm ci --ignore-scripts (never npm install)', () => {
   assert.doesNotMatch(wf, /audit fix/, 'no npm audit fix in CI — fixes are deliberate');
 });
 
-test('CI runs tests, build, and a gated npm audit', () => {
+test('CI runs tests, build, typecheck, and a gated npm audit', () => {
   const wf = src(WORKFLOW);
   assert.match(wf, /run:\s*npm test\b/);
   assert.match(wf, /run:\s*npm run build\b/);
+  assert.match(wf, /run:\s*npm run typecheck\b/, 'workflow must run npm run typecheck');
   assert.match(wf, /npm audit --audit-level=(moderate|high|critical)/);
+});
+
+test('typecheck script exists and is strict — no emit, no loosened tsconfig', () => {
+  const pkg = load('package.json');
+  assert.equal(pkg.scripts.typecheck, 'tsc --noEmit');
+  // tsconfig.json permits comments — assert the strict flags textually
+  // rather than JSON.parse-ing them out of a comment-stripped file
+  const tc = src('tsconfig.json');
+  for (const flag of [
+    '"strict": true',
+    '"noUnusedLocals": true',
+    '"noUnusedParameters": true',
+    '"noEmit": true',
+  ]) {
+    assert.ok(tc.includes(flag), `tsconfig must keep ${flag}`);
+  }
 });
 
 test('CI builds BEFORE testing — the artifact scan must inspect a real dist/', () => {
