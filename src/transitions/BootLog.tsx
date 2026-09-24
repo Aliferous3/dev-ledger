@@ -40,14 +40,6 @@ function BootLog({ label, leaving }: { label: string; leaving: boolean }) {
         </div>
       </div>
       <div className="absolute bottom-1 left-0 right-0 h-1 bg-[#d6ff3e]/70 progress-bar" />
-      <style>{`
-        .boot-line { animation: boot 320ms ease forwards; }
-        @keyframes boot { from { opacity:0; transform: translateY(4px);} to { opacity:1; transform:none; } }
-        .progress-bar { transform-origin: left; transform: scaleX(0); animation: pbar 1.2s cubic-bezier(.2,.7,.2,1) forwards; }
-        @keyframes pbar { to { transform: scaleX(1); } }
-        .blink { animation: blink 1s step-end infinite; }
-        @keyframes blink { 50% { opacity: 0; } }
-      `}</style>
     </div>
   );
 }
