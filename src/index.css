@@ -455,3 +455,20 @@ html, body, #root {
   to { transform: scaleX(1); }
 }
 .blink { animation: blink 1s step-end infinite; }
+
+/* Share Record — modal reveal (short, controlled; flattened globally under
+   prefers-reduced-motion). */
+.share-modal-in {
+  animation: share-modal-in 220ms cubic-bezier(.2,.7,.2,1) both;
+}
+@keyframes share-modal-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Share card terminal caret — blinks only in the live page preview. The
+   exported SVG carries no external CSS, so the artifact always shows a
+   stable visible underscore. */
+.share-caret {
+  animation: blink 1.15s step-end infinite;
+}

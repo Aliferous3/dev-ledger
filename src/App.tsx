@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Period } from './types';
 import { IdentityContext, LedgerContext, useDashboardStore, useLedger, type Identity } from './store/live';
+import { buildShareRecord } from './share/shareModel';
+import { ShareModal } from './share/ShareModal';
 import { useRoute, DEFAULT_PERIOD, periodFromQuery, rangeSearch } from './pages';
 import { TerminalTickerHeader } from './components/TerminalTickerHeader';
 import { UtilityBar } from './components/UtilityBar';
@@ -49,6 +51,27 @@ export default function App({ me = null }: { me?: Identity | null }) {
   // and shared by all three pages — no refetch on page change.
   const ledger = useDashboardStore(period);
   const netGrowth = ledger.dash.summary.sourceAdded - ledger.dash.summary.sourceDeleted;
+
+  // SHARE — an action on the currently selected range, not a fourth page.
+  // The record maps the hydrated dashboard payload + authenticated login;
+  // without a resolved identity it stays null and the entry is disabled
+  // (never a hardcoded or developer-credit username).
+  const [shareOpen, setShareOpen] = useState(false);
+  const shareRecord = useMemo(
+    () =>
+      buildShareRecord({
+        period,
+        dash: ledger.dash,
+        username:
+          me?.user?.githubLogin ??
+          // Dev-only fixture preview has no session — label it honestly.
+          (import.meta.env.DEV && !ledger.live ? 'preview' : null),
+        range: ledger.range,
+        allFromIso: ledger.allFromIso,
+        endIso: ledger.endIso,
+      }),
+    [period, ledger, me],
+  );
   const totalCommits = ledger.dash.summary.commits;
   const span = ledger.all.workShape.span;
   const spanLabel = span?.firstActive && span?.lastActive
@@ -70,6 +93,8 @@ export default function App({ me = null }: { me?: Identity | null }) {
         navigate={navigate}
         netGrowth={netGrowth}
         commits={totalCommits}
+        onShare={() => setShareOpen(true)}
+        shareDisabled={ledger.resolving || !shareRecord}
       />
 
       {/* Restrained CRT scanline treatment over the application surface */}
@@ -118,6 +143,11 @@ export default function App({ me = null }: { me?: Identity | null }) {
           </span>
         </div>
       </footer>
+
+      {/* SHARE RECORD composer — overlay only; no route, no server call */}
+      {shareOpen && shareRecord && (
+        <ShareModal record={shareRecord} onClose={() => setShareOpen(false)} />
+      )}
 
       {/* SYNC.04 system monitor — app-level, persists across all pages */}
       <SyncMonitor />
