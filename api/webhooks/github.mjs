@@ -57,8 +57,9 @@ export default async function handler(req, res) {
 
   // Replay dedup: X-GitHub-Delivery is unique per send. Insert-first — the
   // primary key serializes concurrent duplicates; a conflict means this
-  // exact delivery already ran, so acknowledge it as a no-op (GitHub would
-  // otherwise keep retrying). Signature verification stays primary — the
+  // exact delivery already ran, so acknowledge it as a no-op. GitHub does
+  // not auto-redeliver failed deliveries; manual/API redelivery of the same
+  // delivery id still resolves safely here. Signature verification stays primary — the
   // delivery id is only ever trusted AFTER a valid HMAC.
   const deliveryId = req.headers['x-github-delivery']
   if (supabase && deliveryId) {
