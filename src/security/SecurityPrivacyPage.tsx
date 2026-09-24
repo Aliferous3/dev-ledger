@@ -186,7 +186,7 @@ export function SecurityPrivacyPage() {
               ['PULL-REQUEST TITLES', 'Pull-request titles are not stored. The title column was intentionally removed from the schema.'],
               ['EMAIL ADDRESS', 'Dev Ledger does not request or store your GitHub email address — sign-in requests no email scope and the user record has no email field.'],
               ['ACCESS TOKENS', 'Your GitHub OAuth access token is used transiently during sign-in and never persisted. GitHub App installation tokens are minted on demand, are short-lived, and are never persisted either.'],
-              ['WEBHOOK PAYLOADS', 'Webhook bodies are processed and discarded. Only the delivery id and event type are retained — for replay deduplication, for up to 30 days.'],
+              ['WEBHOOK PAYLOADS', 'Raw webhook payload bodies are not stored as payload records. Selected fields can update the installation, repository, or pull-request metadata described above; the replay-deduplication record stores only the delivery id and event type.'],
             ]} />
           </section>
 
@@ -256,7 +256,7 @@ export function SecurityPrivacyPage() {
               ['MANAGE ACCESS', 'GitHub controls which repositories the app may read — change them any time from your GitHub installation settings.'],
               ['STOP SYNCING, KEEP HISTORY', 'Per repository: future ingestion stops, and the analytics already collected remain — history stays because you chose to keep it.'],
               ['RESUME SYNCING', 'Re-enables ingestion for a retained repository.'],
-              ['DISCONNECT & DELETE', 'Permanently removes that repository\u2019s stored data — commits, pull requests, languages, and sync bookkeeping.'],
+              ['DISCONNECT & DELETE', 'Permanently removes the repository record and its stored commits, pull requests, language data, coverage, and repository-specific sync bookkeeping.'],
               ['DELETE MY DATA', 'Revokes every active session, then deletes your account record — cascading through installations, repositories, languages, commits, pull requests, and sync state.'],
             ]} />
             <p className="text-sm text-neutral-400 leading-relaxed max-w-[62ch] mt-4">
@@ -276,9 +276,9 @@ export function SecurityPrivacyPage() {
               only as structured runtime logs.
             </p>
             <FieldList rows={[
-              ['RECORDED', 'Event type, severity, route and method, status, request id, reason code, and HMAC-derived correlation hashes that can group events without identifying anyone.'],
-              ['NEVER RECORDED', 'Raw IP address, User-Agent, cookies, authorization headers, OAuth tokens, request bodies, or stack traces.'],
-              ['RETENTION', 'Core analytics are kept while your account or a repository\u2019s history is retained. Security telemetry and webhook deduplication records: 30 days. Sessions expire and revoke independently. Backups carry their own recovery retention.'],
+              ['RECORDED', 'Event type, severity, route and method, status, request id, reason code, and HMAC-derived correlation hashes that can group repeated events without storing the raw actor or source identifier in the security-event record.'],
+              ['SECURITY EVENT EXCLUSIONS', 'Dev Ledger\u2019s security-event records and structured security-event log lines do not include raw IP address, User-Agent, cookies, authorization headers, OAuth tokens, request bodies, or stack traces. This statement does not describe separate platform-level request or operational logs.'],
+              ['RETENTION', 'Core analytics are kept while your account or a repository\u2019s history is retained. Persisted security events target a 30-day retention window via scheduled cleanup. Webhook replay-deduplication rows are pruned once older than 30 days when subsequent valid webhook traffic arrives, so actual deletion can occur later during quiet periods. Sessions expire and revoke independently. Backups carry their own recovery retention.'],
             ]} />
           </section>
 
