@@ -156,6 +156,33 @@ export interface ContribWeek {
 
 export const DOW_LABELS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const;
 
+/* ── contribution grid layout ──
+   Pure sizing for the week-column grid. Normal ranges keep the preferred
+   integer cells (22px down to 3px with the existing gap steps). Histories
+   too long for 3px+2px fall back to fractional SVG dimensions bounded by
+   the pitch, so `width <= availW` holds for ANY number of weeks — days are
+   never truncated, sampled, or merged to fit. */
+export interface ContributionLayout {
+  cell: number;
+  gap: number;
+  width: number;
+}
+
+export function contributionLayout(cols: number, availW: number): ContributionLayout {
+  const n = Math.max(1, Math.floor(cols));
+  for (let c = 22; c >= 3; c--) {
+    const g = c >= 10 ? 4 : c >= 6 ? 3 : 2;
+    const w = n * c + (n - 1) * g;
+    if (w <= availW) return { cell: c, gap: g, width: w };
+  }
+  // pitch = availW / n; gap ≤ pitch/4 keeps cell ≥ pitch*0.75 > 0, and
+  // n*cell + (n-1)*gap = n*pitch − gap < availW for every n.
+  const pitch = availW / n;
+  const gap = Math.max(0, Math.min(2, pitch * 0.25));
+  const cell = Math.max(0, pitch - gap);
+  return { cell, gap, width: n * cell + (n - 1) * gap };
+}
+
 const DAY_MS = 86_400_000;
 
 function isoOf(d: Date): string {

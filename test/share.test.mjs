@@ -6,6 +6,7 @@ import path from 'node:path'
 import {
   SHARE_CARD,
   buildShareRecord,
+  contributionLayout,
   contributionWeeks,
   fmtCompact,
   fmtHumanDate,
@@ -213,6 +214,51 @@ test('long history is not truncated — all days present', () => {
   const days = (new Date('2026-09-24') - new Date('2024-01-01')) / 86400000 + 1
   assert.equal(cells.length, days)
 })
+
+/* ── contribution grid layout ── */
+
+const GRID_W = 800 // ShareCard available width for the week columns
+
+test('contributionLayout keeps integer cells for ordinary ranges', () => {
+  // ~14 week columns (90D) → the largest integer cell that fits
+  const l = contributionLayout(14, GRID_W)
+  assert.ok(Number.isInteger(l.cell) && Number.isInteger(l.gap))
+  assert.ok(l.cell >= 3)
+  assert.ok(l.width <= GRID_W)
+  assert.equal(l.width, 14 * l.cell + 13 * l.gap)
+})
+
+test('contributionLayout is bounded for absurd column counts', () => {
+  for (const cols of [200, 500, 1000, 2000, 5000]) {
+    const l = contributionLayout(cols, GRID_W)
+    assert.ok(l.cell > 0, `cols=${cols} cell`)
+    assert.ok(l.gap >= 0, `cols=${cols} gap`)
+    assert.ok(
+      cols * l.cell + (cols - 1) * l.gap <= GRID_W + 0.0001,
+      `cols=${cols} width ${cols * l.cell + (cols - 1) * l.gap}`,
+    )
+  }
+})
+
+for (const [label, start, end] of [
+  ['5 years', '2020-01-01', '2024-12-31'],
+  ['10 years', '2015-01-01', '2024-12-31'],
+  ['15 years', '2010-01-01', '2024-12-31'],
+]) {
+  test(`${label} history: every day present, grid fits ${GRID_W}px`, () => {
+    const weeks = contributionWeeks(start, end, [])
+    const cells = weeks.flatMap((w) => w.days).filter(Boolean)
+    // real inclusive day count — leap years included, no 365×n shortcut
+    const expectedDays =
+      Math.round((new Date(`${end}T00:00:00`) - new Date(`${start}T00:00:00`)) / 86400000) + 1
+    assert.equal(cells.length, expectedDays)
+    assert.equal(cells[0].date, start)
+    assert.equal(cells[cells.length - 1].date, end)
+    const l = contributionLayout(weeks.length, GRID_W)
+    assert.ok(l.cell > 0 && l.gap >= 0)
+    assert.ok(l.width <= GRID_W + 0.0001, `width ${l.width}`)
+  })
+}
 
 /* ── export contract ── */
 

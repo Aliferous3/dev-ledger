@@ -2,6 +2,7 @@ import type { Ref } from 'react';
 import {
   DOW_LABELS,
   SHARE_CARD,
+  contributionLayout,
   contributionWeeks,
   fmtCompact,
   fmtHumanRange,
@@ -34,20 +35,12 @@ export function ShareCard({
   const weeks = contributionWeeks(record.startDate, record.endDate, record.daily);
 
   // Cell size adapts to the real number of week columns — short ranges get
-  // larger cells, long histories stay truthful by shrinking, never by
-  // dropping days or padding phantom columns.
+  // larger cells, long histories stay truthful by shrinking (fractional
+  // sub-pixel cells if necessary), never by dropping days or padding
+  // phantom columns. contributionLayout guarantees the grid fits availW.
   const cols = Math.max(1, weeks.length);
   const availW = 800;
-  let cell = 3;
-  let gap = 2;
-  for (let c = 22; c >= 3; c--) {
-    const g = c >= 10 ? 4 : c >= 6 ? 3 : 2;
-    if (cols * c + (cols - 1) * g <= availW) {
-      cell = c;
-      gap = g;
-      break;
-    }
-  }
+  const { cell, gap } = contributionLayout(cols, availW);
   const gridX = 178;
   const gridH = 7 * cell + 6 * gap;
   // Contribution block sits vertically centered in the panel's lower half
@@ -56,17 +49,21 @@ export function ShareCard({
   const monthsY = blockTop + 14;
   const gridY = blockTop + 32;
   const rowH = cell + gap;
-  // Month labels thin out so they never collide on long histories.
+  // Month labels thin out so they never collide on long histories, and
+  // drop entirely once columns go sub-pixel (pitch < 3px ≈ >5 years) —
+  // at that density the strip is the record, not the labels.
   const minLabelStep = 46;
   const labeledCols = new Set<number>();
-  let lastLabelX = -Infinity;
-  weeks.forEach((wk, wi) => {
-    const x = gridX + wi * (cell + gap);
-    if (wk.month != null && x - lastLabelX >= minLabelStep) {
-      labeledCols.add(wi);
-      lastLabelX = x;
-    }
-  });
+  if (cell + gap >= 3) {
+    let lastLabelX = -Infinity;
+    weeks.forEach((wk, wi) => {
+      const x = gridX + wi * (cell + gap);
+      if (wk.month != null && x - lastLabelX >= minLabelStep) {
+        labeledCols.add(wi);
+        lastLabelX = x;
+      }
+    });
+  }
 
   // Hero caret placement — "lines of code." is 13 chars at 0.6em advance.
   const heroFont = 35;

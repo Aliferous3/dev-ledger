@@ -9,6 +9,16 @@ import {
 } from './shareExport.ts';
 import { fmtHumanRange, shareFileName, type ShareRecordData } from './shareModel.ts';
 
+/* The prepared PNG artifact for the CURRENT record. Built once when the
+   card mounts (and again whenever the record changes), so SHARE can reach
+   navigator.share() while the click's transient user activation is still
+   live — no rendering happens inside the click path. */
+interface PreparedShare {
+  blob: Blob;
+  file: File;
+  fileName: string;
+}
+
 /* Share Record composer — overlay dialog, not a page. Renders the card
    preview (same SVG node the PNG export serializes) plus the three local
    actions. Accessible: labelled dialog, focus trap, Escape/backdrop
@@ -26,15 +36,53 @@ export function ShareModal({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<SVGSVGElement>(null);
-  const [busy, setBusy] = useState(false);
+  const [prepared, setPrepared] = useState<PreparedShare | null>(null);
+  const [phase, setPhase] = useState<'preparing' | 'ready' | 'failed'>('preparing');
+  const [sharing, setSharing] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [note, setNote] = useState('');
   const noteTimer = useRef<number | undefined>(undefined);
+  const genRef = useRef(0);
 
   const say = (msg: string) => {
     setNote(msg);
     window.clearTimeout(noteTimer.current);
     noteTimer.current = window.setTimeout(() => setNote(''), 2600);
   };
+
+  /* Eager artifact preparation — the card SVG is already committed when
+     this effect runs, so the rasterizer serializes the same node the user
+     sees. On record change the old artifact is invalidated first and the
+     generation counter makes a slow stale render inert: it can never
+     overwrite the newer record's cache. */
+  useEffect(() => {
+    const gen = ++genRef.current;
+    let cancelled = false;
+    setPrepared(null);
+    setPhase('preparing');
+    const svg = cardRef.current;
+    if (!svg) {
+      setPhase('failed');
+      return;
+    }
+    shareCardToPngBlob(svg)
+      .then((blob) => {
+        if (cancelled || gen !== genRef.current) return;
+        const fileName = shareFileName(record);
+        setPrepared({
+          blob,
+          file: new File([blob], fileName, { type: 'image/png' }),
+          fileName,
+        });
+        setPhase('ready');
+      })
+      .catch(() => {
+        if (!cancelled && gen === genRef.current) setPhase('failed');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [record, attempt]);
 
   // Dialog semantics: Escape/backdrop close, body scroll lock, focus trap,
   // focus return to the invoking control on unmount.
@@ -78,65 +126,40 @@ export function ShareModal({
     };
   }, [onClose]);
 
-  const renderPng = async (): Promise<Blob | null> => {
-    const svg = cardRef.current;
-    if (!svg) return null;
-    try {
-      return await shareCardToPngBlob(svg);
-    } catch {
-      return null;
-    }
-  };
-
-  const fileName = shareFileName(record);
-
+  /* All three actions consume the prepared artifact — none of them
+     rasterize on click. SHARE in particular must reach navigator.share()
+     inside the click's transient activation window. */
   const onShare = async () => {
-    if (busy) return;
-    setBusy(true);
-    const blob = await renderPng();
-    setBusy(false);
-    if (!blob) {
-      say('RENDER FAILED');
-      return;
-    }
-    const result = await sharePngFile(blob, fileName).catch(() => 'unsupported' as const);
+    if (phase !== 'ready' || !prepared || sharing) return;
+    setSharing(true);
+    // sharePngFile checks canShare + calls navigator.share synchronously —
+    // the prepared File goes straight to the OS sheet.
+    const result = await sharePngFile(prepared.file).catch(() => 'failed' as const);
+    setSharing(false);
     if (result === 'shared') say('SHARED');
     else if (result === 'cancelled') say('SHARE CANCELLED');
+    else if (result === 'failed') say('SHARE FAILED');
     else {
       // No file-capable system share — fall back to the local PNG so the
       // gesture still produces the artifact.
-      downloadBlob(blob, fileName);
+      downloadBlob(prepared.blob, prepared.fileName);
       say('SYSTEM SHARE UNAVAILABLE — PNG SAVED');
     }
   };
 
   const onCopy = async () => {
-    if (busy || !canCopyImage()) return;
-    setBusy(true);
-    const blob = await renderPng();
-    setBusy(false);
-    if (!blob) {
-      say('RENDER FAILED');
-      return;
-    }
+    if (phase !== 'ready' || !prepared || !canCopyImage()) return;
     try {
-      await copyImageBlob(blob);
+      await copyImageBlob(prepared.blob);
       say('IMAGE COPIED');
     } catch {
       say('COPY NOT PERMITTED');
     }
   };
 
-  const onDownload = async () => {
-    if (busy) return;
-    setBusy(true);
-    const blob = await renderPng();
-    setBusy(false);
-    if (!blob) {
-      say('RENDER FAILED');
-      return;
-    }
-    downloadBlob(blob, fileName);
+  const onDownload = () => {
+    if (phase !== 'ready' || !prepared) return;
+    downloadBlob(prepared.blob, prepared.fileName);
     say('PNG SAVED');
   };
 
@@ -206,7 +229,7 @@ export function ShareModal({
               <button
                 type="button"
                 onClick={onShare}
-                disabled={busy}
+                disabled={phase !== 'ready' || sharing}
                 className={`${btnBase} border-[#d6ff3e] bg-[#d6ff3e] text-black font-bold hover:bg-[#e4ff70]`}
               >
                 <span>SHARE</span>
@@ -216,7 +239,7 @@ export function ShareModal({
                 <button
                   type="button"
                   onClick={onCopy}
-                  disabled={busy}
+                  disabled={phase !== 'ready' || sharing}
                   className={ghostBtn}
                 >
                   <span>COPY IMAGE</span>
@@ -226,19 +249,35 @@ export function ShareModal({
               <button
                 type="button"
                 onClick={onDownload}
-                disabled={busy}
+                disabled={phase !== 'ready' || sharing}
                 className={ghostBtn}
               >
                 <span>DOWNLOAD PNG</span>
                 <span aria-hidden>↓</span>
               </button>
+              {phase === 'failed' && (
+                <button
+                  type="button"
+                  onClick={() => setAttempt((a) => a + 1)}
+                  className={ghostBtn}
+                >
+                  <span>RETRY</span>
+                  <span aria-hidden>↻</span>
+                </button>
+              )}
             </div>
 
             <div
               aria-live="polite"
               className="mono-tag text-[8px] tracking-[0.18em] text-[#d6ff3e] min-h-[1em]"
             >
-              {busy ? 'RENDERING…' : note}
+              {phase === 'preparing'
+                ? 'PREPARING…'
+                : phase === 'failed'
+                  ? 'RENDER FAILED'
+                  : sharing
+                    ? 'OPENING SHARE…'
+                    : note}
             </div>
 
             <div className="mono-tag text-[7px] tracking-[0.14em] text-neutral-600 leading-relaxed mt-auto pt-4 border-t border-neutral-900">

@@ -153,12 +153,14 @@ export function canShareFile(file: File): boolean {
   }
 }
 
+/* Native file sharing (mobile/modern desktop where implemented). The
+   caller hands over a pre-built File so the transient user activation on
+   the SHARE click is still live when navigator.share() runs — no async
+   rendering happens between the gesture and this call. */
 /** 'shared' · 'cancelled' · 'unsupported' */
 export async function sharePngFile(
-  blob: Blob,
-  name: string,
+  file: File,
 ): Promise<'shared' | 'cancelled' | 'unsupported'> {
-  const file = new File([blob], name, { type: 'image/png' });
   if (!canShareFile(file)) return 'unsupported';
   try {
     await navigator.share({ files: [file], title: 'Dev Ledger Share Record' });
