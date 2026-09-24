@@ -51,6 +51,9 @@ jobs:
       - name: Production build
         run: npm run build
 
+      - name: Typecheck (strict tsc --noEmit)
+        run: npm run typecheck
+
       - name: Test suite (incl. dist/ artifact security scan)
         run: npm test
 

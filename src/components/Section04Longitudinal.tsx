@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Period, ArchiveTab } from '../types';
 import { useLedger } from '../store/live';
 import { useShapeDerived, Strata, Lifecycle, Fingerprint, WorkSpan } from '../retained/WorkShape';
-import { SkRegion } from '../ledger/Skeleton';
+import { SkChart } from '../ledger/Skeleton';
 import { m12Delay, registerM12 } from '../ledger/m12';
 
 interface Props {
@@ -49,7 +49,7 @@ export function Section04Longitudinal({ period }: Props) {
   );
 
   const unresolved = resolving ? (
-    figureBox(<SkRegion />)
+    figureBox(<SkChart h={240} />)
   ) : !derived ? (
     figureBox(
       <div className="text-[9px] mono-tag text-neutral-600">
@@ -101,7 +101,7 @@ export function Section04Longitudinal({ period }: Props) {
       {/* Keyed figure region — remounts locally per figure; the section,
           tab strip, and page shell persist. */}
       <div key={activeTab} className="archive-view">
-      {unresolved ?? (
+      {resolving || !derived ? unresolved : (
         <>
       {/* ===================================================================== */}
       {/* VIEW 01: F · 01 FINGERPRINT — retained Dev Ledger implementation        */}
