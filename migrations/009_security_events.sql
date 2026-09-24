@@ -36,6 +36,15 @@ create index if not exists security_events_event_time
 alter table public.security_events enable row level security;
 
 revoke all on public.security_events from public, anon, authenticated;
+
+-- Supabase default privileges would otherwise hand service_role the full
+-- privilege set on new tables (update/truncate/references/trigger).
+-- Revoke everything first, then grant only what the telemetry writer
+-- needs — a fresh environment must produce least-privilege, not defaults.
+revoke all on public.security_events from service_role;
 grant select, insert, delete on public.security_events to service_role;
--- identity-column sequence needs explicit usage for service_role inserts
+-- identity-column sequence needs explicit usage for service_role inserts;
+-- every other role keeps zero sequence privilege.
+revoke all on sequence public.security_events_id_seq from public, anon, authenticated;
+revoke all on sequence public.security_events_id_seq from service_role;
 grant usage on sequence public.security_events_id_seq to service_role;

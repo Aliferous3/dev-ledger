@@ -653,6 +653,25 @@ test('security_events table is service_role-only: RLS on, zero browser privilege
   assert.doesNotMatch(migration, /security definer/i, 'no SECURITY DEFINER helper')
 })
 
+test('service_role is explicitly revoked before its narrow grant — Supabase defaults cannot widen it', () => {
+  // Supabase default privileges hand service_role the full privilege set on
+  // new tables (update/truncate/references/trigger). The migration must
+  // revoke ALL first, then grant the narrow set — ordering is load-bearing.
+  const revokeIdx = migration.search(/revoke all on public\.security_events from service_role/i)
+  const grantIdx = migration.search(/grant select, insert, delete on public\.security_events to service_role/i)
+  assert.ok(revokeIdx !== -1, 'service_role revoke present')
+  assert.ok(grantIdx !== -1, 'service_role grant present')
+  assert.ok(revokeIdx < grantIdx, 'revoke must precede the grant')
+  const seqRevoke = migration.search(/revoke all on sequence public\.security_events_id_seq from service_role/i)
+  const seqGrant = migration.search(/grant usage on sequence public\.security_events_id_seq to service_role/i)
+  assert.ok(seqRevoke !== -1 && seqGrant !== -1, 'sequence revoke + grant present')
+  assert.ok(seqRevoke < seqGrant, 'sequence revoke must precede usage grant')
+  // anon/authenticated hold zero sequence usage as well
+  assert.match(migration, /revoke all on sequence public\.security_events_id_seq from public, anon, authenticated/i)
+  // no wider service_role grants anywhere
+  assert.doesNotMatch(migration, /grant (all|update|truncate|references|trigger)[^\n]*to service_role/i, 'no broad service_role grants')
+})
+
 test('migration stores only the fixed field set — no free-form metadata blob', () => {
   for (const col of ['occurred_at', 'event', 'severity', 'route', 'method', 'status', 'request_id', 'reason_code', 'actor_hash', 'source_hash']) {
     assert.match(migration, new RegExp(`\\b${col}\\b`), `column ${col} present`)
