@@ -579,6 +579,117 @@ test('webhook: a different delivery id for the same payload processes normally',
   assert.equal(res.body.duplicate, undefined)
 })
 
+/* ── WS7b: webhook acknowledges before long sync work ─────────────────
+   runSync stalls on its first user_sync SELECT (getUserSync) while the
+   handler's marker writes are upserts — so if the handler still awaited
+   runSync, these tests would deadlock and fail on the deadline. */
+
+function stallSelects(table) {
+  const realFrom = db.from.bind(db)
+  let release
+  const gate = new Promise((r) => { release = r })
+  db.from = (name) => {
+    const q = realFrom(name)
+    if (name !== table) return q
+    const hold = (fn) => (...a) => gate.then(() => fn(...a))
+    q.single = hold(q.single.bind(q))
+    q.maybeSingle = hold(q.maybeSingle.bind(q))
+    const origThen = q.then.bind(q)
+    q.then = (res, rej) => (q.op === 'select' ? gate.then(() => origThen(res, rej)) : origThen(res, rej))
+    return q
+  }
+  return async () => { release(); db.from = realFrom }
+}
+
+function failTable(table) {
+  const realFrom = db.from.bind(db)
+  db.from = (name) => {
+    const q = realFrom(name)
+    if (name !== table) return q
+    const boom = () => Promise.reject(new Error('fake db outage'))
+    q.single = boom
+    q.maybeSingle = boom
+    q.then = (res, rej) => Promise.reject(new Error('fake db outage')).then(res, rej)
+    return q
+  }
+  return () => { db.from = realFrom }
+}
+
+const withDeadline = (p, ms = 3000) =>
+  Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('webhook response blocked on detached sync work')), ms))])
+
+async function expectFastAck(event, payload, markerTables) {
+  const release = await stallSelects('user_sync')
+  try {
+    const res = mockRes()
+    const callsBefore = db.calls.length
+    await withDeadline(webhookHandler(webhookReq(payload, { delivery: crypto.randomUUID(), event }), res))
+    assert.equal(res.statusCode, 200, `${event}: acknowledged while runSync was still hung`)
+    const writes = db.calls.slice(callsBefore).filter((c) => c.op !== 'select')
+    for (const tbl of markerTables) {
+      assert.ok(
+        writes.some((c) => c.table === tbl),
+        `${event}: durable ${tbl} marker must be written before ack`,
+      )
+    }
+  } finally {
+    await release()
+    await new Promise((r) => setTimeout(r, 20)) // let the detached run settle
+  }
+}
+
+test('webhook: push acks without awaiting sync, durable markers written first', async () => {
+  const a = seedUser('wh-push')
+  const repo = seedRepo(a, 'push-repo')
+  db.t('github_installations').push({ id: crypto.randomUUID(), user_id: a, installation_id: 9101 })
+  await expectFastAck('push',
+    { installation: { id: 9101 }, repository: { id: repo.github_repo_id } },
+    ['repo_sync', 'user_sync'])
+  assert.equal(db.t('user_sync').find((r) => r.user_id === a)?.status, 'syncing')
+})
+
+test('webhook: installation.created acks without awaiting sync, kick marker first', async () => {
+  const a = seedUser('wh-inst')
+  const ghUserId = db.t('users').find((u) => u.id === a).github_user_id
+  await expectFastAck('installation',
+    { action: 'created', installation: { id: 9202, account: { id: ghUserId, login: 'wh-inst', type: 'User' } } },
+    ['github_installations', 'user_sync'])
+  assert.equal(db.t('user_sync').find((r) => r.user_id === a)?.status, 'syncing')
+})
+
+test('webhook: installation_repositories.added acks without awaiting sync', async () => {
+  const a = seedUser('wh-repos')
+  db.t('github_installations').push({ id: crypto.randomUUID(), user_id: a, installation_id: 9303 })
+  await expectFastAck('installation_repositories',
+    { action: 'added', installation: { id: 9303 }, repositories_added: [{ id: 555, name: 'r', full_name: 'x/r' }], repositories_removed: [] },
+    ['user_sync'])
+  assert.equal(db.t('user_sync').find((r) => r.user_id === a)?.status, 'syncing')
+})
+
+test('webhook: a failed delivery is not marked processed — redelivery retries it', async () => {
+  const a = seedUser('wh-fail')
+  const repo = seedRepo(a, 'fail-repo')
+  db.t('github_installations').push({ id: crypto.randomUUID(), user_id: a, installation_id: 9404 })
+  const payload = { installation: { id: 9404 }, repository: { id: repo.github_repo_id } }
+  const delivery = crypto.randomUUID()
+
+  const restore = failTable('github_installations')
+  const res1 = mockRes()
+  await webhookHandler(webhookReq(payload, { delivery, event: 'push' }), res1)
+  restore()
+  assert.equal(res1.statusCode, 500)
+  assert.ok(
+    !db.t('webhook_deliveries').some((r) => r.delivery_id === delivery),
+    'failed delivery must not stay marked processed — would block redelivery forever',
+  )
+
+  const res2 = mockRes()
+  await webhookHandler(webhookReq(payload, { delivery, event: 'push' }), res2)
+  assert.equal(res2.statusCode, 200)
+  assert.equal(res2.body.duplicate, undefined, 'redelivery reprocessed, not swallowed as duplicate')
+  assert.equal(db.t('user_sync').find((r) => r.user_id === a)?.status, 'syncing')
+})
+
 /* ── WS8: minimal public health ─────────────────────────────────────── */
 
 test('health: public response is minimal — no auth/db/env disclosure', async () => {

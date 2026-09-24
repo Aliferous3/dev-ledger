@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { waitUntil } from '@vercel/functions'
 import { github } from '../../lib/config.mjs'
 import { supabase } from '../../lib/db.mjs'
 import { kickSync, runSync, setUserSync } from '../../lib/sync.mjs'
@@ -56,8 +57,9 @@ export default async function handler(req, res) {
 
   // Replay dedup: X-GitHub-Delivery is unique per send. Insert-first — the
   // primary key serializes concurrent duplicates; a conflict means this
-  // exact delivery already ran, so acknowledge it as a no-op (GitHub would
-  // otherwise keep retrying). Signature verification stays primary — the
+  // exact delivery already ran, so acknowledge it as a no-op. GitHub does
+  // not auto-redeliver failed deliveries; manual/API redelivery of the same
+  // delivery id still resolves safely here. Signature verification stays primary — the
   // delivery id is only ever trusted AFTER a valid HMAC.
   const deliveryId = req.headers['x-github-delivery']
   if (supabase && deliveryId) {
@@ -93,7 +95,29 @@ export default async function handler(req, res) {
     }
     res.status(200).json({ ok: true })
   } catch (err) {
+    // Never leave a delivery marked processed when its durable work was
+    // never written — drop the dedup row so a GitHub redelivery retries the
+    // event instead of being swallowed as a duplicate forever.
+    if (supabase && deliveryId) {
+      try {
+        await supabase.from('webhook_deliveries').delete().eq('delivery_id', String(deliveryId))
+      } catch { /* dedup cleanup is best-effort */ }
+    }
     res.status(500).json({ error: 'Webhook handling failed' })
+  }
+}
+
+// Detached sync continuation — the durable 'syncing' marker (kickSync) is
+// written BEFORE the webhook acknowledges, so if this waitUntil slice dies
+// with the invocation the cron pump still finds status='syncing' and
+// finishes the run. The catch is load-bearing: background sync failure must
+// never reject after the response, and runSync's own status writes stay the
+// authority on outcome.
+function scheduleSync(userId) {
+  try {
+    waitUntil(runSync(userId, { budgetMs: 45_000, force: true }).catch(() => {}))
+  } catch {
+    /* outside a Vercel invocation the detached promise still runs */
   }
 }
 
@@ -128,7 +152,7 @@ async function onInstallation(payload) {
         account_type: inst.account?.type,
       }, { onConflict: 'user_id,installation_id' })
       await kickSync(user.id)
-      await runSync(user.id, { budgetMs: 5000, force: true })
+      scheduleSync(user.id)
     }
   }
 }
@@ -151,7 +175,7 @@ async function onInstallationRepositories(payload) {
   }
   if ((payload.repositories_added || []).length) {
     await kickSync(link.user_id)
-    await runSync(link.user_id, { budgetMs: 5000, force: true })
+    scheduleSync(link.user_id)
   }
 }
 
@@ -182,7 +206,7 @@ async function onPush(payload) {
   await supabase.from('repo_sync')
     .upsert({ user_id: repo.user_id, repository_id: repo.id, phase: 'done' }, { onConflict: 'user_id,repository_id' })
   await kickSync(repo.user_id, 'commits')
-  await runSync(repo.user_id, { budgetMs: 5000, force: true })
+  scheduleSync(repo.user_id)
 }
 
 async function onPullRequest(payload) {
