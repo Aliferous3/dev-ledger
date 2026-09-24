@@ -9,10 +9,14 @@
   "crons": [
     { "path": "/api/cron/sync", "schedule": "0 2 * * *" }
   ],
+  "redirects": [
+    { "source": "/privacy", "destination": "/security", "permanent": true }
+  ],
   "rewrites": [
     { "source": "/overview", "destination": "/index.html" },
     { "source": "/activity", "destination": "/index.html" },
-    { "source": "/code", "destination": "/index.html" }
+    { "source": "/code", "destination": "/index.html" },
+    { "source": "/security", "destination": "/index.html" }
   ],
   "headers": [
     {
