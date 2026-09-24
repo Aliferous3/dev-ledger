@@ -192,11 +192,17 @@ test('CI runs tests, build, typecheck, and a gated npm audit', () => {
 test('typecheck script exists and is strict — no emit, no loosened tsconfig', () => {
   const pkg = load('package.json');
   assert.equal(pkg.scripts.typecheck, 'tsc --noEmit');
-  const tsconfig = load('tsconfig.json');
-  assert.equal(tsconfig.compilerOptions.strict, true);
-  assert.equal(tsconfig.compilerOptions.noUnusedLocals, true);
-  assert.equal(tsconfig.compilerOptions.noUnusedParameters, true);
-  assert.equal(tsconfig.compilerOptions.noEmit, true);
+  // tsconfig.json permits comments — assert the strict flags textually
+  // rather than JSON.parse-ing them out of a comment-stripped file
+  const tc = src('tsconfig.json');
+  for (const flag of [
+    '"strict": true',
+    '"noUnusedLocals": true',
+    '"noUnusedParameters": true',
+    '"noEmit": true',
+  ]) {
+    assert.ok(tc.includes(flag), `tsconfig must keep ${flag}`);
+  }
 });
 
 test('CI builds BEFORE testing — the artifact scan must inspect a real dist/', () => {
