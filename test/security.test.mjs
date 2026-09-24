@@ -163,6 +163,77 @@ test('production CSP has no script-src unsafe-inline', () => {
   }
 });
 
+test('production CSP style-src is allowlist-strict — no inline styles', async () => {
+  const vercel = src('vercel.json');
+  const csp = vercel.match(/Content-Security-Policy[\s\S]*?"value": "([^"]+)"/)?.[1];
+  assert.ok(csp, 'CSP header missing from vercel.json');
+  const dir = (name) => csp.split(';').map((d) => d.trim())
+    .find((d) => d === name || d.startsWith(name + ' '));
+
+  // style-src itself: 'self' only — no inline styles anywhere
+  const styleSrc = dir('style-src');
+  assert.equal(styleSrc, "style-src 'self'", `style-src weakened: ${styleSrc}`);
+  // level-3 split: elements come from 'self' plus the single sha256 pin for
+  // number-flow's static shadow-root stylesheet (the library's documented
+  // CSP path — content is a baked constant, hashed here); attributes never
+  assert.equal(
+    dir('style-src-elem'),
+    "style-src-elem 'self' 'sha256-HR6/MuuYfB8aijiNP5MPm3YOR8WqVmL7UkE3Q8OslTs='",
+  );
+  assert.equal(dir('style-src-attr'), "style-src-attr 'none'");
+  assert.equal(dir('script-src-attr'), "script-src-attr 'none'");
+  // no weakening crept in anywhere (img-src data: is intentional — avatars)
+  for (const bad of ["'unsafe-inline'", "'unsafe-eval'", "'unsafe-hashes'"]) {
+    assert.ok(!csp.includes(bad), `CSP contains ${bad}`);
+  }
+  assert.doesNotMatch(`${dir('style-src')} ${dir('style-src-elem')}`, /data:|unsafe|\*/);
+
+  // the pinned hash must match the stylesheet the installed number-flow
+  // build actually injects — a version bump that changes it fails here
+  // instead of silently breaking animations in production
+  const { buildStyles } = await import('number-flow/csp');
+  const { createHash } = await import('node:crypto');
+  const injected = cryptoHashSha256(buildStyles()[2]);
+  function cryptoHashSha256(s) { return 'sha256-' + createHash('sha256').update(s).digest('base64'); }
+  assert.ok(
+    dir('style-src-elem').includes(`'${injected}'`),
+    `CSP style-src-elem pin drifted — number-flow now injects ${injected}`,
+  );
+  // structural invariants
+  for (const d of ["default-src 'self'", "object-src 'none'", "base-uri 'self'",
+    "frame-ancestors 'none'", "form-action 'self'", "connect-src 'self'",
+    'upgrade-insecure-requests']) {
+    assert.ok(csp.includes(d), `CSP missing ${d}`);
+  }
+});
+
+test('no runtime style-injection vectors exist in source', () => {
+  for (const f of allSourceFiles()) {
+    const content = readFileSync(f, 'utf8');
+    const rel = path.relative(ROOT, f).replace(/\\/g, '/');
+    assert.doesNotMatch(content, /<style[\s>]/, `${rel} renders a <style> element`);
+    assert.doesNotMatch(content, /createElement\(['"]style['"]\)/, `${rel} creates a <style> element`);
+    assert.doesNotMatch(content, /\.insertRule\(|adoptedStyleSheets/, `${rel} mutates a stylesheet at runtime`);
+    assert.doesNotMatch(content, /setAttribute\(['"]style['"]\)/, `${rel} sets a style attribute`);
+    assert.doesNotMatch(content, /\.cssText\s*=/, `${rel} assigns cssText`);
+    assert.doesNotMatch(content, /style=["'`]/, `${rel} uses a string style attribute`);
+  }
+});
+
+test('production dist/index.html has no inline styles or external CSS origins', () => {
+  const files = distFilesOrSkip();
+  if (!files) return;
+  const html = readFileSync(files.find((f) => f.endsWith('index.html')), 'utf8');
+  assert.doesNotMatch(html, /<style[\s>]/, 'index.html contains an inline <style>');
+  assert.doesNotMatch(html, /\sstyle=["']/, 'index.html contains a style attribute');
+  const links = [...html.matchAll(/<link[^>]*rel="stylesheet"[^>]*>/g)].map((m) => m[0]);
+  assert.ok(links.length >= 1, 'expected an external stylesheet link');
+  for (const l of links) {
+    const href = l.match(/href="([^"]+)"/)?.[1];
+    assert.match(href, /^\/assets\//, `stylesheet not self-hosted: ${href}`);
+  }
+});
+
 test('production build emits external hashed JS (no single-file inlining)', () => {
   const vite = src('vite.config.ts');
   assert.doesNotMatch(vite, /viteSingleFile/);
