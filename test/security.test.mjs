@@ -2,9 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+import { ROOT, SERVER_ONLY_SECRETS } from './secret-inventory.mjs';
 const src = (rel) => readFileSync(path.join(ROOT, rel), 'utf8');
 const bare = (rel) => readFileSync(path.join(ROOT, rel), 'utf8').replace(/\/\/[^\n]*/g, '');
 
@@ -91,18 +90,10 @@ test('built production artifact contains zero fixture identifiers', () => {
     for (const id of [...FORBIDDEN_IDENTIFIERS, ...FICTIONAL_FIXTURE_NAMES]) {
       assert.ok(!content.includes(id), `${rel} contains "${id}"`);
     }
-    // server-side secret env names must never reach the client bundle
-    for (const secret of [
-      'SUPABASE_SERVICE_ROLE_KEY',
-      'SUPABASE_DB_PASSWORD',
-      'GITHUB_CLIENT_SECRET',
-      'GITHUB_APP_PRIVATE_KEY',
-      'GITHUB_WEBHOOK_SECRET',
-      'SESSION_SECRET',
-      'CRON_SECRET',
-      'DATABASE_URL',
-      'VERCEL_TOKEN',
-    ]) {
+    // server-side secret env names must never reach the client bundle —
+    // the list is derived from security/secret-inventory.json, so a new
+    // secret added to the inventory is guarded here automatically
+    for (const secret of SERVER_ONLY_SECRETS) {
       assert.ok(!content.includes(secret), `${rel} leaks ${secret}`);
     }
     // high-confidence credential material — a bundle never legitimately
