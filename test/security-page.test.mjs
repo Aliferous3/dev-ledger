@@ -112,10 +112,16 @@ test('commits.message and pull_requests.title stay dropped by migrations', () =>
   const m8 = src('migrations/008_data_minimization.sql');
   assert.match(m8, /alter table public\.commits[\s\S]*?drop column if exists message/i);
   assert.match(m8, /alter table public\.pull_requests[\s\S]*?drop column if exists title/i);
-  // No later migration may re-add them.
-  const m9 = src('migrations/009_security_events.sql');
-  assert.ok(!/commits[^;]*add column[^;]*message/i.test(m9));
-  assert.ok(!/pull_requests[^;]*add column[^;]*title/i.test(m9));
+  // No migration after 008 may silently re-add either privacy-sensitive field.
+  const dir = path.join(ROOT, 'migrations');
+  for (const name of fs.readdirSync(dir).filter((n) => /^\d+.*\.sql$/.test(n)).sort()) {
+    if (name <= '008_data_minimization.sql') continue;
+    const sql = src(`migrations/${name}`);
+    assert.ok(!/commits[^;]*add column[^;]*message/i.test(sql),
+      `${name} must not re-add commits.message`);
+    assert.ok(!/pull_requests[^;]*add column[^;]*title/i.test(sql),
+      `${name} must not re-add pull_requests.title`);
+  }
 });
 
 test('users table has no email column across all migrations', () => {
@@ -137,6 +143,14 @@ test('webhook persists delivery id + event only — no payload storage', () => {
   assert.match(wh, /insert\(\{\s*delivery_id:\s*String\(deliveryId\),\s*event:/);
   assert.ok(!/webhook_deliveries[\s\S]{0,400}insert[\s\S]{0,200}payload/.test(wh),
     'webhook dedup insert must not store the payload');
+});
+
+test('public webhook wording distinguishes raw payload storage from derived metadata', () => {
+  const page = src(PAGE);
+  assert.match(page, /Raw webhook payload bodies are not stored as payload records/);
+  assert.match(page, /Selected fields can update the installation, repository, or pull-request metadata/);
+  assert.ok(!page.includes('Only the delivery id and event type are retained'),
+    'page must not imply webhook-derived business metadata is never persisted');
 });
 
 // ── Tokens are transient ────────────────────────────────────────────────────
