@@ -566,7 +566,8 @@ test('webhook: first delivery processed, exact replay is a duplicate no-op', asy
   assert.equal(res2.statusCode, 200)
   assert.equal(res2.body.duplicate, true)
   // the replay is acknowledged without re-running the business mutation
-  const replays = db.calls.slice(mutationsAfterFirst).filter((c) => c.table !== 'webhook_deliveries')
+  // telemetry writes (security_events) are not business mutations
+  const replays = db.calls.slice(mutationsAfterFirst).filter((c) => c.table !== 'webhook_deliveries' && c.table !== 'security_events')
   assert.equal(replays.length, 0, 'replay applied no business mutations')
 })
 
@@ -699,7 +700,12 @@ test('ordering: cross-site DELETE /api/user revokes nothing, deletes nothing', a
     method: 'DELETE', headers: { cookie, origin: FOREIGN }, url: '/api/user?confirm=1',
   }), res)
   assert.equal(res.statusCode, 403)
-  assert.equal(db.calls.length, mutationsBefore, 'cross-site request ran zero DB operations')
+  // security telemetry writes are expected — the guard must run zero
+  // *user-data* operations.
+  assert.equal(
+    db.calls.slice(mutationsBefore).filter((c) => c.table !== 'security_events').length,
+    0, 'cross-site request ran zero user-data DB operations'
+  )
   assert.equal(await sessions.isSessionLive(sid), true, 'session must NOT be revoked by a forged request')
   assert.ok(db.t('users').some((u) => u.id === userId), 'user row must survive')
 })
@@ -764,7 +770,10 @@ test('ordering: cross-site POST/DELETE /api/user never reaches getSession', asyn
     assert.deepEqual(res.body, { error: 'Forbidden' })
     assert.equal(res.headers['set-cookie'], undefined,
       `${method}: getSession ran — a destroy/expiry Set-Cookie was emitted on a forged request`)
-    assert.equal(db.calls.length, before, `${method}: zero DB operations`)
+    assert.equal(
+      db.calls.slice(before).filter((c) => c.table !== 'security_events').length,
+      0, `${method}: zero user-data DB operations`
+    )
   }
   assert.equal(await sessions.isSessionLive(sid), true, 'sid must not be revoked')
 

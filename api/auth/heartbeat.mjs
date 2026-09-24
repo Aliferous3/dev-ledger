@@ -3,6 +3,7 @@ import { sessionLeaseMs } from '../../lib/config.mjs'
 import { isSessionLive } from '../../lib/sessions.mjs'
 import { supabase } from '../../lib/db.mjs'
 import { forbidCrossSite } from '../../lib/same-origin.mjs'
+import { sessionDenied } from '../../lib/security-events.mjs'
 
 // POST /api/auth/heartbeat — keeps a non-persistent session's inactivity
 // lease alive while a Dev Ledger tab is open. Pure cookie re-seal: no DB
@@ -23,6 +24,9 @@ export default async function handler(req, res) {
   // Revocation check only applies when a database backs sessions — without
   // one there are no auth_sessions rows to revoke and nothing to check.
   if (!session.userId || (supabase && !(await isSessionLive(session.sid)))) {
+    // Only a live-lease session with a dead sid is signal; a plain expired
+    // beat is the routine 5-minute expiry and stays unlogged.
+    if (session.userId) sessionDenied(req, session)
     res.status(401).json({ ok: false, authenticated: false })
     return
   }

@@ -2,6 +2,7 @@ import { getSession } from '../../lib/auth.mjs'
 import { revokeSession } from '../../lib/sessions.mjs'
 import { supabase } from '../../lib/db.mjs'
 import { forbidCrossSite } from '../../lib/same-origin.mjs'
+import { securityEvent } from '../../lib/security-events.mjs'
 
 // POST /api/auth/logout — session destruction is a state change, so it is
 // POST-only and same-origin-guarded. The old GET+302 navigation form let
@@ -19,6 +20,12 @@ export default async function handler(req, res) {
   // Kill the server-side record first — a stolen copy of this cookie stops
   // working immediately, not just in this browser.
   if (supabase) await revokeSession(session.sid)
+  // destroy() clears session.userId — capture the actor first.
+  const actorId = session.userId
   await session.destroy()
+  securityEvent('logout_completed', {
+    req, route: '/api/auth/logout', status: 200,
+    severity: 'info', actorId,
+  })
   res.status(200).json({ ok: true })
 }
