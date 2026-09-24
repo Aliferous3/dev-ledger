@@ -1,6 +1,7 @@
 import type { Period } from '../types';
 import { TerminalTicker } from './TerminalTicker';
 import { AccountMenu } from './AccountMenu';
+import { ShareButton } from '../share/ShareButton';
 import { PAGES, type PageId } from '../pages';
 
 interface Props {
@@ -10,6 +11,8 @@ interface Props {
   navigate: (page: PageId) => void;
   netGrowth: number;
   commits: number;
+  onShare: () => void;
+  shareDisabled: boolean;
 }
 
 const PERIODS: Period[] = ['7D', '30D', '90D', 'YTD', '1Y', 'ALL'];
@@ -18,7 +21,7 @@ const PERIODS: Period[] = ['7D', '30D', '90D', 'YTD', '1Y', 'ALL'];
    Row 2: brand + shortcut hint + RANGE readout + global period + user.
    Row 3: keypad nav — exactly OVERVIEW / ACTIVITY / CODE.
    Row 4: the canonical telemetry marquee (unchanged). */
-export function TerminalTickerHeader({ period, setPeriod, page, navigate }: Props) {
+export function TerminalTickerHeader({ period, setPeriod, page, navigate, onShare, shareDisabled }: Props) {
   return (
     <header className="sticky top-0 z-50 bg-[#0a0a0a]/90 backdrop-blur-md border-b border-neutral-900">
       <div
@@ -75,6 +78,10 @@ export function TerminalTickerHeader({ period, setPeriod, page, navigate }: Prop
                 </button>
               ))}
             </div>
+            <span className="w-px h-5 bg-neutral-800 mx-1 hidden md:block" />
+            {/* SHARE — terminal-command action between the range controls
+                and the account control. An action, not a fourth page. */}
+            <ShareButton onShare={onShare} disabled={shareDisabled} />
             <span className="w-px h-5 bg-neutral-800 mx-1 hidden md:block" />
             <div className="flex items-center gap-3 whitespace-nowrap shrink-0">
               <AccountMenu />
