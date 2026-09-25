@@ -21,12 +21,12 @@ export function CircadianRadar({
   const cy = 220;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center bg-black/40 border border-neutral-900 p-6 md:p-8">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 md:gap-8 items-center bg-black/40 border border-neutral-900 p-4 sm:p-6 md:p-8">
       {/* Left: 24-Hour Circular Chrono-Dial (SVG) */}
       <div className="lg:col-span-7 flex items-center justify-center relative select-none">
         <svg
           viewBox="0 0 440 440"
-          className="w-full max-w-[420px] h-auto overflow-visible"
+          className="w-full max-w-[300px] sm:max-w-[420px] h-auto overflow-visible"
           role="img"
           aria-label="24-hour circadian commit dial"
         >
@@ -162,29 +162,31 @@ export function CircadianRadar({
         </svg>
       </div>
 
-      {/* Right: Circadian breakdown and Window tiles */}
-      <div className="lg:col-span-5 space-y-6">
+      {/* Right: Circadian breakdown and Window tiles — two compact
+          columns on phones (all four windows stay present), back to the
+          desktop stack at lg. */}
+      <div className="lg:col-span-5 space-y-4 md:space-y-6">
         <div className="mono-tag text-[9px] text-neutral-400">CIRCADIAN DISTRIBUTION</div>
 
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 min-[370px]:grid-cols-2 lg:grid-cols-1 gap-2 lg:gap-3">
           {rhythm.windows.map((w) => (
             <div
               key={w.label}
-              className="p-3 border border-neutral-900 bg-black/60 hover:border-neutral-700 transition-colors"
+              className="p-2.5 lg:p-3 border border-neutral-900 bg-black/60 hover:border-neutral-700 transition-colors"
             >
               <div className="flex justify-between items-baseline mb-1">
-                <span className="mono-tag text-[10px] text-neutral-200">{w.label}</span>
-                <span className="font-editorial text-2xl text-[#d6ff3e] tabular-nums inline-flex"><NumPct value={w.pct} /></span>
+                <span className="mono-tag text-[9px] lg:text-[10px] text-neutral-200">{w.label}</span>
+                <span className="font-editorial text-xl lg:text-2xl text-[#d6ff3e] tabular-nums inline-flex"><NumPct value={w.pct} /></span>
               </div>
               <div className="w-full bg-neutral-900 h-1 overflow-hidden">
                 <div className="h-full bg-[#d6ff3e]" style={{ width: `${w.pct * 2.2}%` }} />
               </div>
-              <div className="mono-tag text-[8px] text-neutral-500 mt-1">{w.range}</div>
+              <div className="mono-tag text-[7px] lg:text-[8px] text-neutral-500 mt-1">{w.range}</div>
             </div>
           ))}
         </div>
 
-        <div className="p-4 border border-neutral-800 bg-[#0e0e0e] mono-tag text-[9px] text-neutral-400 space-y-1">
+        <div className="p-3 lg:p-4 border border-neutral-800 bg-[#0e0e0e] mono-tag text-[9px] text-neutral-400 space-y-1">
           <div className="text-[#d6ff3e] font-semibold">// PEAK CADENCE LOCATED</div>
           <div>
             {rhythm.highlights.peakWeekday} {rhythm.highlights.peakWindow} UTC ACCOUNTS FOR{' '}

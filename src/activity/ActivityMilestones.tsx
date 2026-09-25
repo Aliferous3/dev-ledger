@@ -26,7 +26,7 @@ export function ActivityMilestones({
   const [active, setActive] = useState<string | null>(null);
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-neutral-900">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 pt-4 md:pt-6 border-t border-neutral-900">
       <div className="space-y-4">
         <div className="flex items-center gap-2 mono-tag text-[10px] text-neutral-400">
           <span>MILESTONES</span>

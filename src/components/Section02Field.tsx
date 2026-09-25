@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Period } from '../types';
 import {
@@ -21,8 +21,11 @@ interface Props {
 const BLOCKS = ['·', '░', '▒', '▓', '█'] as const;
 
 /* Tooltip geometry for the portal HUD — estimated from CellTooltip's
-   min-w/padding so it can flip/shift before hitting viewport edges. */
+   min-w/padding so it can flip/shift before hitting viewport edges. The
+   width is resolved per-render so the compact mobile card (<480px) gets
+   the tighter estimate. */
 const TIP_W = 190;
+const TIP_W_NARROW = 150;
 const TIP_H = 130;
 const TIP_GAP = 10;
 
@@ -37,7 +40,39 @@ export function Section02Field({ period }: Props) {
   // Language bar hover label — pixel position of the active segment's
   // center within the bar wrapper, so the label rides directly above it.
   const barWrapRef = useRef<HTMLDivElement>(null);
+  const matrixRef = useRef<HTMLDivElement>(null);
   const [segTip, setSegTip] = useState<{ x: number; w: number } | null>(null);
+
+  // Shared pick for hover AND tap — a touch tap on a cell selects the day
+  // and anchors the HUD exactly like a mouse hover.
+  const pickCell = (cell: DayCell, el: HTMLElement) => {
+    setHoverCell(cell);
+    const r = el.getBoundingClientRect();
+    setTipCoords({ cx: r.left + r.width / 2, top: r.top, bottom: r.bottom });
+  };
+
+  // Tap-away + scroll dismissal: phones have no hover-leave, and a fixed
+  // tooltip anchored to captured cell coordinates would drift off on
+  // scroll — so either gesture clears a tap/hover-selected day.
+  useEffect(() => {
+    if (!hoverCell) return;
+    const clear = () => {
+      setHoverCell(null);
+      setTipCoords(null);
+    };
+    const onDown = (e: PointerEvent) => {
+      if (matrixRef.current && !matrixRef.current.contains(e.target as Node)) clear();
+    };
+    document.addEventListener('pointerdown', onDown);
+    window.addEventListener('scroll', clear, { passive: true });
+    matrixRef.current?.addEventListener('scroll', clear, { passive: true });
+    const mx = matrixRef.current;
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('scroll', clear);
+      mx?.removeEventListener('scroll', clear);
+    };
+  }, [hoverCell]);
 
   // Six-stat strip reacts to the canonical global period.
   const stats = useMemo(
@@ -55,7 +90,8 @@ export function Section02Field({ period }: Props) {
   const tipStyle = (() => {
     if (!tipCoords) return null;
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
-    const x = Math.min(Math.max(tipCoords.cx, TIP_W / 2 + 8), vw - TIP_W / 2 - 8);
+    const tipW = vw < 480 ? TIP_W_NARROW : TIP_W;
+    const x = Math.min(Math.max(tipCoords.cx, tipW / 2 + 8), vw - tipW / 2 - 8);
     const flipBelow = tipCoords.top - TIP_H - TIP_GAP < 8;
     return {
       left: x,
@@ -65,7 +101,7 @@ export function Section02Field({ period }: Props) {
   })();
 
   return (
-    <section id="section-02" className="relative scroll-mt-28 space-y-12">
+    <section id="section-02" className="relative scroll-mt-28 space-y-8 md:space-y-12">
       {/* Top Breadcrumb — the global period selector lives in the sticky header */}
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-900 pb-4">
         <div className="flex items-center gap-3 text-[11px] mono-tag text-neutral-300">
@@ -90,10 +126,19 @@ export function Section02Field({ period }: Props) {
 
         {/* Matrix Container */}
         <div
-          className="relative bg-black/60 border border-neutral-900 p-4 sm:p-6 overflow-x-auto select-none"
+          ref={matrixRef}
+          className="relative bg-black/60 border border-neutral-900 p-3 sm:p-6 overflow-x-auto select-none"
           onMouseLeave={() => {
             setHoverCell(null);
             setTipCoords(null);
+          }}
+          onPointerDown={(e) => {
+            // Tap on padding/labels clears a tap-selected day; taps on a
+            // day cell ([data-day]) are handled by the cell's own handler.
+            if (!(e.target as HTMLElement).closest('[data-day]')) {
+              setHoverCell(null);
+              setTipCoords(null);
+            }
           }}
         >
           {/* CRT phantom sweep — slightly brighter but still atmospheric */}
@@ -140,15 +185,9 @@ export function Section02Field({ period }: Props) {
                       <div
                         key={cell.iso}
                         ref={m12CellRef}
-                        onMouseEnter={(e) => {
-                          setHoverCell(cell);
-                          const r = e.currentTarget.getBoundingClientRect();
-                          setTipCoords({
-                            cx: r.left + r.width / 2,
-                            top: r.top,
-                            bottom: r.bottom,
-                          });
-                        }}
+                        data-day
+                        onMouseEnter={(e) => pickCell(cell, e.currentTarget)}
+                        onPointerDown={(e) => pickCell(cell, e.currentTarget)}
                         className="m12 flex items-center justify-center text-[11px] leading-[14px] cursor-crosshair transition-all duration-100"
                         style={{
                           ...m12Delay(week.index),
@@ -223,11 +262,11 @@ export function Section02Field({ period }: Props) {
           ['STREAK', stats.streak],
           ['REPOS', stats.repos],
         ].map(([label, value]) => (
-          <div key={String(label)} className="bg-black px-3 py-5 group hover:bg-[#0a0a0a]">
+          <div key={String(label)} className="bg-black px-3 py-4 md:py-5 group hover:bg-[#0a0a0a]">
             <div className="text-[9px] mono-tag text-neutral-600 group-hover:text-[#d6ff3e] transition-colors">
               {label}
             </div>
-            <div className="mt-2 text-2xl text-neutral-100 tabular-nums tracking-tight group-hover:text-[#d6ff3e] transition-colors">
+            <div className="mt-1.5 md:mt-2 text-xl md:text-2xl text-neutral-100 tabular-nums tracking-tight group-hover:text-[#d6ff3e] transition-colors">
               {resolving ? <SkNum h={22} w="60%" /> : <NumGrouped value={value as number} />}
             </div>
           </div>
@@ -305,6 +344,13 @@ export function Section02Field({ period }: Props) {
                     setHoverLang(l.name);
                     trackSeg(e.currentTarget);
                   }}
+                  onClick={(e) => {
+                    // Touch taps fire focus (handled below) — this keeps
+                    // the segment label on for the tap and lets tap-away
+                    // blur dismiss it naturally.
+                    setHoverLang(l.name);
+                    trackSeg(e.currentTarget);
+                  }}
                   onMouseLeave={() => {
                     setHoverLang(null);
                     setSegTip(null);
@@ -330,7 +376,9 @@ export function Section02Field({ period }: Props) {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-x-6 gap-y-2">
+        {/* Legend — centered as one composed unit under the bar on phones,
+            left-aligned with the desktop rhythm ≥ sm. */}
+        <div className="flex flex-wrap justify-center sm:justify-start gap-x-5 sm:gap-x-6 gap-y-2">
           {languages.map((l) => {
             const on = hoverLang === l.name;
             return (

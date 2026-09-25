@@ -33,19 +33,19 @@ export function LanguageTreemap({ langs }: { langs: LangRow[] }) {
       <div className="grid grid-cols-12 gap-1.5 md:h-[320px]">
         <Tile
           l={big}
-          span="col-span-12 md:col-span-8 md:row-span-2 h-36 md:h-auto"
+          span="col-span-12 md:col-span-8 md:row-span-2 h-28 md:h-auto"
           hov={hov}
           setHov={setHov}
           big
         />
         <div className="col-span-12 md:col-span-4 grid grid-cols-2 md:grid-cols-1 md:grid-rows-2 gap-1.5">
           {mid.map((l) => (
-            <Tile key={l.name} l={l} span="h-24 md:h-auto" hov={hov} setHov={setHov} />
+            <Tile key={l.name} l={l} span="h-16 md:h-auto" hov={hov} setHov={setHov} />
           ))}
         </div>
         <div className="col-span-12 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-1.5">
           {small.map((l) => (
-            <Tile key={l.name} l={l} span="h-16" hov={hov} setHov={setHov} tiny />
+            <Tile key={l.name} l={l} span="h-9 sm:h-16" hov={hov} setHov={setHov} tiny />
           ))}
         </div>
       </div>
@@ -78,7 +78,13 @@ function Tile({
       onMouseLeave={() => setHov(null)}
       onFocus={() => setHov(l.name)}
       onBlur={() => setHov(null)}
-      className={`${span} relative overflow-hidden cursor-pointer transition-all duration-200 flex flex-col justify-between p-3 outline-none`}
+      className={`${span} relative overflow-hidden cursor-pointer transition-all duration-200 outline-none ${
+        tiny
+          ? // Phones: one-line chip (name · size) so a KB-scale language
+            // never occupies a tall card; ≥sm keeps the stacked tile look.
+            'flex flex-row items-center justify-between px-2.5 py-1.5 sm:flex-col sm:items-stretch sm:justify-between sm:p-3'
+          : 'flex flex-col justify-between p-3'
+      }`}
       style={{
         background: on ? '#d6ff3e' : big ? '#f2f2f2' : tiny ? '#3a3a3a' : '#c9c9c9',
         opacity: hov && !on ? 0.3 : 1,

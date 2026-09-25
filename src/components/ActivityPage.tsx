@@ -150,7 +150,7 @@ export function ActivityPage({ period }: Props) {
   );
 
   return (
-    <section id="section-05" className="relative scroll-mt-28 space-y-12">
+    <section id="section-05" className="relative scroll-mt-28 space-y-8 md:space-y-12">
       {/* 1 — Page header: radar-style composition (lime eyebrow, serif
           title, mono sub) with the shared dial-focus readout on the right. */}
       <M12 i={0} id="activity-header">

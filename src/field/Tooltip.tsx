@@ -15,7 +15,7 @@ export function CellTooltip({
 
   return (
     <div
-      className={`pointer-events-none min-w-[168px] px-3 py-2.5 text-[10px] mono-tag shadow-2xl ${
+      className={`pointer-events-none min-w-[140px] sm:min-w-[168px] px-2.5 py-2 sm:px-3 sm:py-2.5 text-[9px] sm:text-[10px] mono-tag shadow-2xl ${
         accent
           ? 'bg-[#d6ff3e] text-black'
           : 'bg-[#111] text-neutral-300 border border-neutral-800'

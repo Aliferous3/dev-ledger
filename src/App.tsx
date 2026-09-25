@@ -112,7 +112,7 @@ export default function App({ me = null }: { me?: Identity | null }) {
           drives the M12 top→bottom apply. */}
       <main
         key={page}
-        className="flex-1 max-w-[1280px] w-full mx-auto px-6 md:px-12 py-12 md:py-16 space-y-32"
+        className="flex-1 max-w-[1280px] w-full mx-auto px-4 sm:px-6 md:px-12 py-6 sm:py-8 md:py-16 space-y-16 md:space-y-32"
       >
         {page === 'overview' && <OverviewBody period={period} />}
         {page === 'activity' && <ActivityBody period={period} />}
@@ -120,14 +120,16 @@ export default function App({ me = null }: { me?: Identity | null }) {
       </main>
 
       {/* Bottom Footer (matching reference bottom bar "END OF RECORD") */}
-      <footer className="border-t border-neutral-900 bg-black/60 py-6 px-6 md:px-12 text-[10px] mono-tag text-neutral-500 flex flex-wrap items-center justify-between gap-4">
+      <footer className="border-t border-neutral-900 bg-black/60 py-6 px-4 sm:px-6 md:px-12 text-[10px] mono-tag text-neutral-500 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <span className="text-neutral-400">END OF RECORD</span>
           <span className="text-neutral-700">·</span>
           <span>LONGITUDINAL TELEMETRY [{spanLabel}]</span>
         </div>
 
-        <div className="flex items-center gap-4">
+        {/* Right cluster keeps ~56px clearance on phones so the collapsed
+            SYNC.MON pip (fixed bottom-right) can never cover footer links. */}
+        <div className="flex items-center gap-4 max-sm:pr-14">
           <a
             href="/security"
             className="text-neutral-500 hover:text-neutral-200 focus-visible:text-neutral-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40 transition-colors"

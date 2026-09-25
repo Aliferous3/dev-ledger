@@ -96,12 +96,12 @@ export function rangeSearch(period: Period): string {
 export const PAGE_SECTIONS: Record<PageId, { id: string; name: string }[]> = {
   overview: [
     { id: 'section-01', name: 'MEASURE' },
-    { id: 'section-02', name: 'CONTRIBUTIONS' },
-    { id: 'section-03', name: 'REPOSITORIES' },
+    { id: 'section-02', name: 'FIELD' },
+    { id: 'section-03', name: 'INDEX' },
     { id: 'section-04', name: 'LONGITUDINAL' },
   ],
   activity: [
-    { id: 'activity-header', name: 'SUMMARY' },
+    { id: 'activity-header', name: 'ACTIVITY' },
     { id: 'activity-extremes', name: 'EXTREMES' },
     { id: 'activity-radar', name: 'CIRCADIAN' },
     { id: 'activity-rhythm', name: 'RHYTHM' },
@@ -113,7 +113,7 @@ export const PAGE_SECTIONS: Record<PageId, { id: string; name: string }[]> = {
     { id: 'code-treemap', name: 'LANGUAGES' },
     { id: 'code-growth', name: 'GROWTH' },
     { id: 'code-projects', name: 'PROJECTS' },
-    { id: 'code-intel', name: 'RATIOS' },
+    { id: 'code-intel', name: 'INTELLIGENCE' },
     { id: 'code-churn', name: 'CHURN' },
   ],
 };
@@ -157,8 +157,9 @@ export function useActiveAnchor(anchors: { id: string; name: string }[]): string
 }
 
 /* Jump to a section anchor inside the current page — smooth scroll with
-   the sticky-header offset (sections carry scroll-mt-28) + a hash entry
-   so back/forward retraces section jumps. No remount, no preloader. */
+   the sticky-header offset (targets carry scroll-margin via index.css)
+   + a hash entry so back/forward retraces section jumps. No remount, no
+   preloader. */
 export function jumpToAnchor(id: string) {
   const el = document.getElementById(id);
   if (!el) return;

@@ -45,7 +45,7 @@ export function Section04Longitudinal({ period }: Props) {
   }));
 
   const figureBox = (children: React.ReactNode) => (
-    <div className="bg-black/40 border border-neutral-900 p-6 md:p-8">{children}</div>
+    <div className="bg-black/40 border border-neutral-900 p-4 md:p-8">{children}</div>
   );
 
   const unresolved = resolving ? (
@@ -59,7 +59,7 @@ export function Section04Longitudinal({ period }: Props) {
   ) : null;
 
   return (
-    <section id="section-04" className="relative scroll-mt-28 space-y-10">
+    <section id="section-04" className="relative scroll-mt-28 space-y-7 md:space-y-10">
       {/* Top Breadcrumb & Period Selector */}
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-900 pb-4">
         <div className="flex items-center gap-3 text-[11px] mono-tag text-neutral-300">
@@ -75,9 +75,11 @@ export function Section04Longitudinal({ period }: Props) {
         </div>
       </div>
 
-      {/* Figure navigation — local state swap, no preloader */}
+      {/* Figure navigation — local state swap, no preloader. Phones get a
+          single horizontally-scrollable strip (no clipped wraps); ≥ sm
+          wraps as before. */}
       <div className="space-y-4">
-        <div className="flex flex-wrap gap-4 sm:gap-8 pt-2 text-[10px] mono-tag border-b border-neutral-900 pb-3">
+        <div className="flex flex-nowrap sm:flex-wrap gap-5 sm:gap-8 pt-2 text-[10px] mono-tag border-b border-neutral-900 pb-3 overflow-x-auto no-scrollbar whitespace-nowrap -mx-1 px-1">
           {FIGURE_TABS.map((tab) => {
             const active = activeTab === tab;
             return (
@@ -141,28 +143,28 @@ export function Section04Longitudinal({ period }: Props) {
       {/* VIEW 04: F · 04 MIGRATION — NEW design treatment                        */}
       {/* ===================================================================== */}
       {activeTab === 'F · 04 MIGRATION' && (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between text-[10px] mono-tag text-neutral-400">
+        <div className="space-y-4 md:space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] mono-tag text-neutral-400">
             <span>WORK MIGRATION — DOMINANT REPOSITORY PER MONTH, IN SEQUENCE</span>
-            <span className="text-neutral-500">{migrations.length} TRANSITIONS · F · 04</span>
+            <span className="text-neutral-500 whitespace-nowrap">{migrations.length} TRANSITIONS · F · 04</span>
           </div>
 
-          <div className="bg-black/40 border border-neutral-900 p-6 md:p-8 space-y-8">
+          <div className="bg-black/40 border border-neutral-900 p-4 md:p-8 space-y-5 md:space-y-8">
             {migrations.length === 0 ? (
               <div className="text-[9px] mono-tag text-neutral-600">
                 INSUFFICIENT STORED HISTORY — MIGRATION RESOLVES ONCE COMMIT DATA EXISTS
               </div>
             ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
               {migrations.map((card, i) => (
                 <div
                   key={i}
                   ref={registerM12}
-                  className="m12 border border-neutral-900 bg-neutral-950/60 p-6 space-y-2 hover:border-[#d6ff3e]/50 transition-colors"
+                  className="m12 border border-neutral-900 bg-neutral-950/60 p-4 md:p-6 space-y-2 hover:border-[#d6ff3e]/50 transition-colors min-w-0"
                   style={m12Delay(i)}
                 >
-                  <div className="text-[9px] mono-tag text-neutral-500">0{i + 1} // {card.span}</div>
-                  <div className="font-editorial text-xl md:text-2xl text-neutral-100">
+                  <div className="text-[9px] mono-tag text-neutral-500 truncate">0{i + 1} // {card.span}</div>
+                  <div className="font-editorial text-lg md:text-2xl text-neutral-100 truncate" title={card.name}>
                     {card.name}
                   </div>
                   <div className="text-[10px] mono-tag text-[#d6ff3e]">

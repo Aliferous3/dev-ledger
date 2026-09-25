@@ -43,7 +43,7 @@ function Avatar({ url, login, size = 24 }: { url?: string; login?: string; size?
 }
 
 const itemCls =
-  'flex items-center gap-2 w-full text-left px-4 py-2 mono-tag text-[9px] tracking-[0.18em] text-neutral-500 hover:text-neutral-200 hover:bg-neutral-900/60 focus:text-neutral-200 focus:bg-neutral-900/60 focus:outline-none transition-colors';
+  'flex items-center gap-2 w-full text-left px-3.5 sm:px-4 py-2 mono-tag text-[9px] tracking-[0.18em] text-neutral-500 hover:text-neutral-200 hover:bg-neutral-900/60 focus:text-neutral-200 focus:bg-neutral-900/60 focus:outline-none transition-colors';
 const caret = <span aria-hidden className="text-neutral-700">&gt;</span>;
 
 export function AccountMenu() {
@@ -204,7 +204,7 @@ export function AccountMenu() {
             <Avatar url={avatarUrl} login={login} size={24} />
           </span>
         </span>
-        <span className="mono-tag text-[10px] text-neutral-200 group-hover:text-[#d6ff3e] transition-colors tracking-[0.12em] max-w-[9rem] truncate" title={`@${login}`}>
+        <span className="mono-tag text-[10px] text-neutral-200 group-hover:text-[#d6ff3e] transition-colors tracking-[0.12em] max-w-[6rem] sm:max-w-[9rem] truncate" title={`@${login}`}>
           @{login}
         </span>
         <span
@@ -220,10 +220,13 @@ export function AccountMenu() {
           ref={menuRef}
           role="menu"
           aria-label="account"
-          className="absolute right-0 top-full mt-3 w-60 max-w-[calc(100vw-1rem)] bg-[#131413] border border-neutral-800 z-50 max-md:fixed max-md:right-2"
+          /* Anchored to the trigger on every viewport (narrower + slightly
+             denser below sm). Long settings content scrolls inside the
+             panel instead of running past the viewport bottom. */
+          className="absolute right-0 top-full mt-2 md:mt-3 w-56 sm:w-60 max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-9rem)] overflow-y-auto overscroll-contain bg-[#131413] border border-neutral-800 z-50"
         >
           {/* identity header */}
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-neutral-800/70">
+          <div className="flex items-center gap-3 px-3.5 py-2.5 sm:px-4 sm:py-3 border-b border-neutral-800/70">
             <Avatar url={avatarUrl} login={login} size={28} />
             <div className="min-w-0">
               <div className="mono-tag text-[10px] text-neutral-200 tracking-[0.12em] truncate">@{login}</div>

@@ -15,9 +15,9 @@ export function CodeIntelligence({ metrics }: { metrics: IntelMetric[] }) {
   return (
     <div className="space-y-4">
       <div className="mono-tag text-[10px] text-neutral-400">CODE INTELLIGENCE</div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {metrics.map((m, i) => (
-          <div key={m.label} className="relative border border-neutral-800 p-4 bg-neutral-950/40">
+          <div key={m.label} className="relative border border-neutral-800 p-3 sm:p-4 bg-neutral-950/40">
             <span className="absolute top-0 left-0 w-2 h-2 border-t border-l border-[#d6ff3e]" />
             <span className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-[#d6ff3e]" />
             <div className="flex justify-between mono-tag text-[8px] text-neutral-500">
