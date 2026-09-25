@@ -430,6 +430,45 @@ html, body, #root {
   #section-04 .grid-cols-12 { column-gap: 0; }
 }
 
+/* ------------------------------------------------------------------ */
+/* Narrow-viewport adaptations (below sm = 640px)                        */
+/* ------------------------------------------------------------------ */
+
+/* Any stray fixed-width child must never drag the page sideways. clip
+   (unlike hidden) creates no scroll container, so the sticky header is
+   unaffected. */
+html, body {
+  overflow-x: clip;
+}
+
+/* Hide scrollbars on intentional internal scroll strips while keeping
+   them scrollable (tab strips, overflow figures). */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 639.98px) {
+  /* Retained editorial micro-labels: the 0.3em tracking spans several
+     wrapped lines on a phone — tighten slightly, still uppercase/mono. */
+  .label-s {
+    letter-spacing: 0.22em;
+  }
+}
+
+/* Anchor jump targets must clear the sticky header (brand row + controls
+   row + page nav + ticker). Header is ~154px tall below sm and up to
+   ~161px through md before settling ~125px on wide desktops — 168px
+   clears the worst case everywhere. */
+#section-01, #section-02, #section-03, #section-04,
+#section-05, #section-06,
+[id^="activity-"], [id^="code-"] {
+  scroll-margin-top: 168px;
+}
+
 /* Keypad header — slow conic ring spin on the user avatar */
 @keyframes spin-slower {
   to { transform: rotate(360deg); }

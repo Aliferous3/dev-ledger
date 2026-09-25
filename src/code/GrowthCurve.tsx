@@ -23,7 +23,7 @@ export function GrowthCurve({ points }: { points: GrowthPoint[] }) {
   const step = Math.max(1, Math.ceil(points.length / 10));
 
   return (
-    <div className="relative h-[190px]">
+    <div className="relative h-[140px] sm:h-[190px]">
       <svg viewBox="0 0 760 210" preserveAspectRatio="none" className="w-full h-full overflow-visible">
         <defs>
           <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">

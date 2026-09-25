@@ -25,25 +25,25 @@ export function RhythmStream({ rhythm }: { rhythm: RhythmBundle }) {
   }, [runningSweep]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between mono-tag text-[10px] text-neutral-400">
-        <span className="text-[#d6ff3e]">[01] RHYTHM_STREAM — ASCII_MATRIX</span>
-        <span className="flex items-center gap-4">
+    <div className="space-y-3 sm:space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 mono-tag text-[10px] text-neutral-400">
+        <span className="text-[#d6ff3e] max-sm:w-full">[01] RHYTHM_STREAM — ASCII_MATRIX</span>
+        <span className="flex items-center gap-4 max-sm:w-full max-sm:justify-between">
           <span className="text-neutral-500">
             PROBE AT <span className="text-[#d6ff3e]">{String(probeHour).padStart(2, '0')}:00 UTC</span>
           </span>
           <button
             type="button"
             onClick={() => setRunningSweep((v) => !v)}
-            className="border border-neutral-800 px-2 py-0.5 text-neutral-400 hover:text-[#d6ff3e] hover:border-[#d6ff3e] transition-colors"
+            className="border border-neutral-800 px-2 py-1 sm:py-0.5 text-neutral-400 hover:text-[#d6ff3e] hover:border-[#d6ff3e] transition-colors"
           >
             {runningSweep ? '[PAUSE PROBE]' : '[RESUME PROBE]'}
           </button>
         </span>
       </div>
 
-      <div className="relative bg-black/60 border border-neutral-900 p-4 overflow-x-auto select-none">
-        <div className="relative min-w-[700px] space-y-2">
+      <div className="relative bg-black/60 border border-neutral-900 p-3 sm:p-4 overflow-x-auto select-none">
+        <div className="relative min-w-[620px] space-y-2">
           {/* Hour ruler */}
           <div className="grid grid-cols-[40px_1fr_40px] text-[8px] mono-tag text-neutral-600">
             <span />
@@ -101,7 +101,7 @@ export function RhythmStream({ rhythm }: { rhythm: RhythmBundle }) {
       </div>
 
       {/* Live log strip */}
-      <div className="flex items-center justify-between mono-tag text-[9px] text-neutral-600 border border-neutral-900 bg-neutral-950 p-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mono-tag text-[9px] text-neutral-600 border border-neutral-900 bg-neutral-950 p-2">
         <span className="text-[#d6ff3e]">{logLine}</span>
         <span>PEAK: {rhythm.highlights.peakWeekday} {rhythm.highlights.peakHour} ({rhythm.highlights.peakWeekdayTotal}c)</span>
       </div>

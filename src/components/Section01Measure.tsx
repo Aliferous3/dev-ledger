@@ -58,7 +58,7 @@ export function Section01Measure({ daysData }: Props) {
   const currentTabObj = TABS.find((t) => t.key === activeTab)!;
 
   return (
-    <section id="section-01" className="relative scroll-mt-28 space-y-12">
+    <section id="section-01" className="relative scroll-mt-28 space-y-8 md:space-y-12">
       {/* Top Section Breadcrumb — the global period selector lives in the
           sticky header and drives every section */}
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-900 pb-4">
@@ -69,7 +69,7 @@ export function Section01Measure({ daysData }: Props) {
       </div>
 
       {/* Hero Number Display */}
-      <div className="text-center space-y-4 pt-4">
+      <div className="text-center space-y-3 md:space-y-4 pt-1 md:pt-4">
         <div className="text-[10px] mono-tag text-neutral-500 tracking-[0.24em] flex items-center justify-center gap-2">
           <span>A · 01 · {currentTabObj.heroLabel}</span>
           <span className="inline-flex items-center justify-center w-3 h-3 rounded-full border border-neutral-700 text-[8px] text-neutral-400">
@@ -80,7 +80,7 @@ export function Section01Measure({ daysData }: Props) {
 
         {/* Large Editorial Serif Number */}
         <div className="relative inline-block group">
-          <div className="text-6xl sm:text-8xl md:text-9xl font-editorial font-light text-neutral-100 tracking-tight select-none transition-all duration-300 group-hover:text-[#d6ff3e]">
+          <div className="text-5xl min-[420px]:text-6xl sm:text-8xl md:text-9xl font-editorial font-light text-neutral-100 tracking-tight select-none transition-all duration-300 group-hover:text-[#d6ff3e]">
             {resolving ? (
               <SkNum h="0.85em" w="3.2em" className="mx-auto" />
             ) : (
@@ -104,7 +104,7 @@ export function Section01Measure({ daysData }: Props) {
         </div>
 
         {/* Interactive Metric Navigation Tabs */}
-        <nav className="flex flex-wrap justify-center items-center gap-x-5 gap-y-2 sm:gap-x-8 md:gap-x-12 pt-6 text-[11px] mono-tag">
+        <nav className="flex flex-wrap justify-center items-center gap-x-4 gap-y-1 sm:gap-x-8 md:gap-x-12 pt-3 md:pt-6 text-[11px] mono-tag">
           {TABS.map((tab) => {
             const active = activeTab === tab.key;
             return (

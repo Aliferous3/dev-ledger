@@ -20,20 +20,22 @@ export function ActivityHeader({
   const inPeak = activeHour >= pwStart && activeHour <= pwEnd;
 
   return (
-    <div className="flex flex-wrap items-start justify-between gap-6 border-b border-neutral-900 pb-6">
+    <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4 md:gap-6 border-b border-neutral-900 pb-5 md:pb-6">
       <div>
         <div className="mono-tag text-[10px] text-[#d6ff3e]">
           [05] ACTIVITY<span className="cursor-blink">_</span>
           <span className="text-neutral-500"> // TEMPORAL CADENCE · 24H CIRCADIAN PROFILE</span>
         </div>
-        <h2 className="font-editorial text-4xl sm:text-5xl text-neutral-100 mt-2">Activity</h2>
+        <h2 className="font-editorial text-4xl sm:text-5xl text-neutral-100 mt-1.5 md:mt-2">Activity</h2>
         <div className="mono-tag text-[9px] text-neutral-500 mt-1">
           POLAR PROJECTION OF {resolving ? <SkNum h={9} w={64} className="inline-block align-baseline" /> : <NumGrouped value={totalCommits} className="inline-flex" />} COMMITS ACROSS 24 HOURS
         </div>
       </div>
 
-      {/* Hour Focus Indicator — reflects the radar's active hour */}
-      <div className="border border-neutral-800 bg-black/60 p-4 min-w-[200px] text-right space-y-1">
+      {/* Hour Focus Indicator — reflects the radar's active hour. On a
+          phone it wraps beneath the title: mx-auto centers the card so the
+          leftover width doesn't read as an unfinished right-side void. */}
+      <div className="border border-neutral-800 bg-black/60 p-3 sm:p-4 min-w-[200px] max-sm:mx-auto text-right space-y-1">
         <div className="mono-tag text-[8px] text-neutral-500">DIAL FOCUS</div>
         <div className="font-editorial text-4xl text-[#d6ff3e] tabular-nums">
           {String(activeHour).padStart(2, '0')}:00 UTC

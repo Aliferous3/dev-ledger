@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useIdentity, useLedger } from '../store/live';
+import { useIsNarrow } from '../ledger/useMediaQuery';
 import { isSyncBlocked } from '../ledger/syncModel.mjs';
 import { manageReposUrl, reconnectUrl } from '../ledger/accountModel.mjs';
 import { Num, NumGrouped } from '../ledger/Num';
@@ -29,7 +30,9 @@ import {
    - status → syncing: auto-expand (app load during a run starts expanded)
    - syncing → complete: hold the DONE face ~1.8s, then collapse
    - error / rate_limited / revoked: expand and NEVER auto-collapse
-   - collapsed click ↔ expanded header click toggles; Escape collapses. */
+   - collapsed click ↔ expanded header click toggles; Escape collapses.
+   Narrow viewports (<640px) never auto-expand — the floating chip carries
+   the state and the full panel is opt-in only. */
 
 const INK = '#e9e9e6';
 const ZINC = '#96968e';
@@ -108,6 +111,7 @@ export function SyncMonitor() {
     : sync?.status || 'idle';
 
   const [expanded, setExpanded] = useState(false);
+  const isNarrow = useIsNarrow();
   const rootRef = useRef<HTMLElement | null>(null);
   const [occluded, setOccluded] = useState(false);
   const [justDone, setJustDone] = useState(false);
@@ -118,8 +122,11 @@ export function SyncMonitor() {
   const prev = useRef(status);
 
   // App load during an active/blocked run starts expanded (spec §6/§8).
+  // Phones (<640px) skip auto-expansion entirely — the panel must never
+  // cover a narrow screen unprompted; the collapsed chip still signals
+  // every state, including blocked/error.
   useEffect(() => {
-    if (shouldAutoExpand(status)) setExpanded(true);
+    if (!isNarrow && shouldAutoExpand(status)) setExpanded(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -128,19 +135,19 @@ export function SyncMonitor() {
     prev.current = status;
     if (status === 'syncing' && was !== 'syncing') {
       pinned.current = false;
-      setExpanded(true);
+      if (!isNarrow) setExpanded(true);
     }
-    if (isSyncBlocked(status)) setExpanded(true);
+    if (isSyncBlocked(status) && !isNarrow) setExpanded(true);
     if (was === 'syncing' && status !== 'syncing' && !isSyncBlocked(status)) {
       setJustDone(true);
-      setExpanded(true);
+      if (!isNarrow) setExpanded(true);
       const t = setTimeout(() => {
         setJustDone(false);
         if (!pinned.current) setExpanded(false);
       }, COLLAPSE_HOLD_MS);
       return () => clearTimeout(t);
     }
-  }, [status]);
+  }, [status, isNarrow]);
 
   // Overlap-aware translucency: while the floating control sits over real
   // page content it dims (collapsed ~78%, expanded ~94%); over empty
@@ -209,6 +216,10 @@ export function SyncMonitor() {
     : OPACITY_CLEAR;
 
   if (!expanded) {
+    // Settled (idle/complete, not mid-run, not blocked, not in the DONE
+    // hold): on a phone the chip shrinks to a status pip + label so it
+    // never becomes a permanent obstruction over content.
+    const settled = !syncing && !blocked && !justDone;
     return (
       <button
         type="button"
@@ -216,23 +227,42 @@ export function SyncMonitor() {
         onClick={toggle}
         aria-expanded={false}
         aria-label="sync monitor — expand"
-        className="mon-occlude fixed bottom-4 right-4 z-[90] flex items-center gap-2 border px-3 py-2 hover:border-[#4a4b49]"
+        className={`mon-occlude fixed z-[90] flex items-center border hover:border-[#4a4b49] ${
+          isNarrow ? 'bottom-3 right-3 gap-1.5 px-2 py-1.5' : 'bottom-4 right-4 gap-2 px-3 py-2'
+        }`}
         style={{ background: PANEL, borderColor: blocked ? CLAY : HAIR, opacity }}
       >
-        <Meter frac={collapsedFrac(effSync, justDone)} on={syncing} />
-        <span
-          className="mono-tag text-[8px] inline-flex items-center gap-1"
-          style={{ color: status === 'error' || status === 'revoked' ? CLAY : ZINC }}
-        >
-          {status === 'syncing' && !justDone ? (
-            <>
-              <Num value={displayPct(effSync)} suffix="%" />
-              <span>SYNC</span>
-            </>
-          ) : (
-            collapsedLabel(effSync, justDone)
-          )}
-        </span>
+        {isNarrow && settled ? (
+          <>
+            <span
+              className="w-1.5 h-1.5 rounded-full shrink-0"
+              style={{ background: status === 'complete' ? '#d6ff3e' : DIM }}
+            />
+            <span
+              className="mono-tag text-[7px]"
+              style={{ color: status === 'error' || status === 'revoked' ? CLAY : ZINC }}
+            >
+              {collapsedLabel(effSync, false)}
+            </span>
+          </>
+        ) : (
+          <>
+            <Meter frac={collapsedFrac(effSync, justDone)} on={syncing} />
+            <span
+              className="mono-tag text-[8px] inline-flex items-center gap-1"
+              style={{ color: status === 'error' || status === 'revoked' ? CLAY : ZINC }}
+            >
+              {status === 'syncing' && !justDone ? (
+                <>
+                  <Num value={displayPct(effSync)} suffix="%" />
+                  <span>SYNC</span>
+                </>
+              ) : (
+                collapsedLabel(effSync, justDone)
+              )}
+            </span>
+          </>
+        )}
       </button>
     );
   }
@@ -242,7 +272,7 @@ export function SyncMonitor() {
       ref={(el) => { rootRef.current = el; }}
       aria-label="sync monitor"
       onKeyDown={onKey}
-      className="mon-occlude fixed bottom-4 right-4 left-4 sm:left-auto sm:w-[280px] z-[90] border font-mono text-[9px] instrument-in"
+      className="mon-occlude fixed bottom-3 right-3 left-3 sm:bottom-4 sm:right-4 sm:left-auto sm:w-[280px] z-[90] border font-mono text-[9px] instrument-in max-h-[72dvh] overflow-y-auto overscroll-contain"
       style={{
         background: PANEL,
         borderColor: status === 'revoked' ? FAINT : HAIR,

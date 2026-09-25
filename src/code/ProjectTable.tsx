@@ -21,7 +21,7 @@ export function ProjectTable({ projects }: { projects: ProjectRow[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 mono-tag text-[10px] text-neutral-400">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mono-tag text-[10px] text-neutral-400">
         <span>SOURCE {tab === 'bytes' ? 'BYTES' : 'CHURN'} BY PROJECT</span>
         <div className="flex items-center gap-2" role="group" aria-label="Rank projects by">
           {(['bytes', 'churn'] as const).map((t) => (
@@ -50,7 +50,7 @@ export function ProjectTable({ projects }: { projects: ProjectRow[] }) {
             <div
               key={p.name}
               ref={registerM12}
-              className="m12 flex items-center justify-between py-3 group cursor-default relative"
+              className="m12 flex items-center justify-between py-2 sm:py-3 group cursor-default relative"
               style={m12Delay(i)}
             >
               <div className="flex items-center gap-4 min-w-0">

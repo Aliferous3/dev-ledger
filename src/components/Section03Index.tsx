@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Period } from '../types';
 import { useLedger } from '../store/live';
+import { useIsNarrow } from '../ledger/useMediaQuery';
 import { HistoricalLanes } from '../retained/HistoricalLanes';
 import { ProjHtop } from '../projects/ProjHtop';
 import { useBootTransition } from '../transitions/BootLog';
@@ -28,6 +29,9 @@ export function Section03Index({ period }: Props) {
   const [hoverRepoId, setHoverRepoId] = useState<string | null>(null);
   const [hoverRing, setHoverRing] = useState<number | null>(null);
   const [zoom, setZoom] = useState(Z_FIT);
+  // Phones get a cropped viewBox centered on the ring system — the chart
+  // fills the panel instead of letterboxing inside a 2:1 desktop frame.
+  const isNarrow = useIsNarrow();
   // Projects paging — Page 1 is the canonical repository directory, Page 2
   // the process-monitor view. Page swaps are real view transitions and go
   // through Boot Log; the swap happens while the screen is covered.
@@ -48,7 +52,7 @@ export function Section03Index({ period }: Props) {
   const clampZoom = (z: number) => Math.min(Z_MAX, Math.max(Z_MIN, Math.round(z * 100) / 100));
 
   return (
-    <section id="section-03" className="relative scroll-mt-28 space-y-12">
+    <section id="section-03" className="relative scroll-mt-28 space-y-8 md:space-y-12">
       {/* Top Breadcrumb — the global period selector lives in the sticky header */}
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-900 pb-4">
         <div className="flex items-center gap-3 text-[11px] mono-tag text-neutral-300">
@@ -59,9 +63,9 @@ export function Section03Index({ period }: Props) {
 
       {/* Constellation Radar View */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between text-[10px] mono-tag text-neutral-400">
-          <span>PROJECT CONSTELLATION — POSITION BY TEMPORAL CENTER, BANDED BY LANGUAGE</span>
-          <span className="text-neutral-500">7 NODES · 1 TRACES · C · 02</span>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] mono-tag text-neutral-400">
+          <span className="min-w-0">PROJECT CONSTELLATION — POSITION BY TEMPORAL CENTER, BANDED BY LANGUAGE</span>
+          <span className="text-neutral-500 whitespace-nowrap">7 NODES · 1 TRACES · C · 02</span>
         </div>
 
         <div className="relative bg-black/60 border border-neutral-900 h-[280px] sm:h-[320px] overflow-hidden flex items-center justify-center select-none">
@@ -74,30 +78,30 @@ export function Section03Index({ period }: Props) {
 
           {/* Zoom controls — scale the chart layer only, centered on the
               constellation. FIT restores the full ring system. */}
-          <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 mono-tag text-[9px]">
+          <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-10 flex items-center gap-1.5 mono-tag text-[9px]">
             <button
               onClick={() => setZoom((z) => clampZoom(z - Z_STEP))}
               disabled={zoom <= Z_MIN}
               aria-label="Zoom out"
-              className="px-2 py-0.5 border border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-600 disabled:opacity-30 transition-all"
+              className="px-2.5 py-1 sm:px-2 sm:py-0.5 border border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-600 disabled:opacity-30 transition-all"
             >
               −
             </button>
-            <span className="px-1.5 py-0.5 border border-neutral-800 text-neutral-500 tabular-nums w-[52px] text-center">
+            <span className="px-1.5 py-1 sm:py-0.5 border border-neutral-800 text-neutral-500 tabular-nums w-[52px] text-center">
               {Math.round(zoom * 100)}%
             </span>
             <button
               onClick={() => setZoom((z) => clampZoom(z + Z_STEP))}
               disabled={zoom >= Z_MAX}
               aria-label="Zoom in"
-              className="px-2 py-0.5 border border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-600 disabled:opacity-30 transition-all"
+              className="px-2.5 py-1 sm:px-2 sm:py-0.5 border border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-600 disabled:opacity-30 transition-all"
             >
               +
             </button>
             <button
               onClick={() => setZoom(Z_FIT)}
               aria-label="Fit constellation"
-              className={`px-2 py-0.5 border transition-all ${
+              className={`px-2.5 py-1 sm:px-2 sm:py-0.5 border transition-all ${
                 zoom === Z_FIT
                   ? 'border-[#d6ff3e]/50 text-[#d6ff3e]'
                   : 'border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-600'
@@ -108,7 +112,7 @@ export function Section03Index({ period }: Props) {
           </div>
 
           <svg
-            viewBox="0 0 640 320"
+            viewBox={isNarrow ? '140 0 360 340' : '0 0 640 320'}
             className="w-full h-full max-w-[800px]"
           >
             <g transform={`translate(${cx} ${cy}) scale(${zoom}) translate(${-cx} ${-cy})`}>
@@ -246,9 +250,9 @@ export function Section03Index({ period }: Props) {
 
           {/* Bottom HUD bar inside constellation */}
           {!resolving && (
-          <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between text-[9px] mono-tag text-neutral-600">
-            <span>COORDS: LAT 44.8 · LNG 11.2 // POLAR RETICLE</span>
-            <span className="text-[#d6ff3e]">ACTIVE: {activeId}</span>
+          <div className="absolute bottom-2.5 left-3 right-3 sm:bottom-3 sm:left-4 sm:right-4 flex items-center justify-between text-[8px] sm:text-[9px] mono-tag text-neutral-600">
+            <span><span className="hidden sm:inline">COORDS: LAT 44.8 · LNG 11.2 // </span>POLAR RETICLE</span>
+            <span className="text-[#d6ff3e] whitespace-nowrap">ACTIVE: {activeId}</span>
           </div>
           )}
         </div>
@@ -278,32 +282,34 @@ export function Section03Index({ period }: Props) {
               onMouseEnter={() => setHoverRepoId(repo.id)}
               onMouseLeave={() => setHoverRepoId(null)}
               style={m12Delay(i)}
-              className={`m12 px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4 cursor-pointer transition-colors duration-150 ${
+              className={`m12 px-3 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 sm:gap-4 cursor-pointer transition-colors duration-150 ${
                 isSelected ? 'bg-neutral-900/60 text-[#d6ff3e]' : 'hover:bg-neutral-950/80 text-neutral-300'
               }`}
             >
-              {/* Left Column: ID & Repo Name in Serif */}
-              <div className="flex items-center gap-4 min-w-[220px]">
-                <span className="text-[10px] mono-tag text-neutral-500 w-8">
+              {/* Left Column: ID & Repo Name in Serif — mobile row 1 keeps
+                  the lock glyph inline and truncates instead of wrapping. */}
+              <div className="flex items-center gap-3 sm:gap-4 min-w-0 md:min-w-[220px]">
+                <span className="text-[10px] mono-tag text-neutral-500 w-8 shrink-0">
                   {repo.code}
                 </span>
-                <span className="font-editorial text-lg md:text-xl text-neutral-100 flex items-center gap-2">
-                  <span className={isSelected ? 'text-[#d6ff3e]' : ''}>
+                <span className="font-editorial text-base md:text-xl text-neutral-100 flex items-center gap-2 min-w-0">
+                  <span className={`truncate ${isSelected ? 'text-[#d6ff3e]' : ''}`}>
                     {repo.name}
                   </span>
                   {repo.locked && (
-                    <span className="text-[10px] text-neutral-500" title="Private">
+                    <span className="text-[10px] text-neutral-500 shrink-0" title="Private">
                       🔒
                     </span>
                   )}
                 </span>
               </div>
 
-              {/* Middle: Language & Status */}
-              <div className="flex items-center gap-6 text-[10px] mono-tag">
-                <span className="w-24 text-neutral-400">{repo.language}</span>
+              {/* Middle: Language & Status — mobile: second row under the
+                  name; desktop: unchanged centered pair. */}
+              <div className="flex items-center gap-5 sm:gap-6 text-[10px] mono-tag order-3 md:order-none basis-full md:basis-auto">
+                <span className="md:w-24 text-neutral-400">{repo.language}</span>
                 <span
-                  className={`w-20 font-medium ${
+                  className={`md:w-20 font-medium ${
                     repo.status === 'ACTIVE'
                       ? 'text-[#d6ff3e]'
                       : repo.status === 'STEADY'
@@ -318,11 +324,11 @@ export function Section03Index({ period }: Props) {
               </div>
 
               {/* Right: Bytes and Commits count */}
-              <div className="flex items-center gap-8 text-[11px] mono-tag">
-                <span className="w-16 text-right font-medium text-neutral-200">
+              <div className="flex items-center gap-4 sm:gap-8 text-[11px] mono-tag ml-auto md:ml-0">
+                <span className="sm:w-16 text-right font-medium text-neutral-200">
                   {repo.bytesStr}
                 </span>
-                <span className="w-16 text-right text-neutral-400 inline-flex justify-end">
+                <span className="sm:w-16 text-right text-neutral-400 inline-flex justify-end">
                   <NumGrouped value={repo.commits} />
                 </span>
               </div>
@@ -341,8 +347,8 @@ export function Section03Index({ period }: Props) {
 
       {/* Historical Lanes — retained Dev Ledger implementation (shared-axis
           scrub, observation markers and baseline readout are unchanged) */}
-      <div className="space-y-4 pt-4">
-        <div className="relative bg-black/60 border border-neutral-900 p-6 select-none">
+      <div className="space-y-4 pt-2 md:pt-4">
+        <div className="relative bg-black/60 border border-neutral-900 p-3 sm:p-6 select-none">
           <HistoricalLanes
             daily={dash.daily}
             prsDaily={dash.prsDaily}

@@ -30,7 +30,7 @@ const Lbl = ({ children, className = '' }) => <span className={`label-s inline-f
 const Coord = ({ children }) => <span className='label-s text-zinc-800 whitespace-nowrap shrink-0'>{children}</span>
 
 const Head = ({ label, coord, right }) => (
-  <div className='flex items-center justify-between gap-4'>
+  <div className='flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1'>
     <Lbl>{label}</Lbl>
     <div className='flex items-center gap-5'>
       {right}
@@ -67,7 +67,7 @@ export function Strata({ strata, axis, langFocus, onHoverLang, hoverM, setHoverM
         coord='F · 02'
         right={<span className='label-s text-zinc-800 hidden md:inline'>{monthList.length} MONTHS · {langs.length} STRATA</span>}
       />
-      <div className='mt-8 border-t border-zinc-900'>
+      <div className='mt-5 md:mt-8 border-t border-zinc-900'>
         {langs.map((lang, ri) => {
           const cells = monthList.map((m) => strata.at(m).find((x) => x.language === lang)?.share || 0)
           const dim = langFocus && langFocus !== lang
@@ -82,12 +82,18 @@ export function Strata({ strata, axis, langFocus, onHoverLang, hoverM, setHoverM
               </div>
               <div
                 className='col-span-9 lg:col-span-10 border-l border-zinc-900 pl-2 py-2 flex gap-px'
-                onMouseMove={(e) => {
+                style={{ touchAction: 'pan-y' }}
+                onPointerMove={(e) => {
                   const r = e.currentTarget.getBoundingClientRect()
                   const f = Math.min(0.999, Math.max(0, (e.clientX - r.left) / r.width))
                   setHoverM(axis.first + Math.floor(f * total))
                 }}
-                onMouseLeave={() => setHoverM(null)}
+                onPointerDown={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect()
+                  const f = Math.min(0.999, Math.max(0, (e.clientX - r.left) / r.width))
+                  setHoverM(axis.first + Math.floor(f * total))
+                }}
+                onPointerLeave={() => setHoverM(null)}
               >
                 {cells.map((share, i) => (
                   <div key={i} className='flex-1 h-7' style={{ background: `${INK}${(share * 0.85).toFixed(3)})` }} />
@@ -126,7 +132,7 @@ export function Lifecycle({ spans, axis, hoverM, repoFocus, setRepoFocus }) {
         coord='F · 03'
         right={<span className='label-s text-zinc-800 hidden lg:inline'>{LIFECYCLE_DEFS.map(([k]) => k).join(' / ')}</span>}
       />
-      <div className='mt-8 border-t border-zinc-900'>
+      <div className='mt-5 md:mt-8 border-t border-zinc-900'>
         {rows.map((s) => {
           const dim = repoFocus && repoFocus !== s.id
           return (
@@ -135,6 +141,7 @@ export function Lifecycle({ spans, axis, hoverM, repoFocus, setRepoFocus }) {
               className={`grid grid-cols-12 items-center border-b border-zinc-900 transition-opacity duration-300 ${dim ? 'opacity-25' : ''}`}
               onMouseEnter={() => setRepoFocus?.(s.id)}
               onMouseLeave={() => setRepoFocus?.(null)}
+              onClick={() => setRepoFocus?.(s.id)}
             >
               <div className='col-span-4 lg:col-span-3 py-2 pr-3 min-w-0'>
                 <span className='figure block truncate text-[15px] text-zinc-300'>
@@ -228,7 +235,7 @@ export function Constellation({ spans, axis, repoFocus, setRepoFocus, langFocus,
         coord={compact ? 'C · 02' : null}
         right={<span className='label-s text-zinc-800 hidden md:inline'>{nodes.pts.length} NODES · {nodes.links.length} TRACES</span>}
       />
-      <Fade className='mt-8'>
+      <Fade className='mt-5 md:mt-8'>
         <div className='relative border-t border-b border-zinc-900'>
           <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio='xMidYMid meet' className='w-full' style={{ height: 'auto', maxHeight: compact ? 190 : 340 }}>
             {nodes.links.map(([a, b, shared], i) => (
@@ -284,7 +291,7 @@ export function Migration({ runs }) {
         coord='F · 04'
         right={<span className='label-s text-zinc-800 hidden md:inline'>{runs.length} TRANSITIONS</span>}
       />
-      <div className='mt-8 flex border-t border-b border-zinc-900 overflow-x-auto'>
+      <div className='mt-5 md:mt-8 flex border-t border-b border-zinc-900 overflow-x-auto'>
         {shown.map((r, i) => (
           <div
             key={i}
@@ -357,9 +364,9 @@ export function Fingerprint({ dims, rangeLabel }) {
         coord='F · 01'
         right={<span className='label-s text-zinc-800'>{rangeLabel}</span>}
       />
-      <div className='mt-8 grid grid-cols-12 gap-x-8 gap-y-8 items-center'>
+      <div className='mt-5 md:mt-8 grid grid-cols-12 gap-x-8 gap-y-6 md:gap-y-8 items-center'>
         <Fade className='col-span-12 md:col-span-5'>
-          <svg viewBox='0 0 340 340' className='w-full max-w-[340px] mx-auto' role='img' aria-label={`Development fingerprint: ${dims.map((d) => `${d.label} ${(d.value * 100).toFixed(0)}%`).join(', ')}`}>
+          <svg viewBox='0 0 340 340' className='w-full max-w-[240px] sm:max-w-[300px] md:max-w-[340px] mx-auto' role='img' aria-label={`Development fingerprint: ${dims.map((d) => `${d.label} ${(d.value * 100).toFixed(0)}%`).join(', ')}`}>
             {dims.map((d, i) => {
               const r = 34 + i * 14.5
               return (
@@ -381,12 +388,12 @@ export function Fingerprint({ dims, rangeLabel }) {
             })}
           </svg>
         </Fade>
-        <div className='col-span-12 md:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-x-12 lg:gap-x-14 min-w-0'>
+        <div className='col-span-12 md:col-span-7 grid grid-cols-2 sm:grid-cols-3 gap-x-0 sm:gap-x-12 lg:gap-x-14 min-w-0'>
           {dims.map((d, i) => (
-            <div key={d.key} className={`py-6 border-t border-zinc-900 min-w-0 ${i % 3 ? 'sm:border-l sm:border-zinc-900 sm:pl-7' : ''}`}>
+            <div key={d.key} className={`py-4 md:py-6 border-t border-zinc-900 min-w-0 ${i % 2 ? 'max-sm:border-l max-sm:border-zinc-900 max-sm:pl-4' : ''} ${i % 3 ? 'sm:border-l sm:border-zinc-900 sm:pl-7' : ''}`}>
               <span className='label-s text-zinc-700'>{String(i + 1).padStart(2, '0')} · {d.label}</span>
-              <div className='mt-3 figure text-[clamp(24px,1.9vw,30px)] font-light leading-none text-zinc-100 tabular-nums'>{(d.value * 100).toFixed(0)}</div>
-              <div className='mt-2 label-s leading-relaxed text-zinc-600'>{d.raw}</div>
+              <div className='mt-2 md:mt-3 figure text-[clamp(24px,1.9vw,30px)] font-light leading-none text-zinc-100 tabular-nums'>{(d.value * 100).toFixed(0)}</div>
+              <div className='mt-1.5 md:mt-2 label-s leading-relaxed text-zinc-600'>{d.raw}</div>
             </div>
           ))}
         </div>
@@ -419,9 +426,9 @@ export function WorkSpan({ span, spans, languages }) {
   return (
     <div>
       <Head label='Body of Work Span — archival record' coord='F · 05' />
-      <div className='mt-8 grid grid-cols-2 lg:grid-cols-4 border-t border-zinc-900'>
+      <div className='mt-5 md:mt-8 grid grid-cols-2 lg:grid-cols-4 border-t border-zinc-900'>
         {rows.map(([k, v], i) => (
-          <div key={k} className={`py-5 border-b border-zinc-900 ${i % 2 ? 'border-l border-zinc-900 pl-5' : 'pr-5'} ${i % 4 ? 'lg:border-l lg:pl-5' : 'lg:border-l-0 lg:pl-0 lg:pr-5'}`}>
+          <div key={k} className={`py-4 md:py-5 border-b border-zinc-900 ${i % 2 ? 'border-l border-zinc-900 pl-5' : 'pr-5'} ${i % 4 ? 'lg:border-l lg:pl-5' : 'lg:border-l-0 lg:pl-0 lg:pr-5'}`}>
             <span className='label-s text-zinc-700'>{k}</span>
             <span className='figure mt-1.5 block text-[22px] font-light text-zinc-100 tabular-nums'>{v}</span>
           </div>

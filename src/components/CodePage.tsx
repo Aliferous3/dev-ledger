@@ -147,7 +147,7 @@ export function CodePage({ period }: Props) {
   );
 
   return (
-    <section id="section-06" className="relative scroll-mt-28 space-y-12">
+    <section id="section-06" className="relative scroll-mt-28 space-y-8 md:space-y-12">
       {/* 1 — Source composition header + totals */}
       <M12 i={0} id="code-header">
         <CodeHeader totals={totals} langCount={langRows.length} resolving={resolving} />
@@ -171,12 +171,12 @@ export function CodePage({ period }: Props) {
       {/* 3 — Analysis row: growth curve | bytes/churn project table */}
       <M12 i={2} id="code-growth">
         {resolving ? (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 pt-6 border-t border-neutral-900">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 md:gap-10 pt-4 md:pt-6 border-t border-neutral-900">
             <div className="lg:col-span-7"><SkChart h={190} /></div>
-            <div className="lg:col-span-5"><SkRows rows={6} cols={[24, '1fr', 72]} h={15} rowGap={20} /></div>
+            <div className="lg:col-span-5" id="code-projects"><SkRows rows={6} cols={[24, '1fr', 72]} h={15} rowGap={20} /></div>
           </div>
         ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 pt-6 border-t border-neutral-900">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 md:gap-10 pt-4 md:pt-6 border-t border-neutral-900">
           <div className="lg:col-span-7">
             <div className="mono-tag text-[10px] text-[#d6ff3e] mb-4">
               $ GIT LOG --STAT --GRAPH // GROWTH

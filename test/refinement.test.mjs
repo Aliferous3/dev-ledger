@@ -229,8 +229,41 @@ test('vapour effect is login-only — authenticated pages never import it', () =
 /* ── 6 · overview section nav ── */
 
 test('overview exposes exactly four in-page section anchors', () => {
-  assert.deepEqual(PAGE_SECTIONS.overview.map((a) => a.name), ['MEASURE', 'CONTRIBUTIONS', 'REPOSITORIES', 'LONGITUDINAL'])
+  assert.deepEqual(PAGE_SECTIONS.overview.map((a) => a.name), ['MEASURE', 'FIELD', 'INDEX', 'LONGITUDINAL'])
   assert.equal(PAGES.length, 3)
+})
+
+test('anchor labels correspond to the rendered section tags', () => {
+  const expect = [
+    ['overview', 'section-01', /\[01\] MEASURE/],
+    ['overview', 'section-02', /\[02\] FIELD/],
+    ['overview', 'section-03', /\[03\] INDEX/],
+    ['overview', 'section-04', /\[04\] LONGITUDINAL/],
+    ['activity', 'activity-header', /\[05\] ACTIVITY/],
+    ['code', 'code-header', /\[06\] CODE/],
+    ['code', 'code-intel', /CODE INTELLIGENCE/],
+  ]
+  const files = [
+    'src/components/Section01Measure.tsx',
+    'src/components/Section02Field.tsx',
+    'src/components/Section03Index.tsx',
+    'src/components/Section04Longitudinal.tsx',
+    'src/components/ActivityPage.tsx',
+    'src/components/CodePage.tsx',
+    'src/activity/ActivityHeader.tsx',
+    'src/code/CodeHeader.tsx',
+    'src/code/CodeIntelligence.tsx',
+  ].map(src).join('\n')
+  for (const [page, id, tag] of expect) {
+    assert.ok(PAGE_SECTIONS[page].some((a) => a.id === id), `${page} missing anchor ${id}`)
+    assert.match(files, tag, `no rendered heading matches anchor ${id}`)
+  }
+  // No duplicates, no ids that render nowhere.
+  for (const page of Object.keys(PAGE_SECTIONS)) {
+    const ids = PAGE_SECTIONS[page].map((a) => a.id)
+    assert.equal(new Set(ids).size, ids.length, `${page} has duplicate anchors`)
+    for (const id of ids) assert.match(files, new RegExp(`id="${id}"`), `anchor ${id} renders nowhere`)
+  }
 })
 
 test('rail clicks smooth-scroll via jumpToAnchor — no instant jump, no remount', () => {

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { DayData } from '../types';
 import { smoothPath } from '../retained/primitives';
 import { fmt } from '../codeData';
@@ -26,19 +26,26 @@ interface MonthBin {
 
 const MONTH_LABELS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 
-/* One shared hover index across FIG.A and the day strips, as in the study. */
+/* One shared hover index across FIG.A and the day strips, as in the study.
+   Pointer events (not mouse events) so touch scrubbing works — a tap or a
+   horizontal drag selects an observation while vertical page scroll is
+   left alone via touch-action: pan-y on the bound element. */
 function useHoverIndex(n: number) {
   const [idx, setIdx] = useState<number | null>(null);
-  const onMouseMove = useCallback(
-    (e: React.MouseEvent<HTMLElement>) => {
+  const pick = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
       const r = e.currentTarget.getBoundingClientRect();
       const ratio = (e.clientX - r.left) / r.width;
       setIdx(Math.max(0, Math.min(n - 1, Math.floor(ratio * n))));
     },
     [n],
   );
-  const onMouseLeave = useCallback(() => setIdx(null), []);
-  return { idx, setIdx, bind: { onMouseMove, onMouseLeave } };
+  const clear = useCallback(() => setIdx(null), []);
+  return {
+    idx,
+    setIdx,
+    bind: { onPointerMove: pick, onPointerDown: pick, onPointerLeave: clear },
+  };
 }
 
 const xAt = (i: number, n: number) => (n <= 1 ? 0 : (i / (n - 1)) * W);
@@ -58,14 +65,13 @@ function FigHead({ tag, title, right }: { tag: string; title: string; right?: Re
   );
 }
 
-function Readout({ d, x }: { d: BinDay; x: number }) {
-  const flip = x > 62;
+function Readout({ d, left }: { d: BinDay; left: number }) {
   return (
     <div
       className="pointer-events-none absolute z-30 top-1"
-      style={{ left: `${x}%`, transform: `translateX(${flip ? '-104%' : '4%'})` }}
+      style={{ left }}
     >
-      <div className="border border-[#d6ff3e]/60 bg-[#0b0b0b]/95 backdrop-blur px-3 py-2 min-w-[210px] shadow-[0_0_24px_rgba(214,255,62,.22)]">
+      <div className="border border-[#d6ff3e]/60 bg-[#0b0b0b]/95 backdrop-blur px-2.5 sm:px-3 py-2 w-[172px] sm:w-[210px] shadow-[0_0_24px_rgba(214,255,62,.22)]">
         <div className="flex items-center justify-between gap-6 border-b border-neutral-800 pb-1.5">
           <span className="mono-tag text-[9px] text-neutral-400">{d.date}</span>
           <span className="mono-tag text-[9px] text-[#d6ff3e]">D.{d.i}</span>
@@ -101,6 +107,7 @@ function Readout({ d, x }: { d: BinDay; x: number }) {
 export function MonthBins({ days }: { days: DayData[] }) {
   const n = days.length;
   const { idx, setIdx, bind } = useHoverIndex(n);
+  const boxRef = useRef<HTMLDivElement>(null);
 
   const { series, months, maxCum, maxMonth } = (() => {
     let cum = 0;
@@ -138,18 +145,26 @@ export function MonthBins({ days }: { days: DayData[] }) {
   const cur = idx !== null ? series[idx] : null;
 
   return (
-    <div className="relative border border-neutral-800 bg-[#080808] p-5 md:p-7 space-y-7 overflow-hidden">
+    <div className="relative border border-neutral-800 bg-[#080808] p-4 md:p-7 space-y-5 md:space-y-7 overflow-hidden">
       <div className="pointer-events-none absolute inset-0 terminal-grid opacity-40" />
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="scan-line-horiz absolute top-0 bottom-0 w-1/5 bg-gradient-to-r from-transparent via-[#d6ff3e]/[0.05] to-transparent" />
       </div>
-      <div className="relative space-y-7">
+      <div className="relative space-y-5 md:space-y-7">
         {/* FIG. A — cumulative integral, lime gradient area */}
         <div>
           <FigHead tag="FIG. A" title="CUMULATIVE NET SOURCE GROWTH" right={`${n} OBS.`} />
-          <div {...bind} className="relative cursor-crosshair">
-            {cur && <Readout d={cur} x={n > 1 ? (idx! / (n - 1)) * 100 : 0} />}
-            <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }} preserveAspectRatio="none">
+          <div {...bind} ref={boxRef} className="relative cursor-crosshair" style={{ touchAction: 'pan-y' }}>
+            {cur && (() => {
+              // Keep the readout inside the chart box on every width —
+              // trail the cursor right, flip left past ~55%, clamp to bounds.
+              const boxW = boxRef.current?.clientWidth ?? 0;
+              const tipW = boxW < 480 ? 172 : 210;
+              const xPx = n > 1 ? (idx! / (n - 1)) * boxW : 0;
+              const left = Math.max(4, Math.min(xPx + (xPx > boxW * 0.55 ? -tipW - 10 : 10), boxW - tipW - 4));
+              return <Readout d={cur} left={left} />;
+            })()}
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[136px] sm:h-[180px]" preserveAspectRatio="none">
               <defs>
                 <linearGradient id="binsAreaGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={LIME} stopOpacity="0.35" />
@@ -174,24 +189,25 @@ export function MonthBins({ days }: { days: DayData[] }) {
         </div>
 
         {/* FIG. B — month buckets with nested day strips */}
-        <div onMouseLeave={() => setIdx(null)}>
+        <div onPointerLeave={() => setIdx(null)}>
           <FigHead tag="FIG. B" title="NET CHANGE BY MONTH · DAY DETAIL" right={<span className="inline-flex gap-1">MAX <NumCompact value={maxMonth} /> / MO</span>} />
-          <div className="grid grid-cols-3 sm:grid-cols-6 md:grid-cols-12 gap-1.5">
+          <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-12 gap-1.5">
             {months.map((m) => {
               const hot = m.days.some((d) => idx === d.i);
               const pk = Math.max(...m.days.map((d) => d.daily), 1);
               return (
                 <div key={m.key}
-                  className={`border p-2 transition-all duration-200 ${hot ? 'border-[#d6ff3e] bg-[#d6ff3e]/[0.07]' : 'border-neutral-900 bg-black/40 hover:border-neutral-700'}`}>
+                  className={`border p-1.5 sm:p-2 transition-all duration-200 ${hot ? 'border-[#d6ff3e] bg-[#d6ff3e]/[0.07]' : 'border-neutral-900 bg-black/40 hover:border-neutral-700'}`}>
                   <div className={`mono-tag text-[8px] ${hot ? 'text-[#d6ff3e]' : 'text-neutral-500'}`}>{m.label}</div>
-                  <div className="font-editorial text-lg text-neutral-100 leading-none mt-1 tabular-nums inline-flex"><NumCompact value={m.total} /></div>
+                  <div className="font-editorial text-base sm:text-lg text-neutral-100 leading-none mt-1 tabular-nums inline-flex"><NumCompact value={m.total} /></div>
                   <div className="h-1 bg-neutral-900 mt-2 overflow-hidden">
                     <div className="h-full bg-[#d6ff3e] transition-all duration-500" style={{ width: `${Math.max(0, m.total / maxMonth) * 100}%` }} />
                   </div>
-                  <div className="flex items-end gap-px h-8 mt-2">
+                  <div className="flex items-end gap-px h-6 sm:h-8 mt-2">
                     {m.days.map((d) => (
                       <span key={d.i}
                         onMouseEnter={() => setIdx(d.i)}
+                        onPointerDown={() => setIdx(d.i)}
                         title={`${d.date} · ${d.daily >= 0 ? '+' : '−'}${fmt(Math.abs(d.daily))}`}
                         className="flex-1 transition-colors"
                         style={{
@@ -209,7 +225,7 @@ export function MonthBins({ days }: { days: DayData[] }) {
       </div>
       <div className="relative flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-neutral-900/70 mono-tag text-[9px]">
         <span className="text-neutral-600">// BINNED STREAM: 12 MONTH BUCKETS · DAY STRIPS NESTED INSIDE</span>
-        <span className="text-neutral-500">HOVER HORIZON TO INSPECT OBS.</span>
+        <span className="text-neutral-500">HOVER / DRAG HORIZON TO INSPECT OBS.</span>
       </div>
     </div>
   );

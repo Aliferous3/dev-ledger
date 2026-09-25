@@ -111,6 +111,19 @@ function Gate() {
     return (
       <LoginScreen
         onLogin={import.meta.env.DEV && !apiPresent ? () => {
+          // API-less dev preview: present a clearly synthetic identity so
+          // surfaces that read IdentityContext (account menu, share record)
+          // render the real UI instead of the no-session placeholder.
+          setMe({
+            authenticated: true,
+            user: { githubLogin: "octo-demo" },
+            installations: [],
+            appSlug: null,
+            sync: null,
+          });
+          // Persistent preview session — suppresses the 60s lease heartbeat
+          // against a backend that doesn't exist here.
+          setPersistent(true);
           setAuth("in");
           setBooting(true);
         } : undefined}

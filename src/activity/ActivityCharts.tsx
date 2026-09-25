@@ -37,7 +37,7 @@ export function CommitsByMonthChart({ months }: { months: MonthBucket[] }) {
               : '—'}
         </span>
       </div>
-      <div className="relative h-28 flex items-end gap-2 border-b border-neutral-900 pb-1">
+      <div className="relative h-24 sm:h-28 flex items-end gap-2 border-b border-neutral-900 pb-1">
         {months.map((m, i) => {
           const heightPct = Math.max(4, (m.commits / max) * 100);
           const isHov = hovered === i;
@@ -98,7 +98,7 @@ export function AdditionsDeletionsChart({ months }: { months: MonthBucket[] }) {
       <div
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        className="relative h-28 border-b border-neutral-900 pb-1 cursor-crosshair group"
+        className="relative h-24 sm:h-28 border-b border-neutral-900 pb-1 cursor-crosshair group"
       >
         <svg viewBox="0 0 240 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
           <line x1="0" y1="82" x2="240" y2="82" stroke="#1c1c1c" strokeWidth="1" />
@@ -155,7 +155,7 @@ export function WeekdayDistributionChart({ weekdays }: { weekdays: WeekdayBucket
               : '—'}
         </span>
       </div>
-      <div className="relative h-28 flex items-end gap-1.5 border-b border-neutral-900 pb-1">
+      <div className="relative h-24 sm:h-28 flex items-end gap-1.5 border-b border-neutral-900 pb-1">
         {weekdays.map((d, i) => {
           const heightPct = Math.max(6, (d.total / max) * 100);
           const isHov = hoverIdx === i;
@@ -205,7 +205,7 @@ export function ActivityCharts({
   weekdays: WeekdayBucket[];
 }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-neutral-900">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-5 md:gap-6 pt-4 md:pt-6 border-t border-neutral-900">
       <CommitsByMonthChart months={months} />
       <AdditionsDeletionsChart months={months} />
       <WeekdayDistributionChart weekdays={weekdays} />

@@ -13,7 +13,7 @@ export function ChurnTable({ rows }: { rows: ChurnRow[] }) {
   const max = Math.max(...rows.map((r) => r.churn), 1);
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between mono-tag text-[10px] text-neutral-400">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mono-tag text-[10px] text-neutral-400">
         <span>SOURCE CHURN TABLE</span>
         <span className="text-neutral-600 inline-flex gap-1"><NumGrouped value={rows.length} /> CHURN SOURCES</span>
       </div>
@@ -22,7 +22,7 @@ export function ChurnTable({ rows }: { rows: ChurnRow[] }) {
           <div
             key={p.name}
             ref={registerM12}
-            className="m12 px-4 py-2.5 flex items-center justify-between gap-4 hover:bg-neutral-900/30 transition-colors group"
+            className="m12 px-3 py-1.5 sm:px-4 sm:py-2.5 flex items-center justify-between gap-3 sm:gap-4 hover:bg-neutral-900/30 transition-colors group"
             style={m12Delay(i)}
           >
             <span className="mono-tag text-[9px] text-neutral-600 w-6 group-hover:text-[#d6ff3e] transition-colors">
@@ -37,7 +37,7 @@ export function ChurnTable({ rows }: { rows: ChurnRow[] }) {
                 style={{ width: `${Math.max(0.8, (p.churn / max) * 100)}%` }}
               />
             </div>
-            <span className="font-editorial text-lg text-neutral-100 w-16 text-right tabular-nums inline-flex justify-end">
+            <span className="font-editorial text-base sm:text-lg text-neutral-100 w-16 text-right tabular-nums inline-flex justify-end">
               <NumCompact value={p.churn} />
             </span>
           </div>
