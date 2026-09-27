@@ -17,7 +17,7 @@ import "./index.css";
 import App from "./App";
 import { SecurityPrivacyPage } from "./security/SecurityPrivacyPage";
 import { LoginScreen } from "./ledger/LoginScreen";
-import { SignalWeaveSyncOverlay } from "./components/SignalWeaveSyncOverlay";
+import { TerminalCursorSyncOverlay } from "./components/TerminalCursorSyncOverlay";
 import { BootLogOverlay, BootLogPreloader } from "./transitions/BootLog";
 import type { Identity } from "./store/live";
 
@@ -145,7 +145,7 @@ function Gate() {
   );
 }
 
-function SignalWeavePreview() {
+function TerminalCursorPreview() {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
@@ -169,7 +169,7 @@ function SignalWeavePreview() {
   return (
     <>
       <SecurityPrivacyPage />
-      <SignalWeaveSyncOverlay
+      <TerminalCursorSyncOverlay
         previewProgress={progress}
         previewPhase={phase}
       />
@@ -177,7 +177,7 @@ function SignalWeavePreview() {
         className="pointer-events-none fixed bottom-4 left-1/2 z-[89] -translate-x-1/2 border border-[#2b2c2b] bg-[#0a0a0a]/90 px-3 py-2 mono-tag text-[8px]"
         style={{ color: "#96968e" }}
       >
-        S15 VISUAL QA · PREVIEW ONLY · NO SYNC REQUEST
+        S10 VISUAL QA · PREVIEW ONLY · NO SYNC REQUEST
       </div>
     </>
   );
@@ -190,10 +190,10 @@ function SignalWeavePreview() {
    top-level destinations remain exactly OVERVIEW / ACTIVITY / CODE. */
 function Root() {
   const p = window.location.pathname.replace(/\/+$/, "") || "/";
-  const previewWeave =
+  const previewCursor =
     window.location.hostname.endsWith(".vercel.app") &&
-    new URLSearchParams(window.location.search).get("weave-preview") === "1";
-  if (previewWeave) return <SignalWeavePreview />;
+    new URLSearchParams(window.location.search).get("cursor-preview") === "1";
+  if (previewCursor) return <TerminalCursorPreview />;
   if (p === "/privacy") {
     history.replaceState({}, "", "/security");
     return <SecurityPrivacyPage />;
