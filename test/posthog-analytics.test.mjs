@@ -316,12 +316,23 @@ test('CSP is unchanged: no posthog origin, connect-src stays self', () => {
   assert.ok(!/\*\./.test(csp), 'no wildcard origins');
 });
 
-test('the analytics proxy is a same-origin rewrite to the EU ingestion host', () => {
+test('the analytics proxy is same-origin and preserves PostHog ingest trailing slashes', () => {
   const v = JSON.parse(src('vercel.json'));
-  const proxy = v.rewrites.find((r) => r.source.startsWith('/rly'));
-  assert.ok(proxy, 'the /rly proxy rewrite is missing');
-  assert.equal(proxy.source, '/rly/:path*');
-  assert.equal(proxy.destination, 'https://eu.i.posthog.com/:path*');
+  const exactE = v.rewrites.find((r) => r.source === '/rly/e/');
+  const exactV0 = v.rewrites.find((r) => r.source === '/rly/i/v0/e/');
+  const fallback = v.rewrites.find((r) => r.source === '/rly/:path*');
+  assert.deepEqual(exactE, {
+    source: '/rly/e/',
+    destination: 'https://eu.i.posthog.com/e/',
+  });
+  assert.deepEqual(exactV0, {
+    source: '/rly/i/v0/e/',
+    destination: 'https://eu.i.posthog.com/i/v0/e/',
+  });
+  assert.deepEqual(fallback, {
+    source: '/rly/:path*',
+    destination: 'https://eu.i.posthog.com/:path*',
+  });
   // The proxy path must not carry obvious tracker naming.
   assert.ok(!/analytics|tracking|telemetry|posthog/i.test(PROXY_PATH));
 });
