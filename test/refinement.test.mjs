@@ -239,9 +239,12 @@ test('anchor labels correspond to the rendered section tags', () => {
     ['overview', 'section-02', /\[02\] FIELD/],
     ['overview', 'section-03', /\[03\] INDEX/],
     ['overview', 'section-04', /\[04\] LONGITUDINAL/],
-    ['activity', 'activity-header', /\[05\] ACTIVITY/],
-    ['code', 'code-header', /\[06\] CODE/],
-    ['code', 'code-intel', /CODE INTELLIGENCE/],
+    ['activity', 'activity-extremes', /EXTREMES SPECIFICATION/],
+    ['activity', 'activity-radar', /CIRCADIAN/],
+    ['activity', 'activity-rhythm', /RHYTHM_STREAM/],
+    ['code', 'code-treemap', /LANGUAGE TREEMAP/],
+    ['code', 'code-growth', /GROWTH/],
+    ['code', 'code-projects', /BY PROJECT/],
   ]
   const files = [
     'src/components/Section01Measure.tsx',
@@ -251,8 +254,13 @@ test('anchor labels correspond to the rendered section tags', () => {
     'src/components/ActivityPage.tsx',
     'src/components/CodePage.tsx',
     'src/activity/ActivityHeader.tsx',
+    'src/activity/ActivityExtremes.tsx',
+    'src/activity/CircadianRadar.tsx',
+    'src/activity/RhythmStream.tsx',
     'src/code/CodeHeader.tsx',
     'src/code/CodeIntelligence.tsx',
+    'src/code/LanguageTreemap.tsx',
+    'src/code/ProjectTable.tsx',
   ].map(src).join('\n')
   for (const [page, id, tag] of expect) {
     assert.ok(PAGE_SECTIONS[page].some((a) => a.id === id), `${page} missing anchor ${id}`)

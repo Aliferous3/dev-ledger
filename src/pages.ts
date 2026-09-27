@@ -92,8 +92,19 @@ export function rangeSearch(period: Period): string {
 }
 
 /* Within-page anchor index for the right rail: the rail tracks real
-   section ids on the active page and scrolls to them. */
-export const PAGE_SECTIONS: Record<PageId, { id: string; name: string }[]> = {
+   section ids on the active page and scrolls to them.
+   `spy` (optional) names a separate sentinel element used ONLY for
+   active-state detection — needed when two logical sections share one
+   vertical band (Code's GROWTH/PROJECTS are side-by-side on desktop, so
+   their tops cross the reading line together). Clicking still scrolls to
+   `id`; the spy element decides when the entry owns the reading line. */
+export interface PageAnchor {
+  id: string;
+  name: string;
+  spy?: string;
+}
+
+export const PAGE_SECTIONS: Record<PageId, PageAnchor[]> = {
   overview: [
     { id: 'section-01', name: 'MEASURE' },
     { id: 'section-02', name: 'FIELD' },
@@ -101,20 +112,19 @@ export const PAGE_SECTIONS: Record<PageId, { id: string; name: string }[]> = {
     { id: 'section-04', name: 'LONGITUDINAL' },
   ],
   activity: [
-    { id: 'activity-header', name: 'ACTIVITY' },
     { id: 'activity-extremes', name: 'EXTREMES' },
     { id: 'activity-radar', name: 'CIRCADIAN' },
     { id: 'activity-rhythm', name: 'RHYTHM' },
-    { id: 'activity-charts', name: 'TRENDS' },
-    { id: 'activity-milestones', name: 'MILESTONES' },
   ],
   code: [
     { id: 'code-header', name: 'COMPOSITION' },
     { id: 'code-treemap', name: 'LANGUAGES' },
     { id: 'code-growth', name: 'GROWTH' },
-    { id: 'code-projects', name: 'PROJECTS' },
-    { id: 'code-intel', name: 'INTELLIGENCE' },
-    { id: 'code-churn', name: 'CHURN' },
+    // The growth chart and project table sit side-by-side on lg+: the spy
+    // sentinel at the chart's bottom means GROWTH owns the reading line
+    // while the curve occupies it, and PROJECTS takes over for the
+    // remainder of the row — where the table is the live content.
+    { id: 'code-projects', name: 'PROJECTS', spy: 'code-projects-spy' },
   ],
 };
 
@@ -122,19 +132,25 @@ export const PAGE_SECTIONS: Record<PageId, { id: string; name: string }[]> = {
    one whose top has passed the reading line (35% of viewport height) —
    i.e. the section occupying the primary reading region, not merely the
    last one clicked. Falls back to the first anchor above the fold. */
-export function useActiveAnchor(anchors: { id: string; name: string }[]): string {
+export function useActiveAnchor(anchors: PageAnchor[]): string {
   const [active, setActive] = useState<string>(anchors[0]?.id ?? '');
-  const key = anchors.map((a) => a.id).join(',');
+  const key = anchors.map((a) => `${a.id}:${a.spy ?? ''}`).join(',');
   useEffect(() => {
-    const list = key.split(',').filter(Boolean);
+    const list = key
+      .split(',')
+      .filter(Boolean)
+      .map((entry) => {
+        const [id, spy] = entry.split(':');
+        return { id, el: spy || id };
+      });
     let raf = 0;
     const handleScroll = () => {
       const readingLine = window.innerHeight * 0.35;
-      let current: string = list[0] ?? '';
-      for (const id of list) {
-        const el = document.getElementById(id);
-        if (!el) continue;
-        const top = el.getBoundingClientRect().top;
+      let current: string = list[0]?.id ?? '';
+      for (const { id, el } of list) {
+        const node = document.getElementById(el);
+        if (!node) continue;
+        const top = node.getBoundingClientRect().top;
         if (top <= readingLine) current = id;
       }
       setActive(current);

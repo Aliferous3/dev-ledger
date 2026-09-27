@@ -201,7 +201,8 @@ test('vercel rewrites make direct loads + refresh work on all pages', () => {
   const v = JSON.parse(src('vercel.json'))
   const dests = v.rewrites.map((r) => r.source)
   for (const p of ['/overview', '/activity', '/code']) assert.ok(dests.includes(p), p)
-  for (const r of v.rewrites) assert.equal(r.destination, '/index.html')
+  for (const r of v.rewrites.filter((r) => r.source !== '/api/feedback'))
+    assert.equal(r.destination, '/index.html')
 })
 
 test('M12 primitive: diff-apply grammar, 34ms stagger, transient glyph', () => {

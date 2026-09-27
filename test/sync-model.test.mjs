@@ -113,10 +113,15 @@ test('blockedCopy gives per-state recovery guidance', () => {
 test('passivePollMs polls fast while syncing, slower while rate-limited', () => {
   assert.equal(passivePollMs('syncing'), 2000)
   assert.equal(passivePollMs('rate_limited'), 30000)
-  assert.equal(passivePollMs('idle'), null)
-  assert.equal(passivePollMs('error'), null)
-  assert.equal(passivePollMs('revoked'), null)
-  assert.equal(passivePollMs(undefined), null)
+  // Idle/terminal states still poll — slowly — so an externally-driven
+  // sync (cron, another tab, login kick) is always discovered; the boot
+  // window polls at the in-flight cadence to catch a fast initial run.
+  assert.equal(passivePollMs('idle'), 60000)
+  assert.equal(passivePollMs('error'), 60000)
+  assert.equal(passivePollMs('revoked'), 60000)
+  assert.equal(passivePollMs(undefined), 60000)
+  assert.equal(passivePollMs('idle', true), 2000)
+  assert.equal(passivePollMs('complete', true), 2000)
 })
 
 test('rateLimitElapsed resumes only after resume_at passes', () => {

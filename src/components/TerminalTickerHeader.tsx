@@ -13,6 +13,8 @@ interface Props {
   commits: number;
   onShare: () => void;
   shareDisabled: boolean;
+  onFeedback: () => void;
+  feedbackOpen: boolean;
 }
 
 const PERIODS: Period[] = ['7D', '30D', '90D', 'YTD', '1Y', 'ALL'];
@@ -21,7 +23,7 @@ const PERIODS: Period[] = ['7D', '30D', '90D', 'YTD', '1Y', 'ALL'];
    Row 2: brand + shortcut hint + RANGE readout + global period + user.
    Row 3: keypad nav — exactly OVERVIEW / ACTIVITY / CODE.
    Row 4: the canonical telemetry marquee (unchanged). */
-export function TerminalTickerHeader({ period, setPeriod, page, navigate, onShare, shareDisabled }: Props) {
+export function TerminalTickerHeader({ period, setPeriod, page, navigate, onShare, shareDisabled, onFeedback, feedbackOpen }: Props) {
   return (
     <header className="sticky top-0 z-50 bg-[#0a0a0a]/90 backdrop-blur-md border-b border-neutral-900">
       <div
@@ -109,6 +111,22 @@ export function TerminalTickerHeader({ period, setPeriod, page, navigate, onShar
             {/* SHARE — terminal-command action between the range controls
                 and the account control. An action, not a fourth page. */}
             <ShareButton onShare={onShare} disabled={shareDisabled} />
+            {/* DIAGNOSTIC DRAWER entry — the subordinate ▣ utility glyph
+                between share and the account control (Concept 04). */}
+            <button
+              type="button"
+              onClick={onFeedback}
+              aria-label="Open diagnostic drawer — report a bug or request a feature"
+              aria-haspopup="dialog"
+              aria-expanded={feedbackOpen}
+              className={`mono-tag text-[10px] px-1.5 py-1.5 md:py-[3px] border transition-all ${
+                feedbackOpen
+                  ? 'border-[#d6ff3e] text-[#d6ff3e]'
+                  : 'border-neutral-800 text-neutral-500 hover:text-neutral-300 hover:border-neutral-600'
+              }`}
+            >
+              ▣
+            </button>
             <span className="w-px h-5 bg-neutral-800 mx-1 hidden md:block" />
           </div>
         </div>

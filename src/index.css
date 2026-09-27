@@ -311,6 +311,10 @@ html, body, #root {
 @keyframes instrument-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 .instrument-in { animation: instrument-in 0.45s cubic-bezier(0.19, 1, 0.22, 1); }
 
+/* System drawer — slides in from the right edge on mount. */
+@keyframes drawer-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
+.drawer-in { animation: drawer-in 0.3s cubic-bezier(0.19, 1, 0.22, 1); }
+
 /* ── M12 · GIT DIFF · +/- GUTTER — primary entrance language ─────────────
    Each element arrives like an added diff hunk: transient "+" in a narrow
    left gutter, faint lime row tint + a 2px lime rule on the left edge that

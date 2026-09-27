@@ -3,10 +3,12 @@ import type { Period } from './types';
 import { IdentityContext, LedgerContext, useDashboardStore, useLedger, type Identity } from './store/live';
 import { buildShareRecord } from './share/shareModel';
 import { ShareModal } from './share/ShareModal';
-import { useRoute, DEFAULT_PERIOD, periodFromQuery, rangeSearch } from './pages';
+import { useRoute, DEFAULT_PERIOD, periodFromQuery, rangeSearch, PAGES } from './pages';
 import { TerminalTickerHeader } from './components/TerminalTickerHeader';
 import { UtilityBar } from './components/UtilityBar';
 import { SyncMonitor } from './components/SyncMonitor';
+import { SyncAssist } from './components/SyncAssist';
+import { FeedbackDrawer } from './feedback/FeedbackDrawer';
 import { RightSidebarNav } from './components/RightSidebarNav';
 import { Section01Measure } from './components/Section01Measure';
 import { Section02Field } from './components/Section02Field';
@@ -57,6 +59,9 @@ export default function App({ me = null }: { me?: Identity | null }) {
   // without a resolved identity it stays null and the entry is disabled
   // (never a hardcoded or developer-credit username).
   const [shareOpen, setShareOpen] = useState(false);
+  // DIAGNOSTIC DRAWER (Concept 04) — system-level feedback, mounted at the
+  // app shell so context (page + range + build) is automatic.
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const shareRecord = useMemo(
     () =>
       buildShareRecord({
@@ -95,6 +100,8 @@ export default function App({ me = null }: { me?: Identity | null }) {
         commits={totalCommits}
         onShare={() => setShareOpen(true)}
         shareDisabled={ledger.resolving || !shareRecord}
+        onFeedback={() => setFeedbackOpen((v) => !v)}
+        feedbackOpen={feedbackOpen}
       />
 
       {/* Restrained CRT scanline treatment over the application surface */}
@@ -153,8 +160,21 @@ export default function App({ me = null }: { me?: Identity | null }) {
         <ShareModal record={shareRecord} onClose={() => setShareOpen(false)} />
       )}
 
+      {/* SYSTEM DRAWER — feedback; CONTEXT // AUTOMATIC is reported, not asked */}
+      <FeedbackDrawer
+        open={feedbackOpen}
+        onClose={() => setFeedbackOpen(false)}
+        context={{
+          page: PAGES.find((p) => p.id === page)?.name ?? 'OVERVIEW',
+          range: period,
+          build: 'V1.3.0',
+        }}
+      />
+
       {/* SYNC.04 system monitor — app-level, persists across all pages */}
       <SyncMonitor />
+      {/* SYNC.ASSIST — zero-metrics prompt, anchored above the monitor */}
+      <SyncAssist />
     </div>
     </LedgerContext.Provider>
     </IdentityContext.Provider>

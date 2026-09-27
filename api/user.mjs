@@ -6,9 +6,17 @@ import { revokeAllSessions, isSessionLive } from '../lib/sessions.mjs'
 import { requestQuery } from '../lib/request-query.mjs'
 import { forbidCrossSite } from '../lib/same-origin.mjs'
 import { securityEvent, sessionDenied } from '../lib/security-events.mjs'
+import {
+  normalizeFeedback,
+  normalizeScreenshot,
+  SCREENSHOT_MAX_BYTES,
+} from '../src/feedback/feedbackModel.mjs'
 
 // GET    — current session user, installations, sync state.
-// POST   — repository disconnect/retain/delete/resume action.
+// POST   — repository disconnect/retain/delete/resume action, or
+//          feedback submission when rewritten from POST /api/feedback
+//          (action=feedback; the rewrite keeps the function count under
+//          the Hobby cap instead of adding a dedicated function).
 // DELETE — permanently delete the caller's Dev Ledger data, then sign out.
 export default async function handler(req, res) {
   // Mutations must fail closed before getSession() runs: it can destroy an
@@ -60,6 +68,10 @@ export default async function handler(req, res) {
     let body = req.body
     if (typeof body === 'string') {
       try { body = JSON.parse(body) } catch { body = null }
+    }
+
+    if (requestQuery(req).action === 'feedback') {
+      return await handleFeedback(res, session.userId, body)
     }
 
     const repositoryId = body?.repositoryId
@@ -167,4 +179,71 @@ export default async function handler(req, res) {
         }
       : null,
   })
+}
+
+// POST /api/feedback (rewritten to /api/user?action=feedback) — persists a
+// feedback record owned by the session user. Already past the same-origin
+// guard and a live-session check above; this layer validates the payload.
+// No email is collected, no repository source is stored — only what the
+// System Drawer sends plus server-known ownership.
+async function handleFeedback(res, userId, body) {
+  const parsed = normalizeFeedback(body)
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error })
+    return
+  }
+  const shot = normalizeScreenshot(body?.screenshot)
+  if (!shot.ok) {
+    res.status(400).json({ error: shot.error })
+    return
+  }
+
+  // The client-declared MIME is a claim — the stored bytes must verify as
+  // the claimed format and stay under the size cap after decoding.
+  let shotBuf = null
+  if (shot.value) {
+    shotBuf = Buffer.from(shot.value.data, 'base64')
+    if (!shotBuf.length || shotBuf.length > SCREENSHOT_MAX_BYTES || sniffImage(shotBuf) !== shot.value.mime) {
+      res.status(400).json({ error: 'screenshot failed verification' })
+      return
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('feedback')
+    .insert({
+      user_id: userId,
+      type: parsed.value.type,
+      title: parsed.value.title,
+      description: parsed.value.description,
+      screenshot: shotBuf,
+      screenshot_mime: shot.value?.mime ?? null,
+      screenshot_name: shot.value?.name ?? null,
+      page: parsed.value.page,
+      selected_range: parsed.value.selectedRange,
+      build: parsed.value.build,
+    })
+    .select('id')
+    .single()
+
+  if (error) {
+    res.status(500).json({ error: 'Feedback could not be stored' })
+    return
+  }
+  res.status(201).json({ ok: true, id: data?.id ?? null })
+}
+
+// Decode-time image sniffing — only PNG/JPEG/WebP signatures pass, and the
+// sniffed format must equal the declared MIME (checked by the caller).
+function sniffImage(buf) {
+  if (buf.length >= 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    return 'image/png'
+  }
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') {
+    return 'image/webp'
+  }
+  return null
 }
