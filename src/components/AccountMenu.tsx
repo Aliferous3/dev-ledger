@@ -8,6 +8,7 @@ import {
   profileUrl,
   reconnectUrl,
 } from '../ledger/accountModel.mjs';
+import { captureEvent } from '../analytics/posthog';
 
 /* Top-right account control: real GitHub avatar + @login + terminal-style
    console menu. Identity comes from /api/user via IdentityContext — safe
@@ -142,7 +143,12 @@ export function AccountMenu() {
     setDeleting(true);
     try {
       const res = await fetch('/api/user?confirm=1', { method: 'DELETE', credentials: 'same-origin' });
-      if (res.ok) window.location.href = '/';
+      if (res.ok) {
+        // Emitted before the teardown navigation — send_instantly bypasses
+        // the batch queue so the event isn't lost with the page.
+        captureEvent('delete_data_completed', {}, { send_instantly: true });
+        window.location.href = '/';
+      }
       else setDeleting(false);
     } catch {
       setDeleting(false);

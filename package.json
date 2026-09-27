@@ -23,6 +23,7 @@
     "clsx": "2.1.1",
     "framer-motion": "^13.2.0",
     "iron-session": "^9.0.1",
+    "posthog-js": "^1.434.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "tailwind-merge": "3.7.0"

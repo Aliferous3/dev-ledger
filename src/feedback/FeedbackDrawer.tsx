@@ -6,6 +6,7 @@ import {
   SCREENSHOT_MIMES,
   TITLE_MAX,
 } from './feedbackModel.mjs';
+import { captureEvent, type FeedbackEventType } from '../analytics/posthog';
 
 /* SYSTEM DRAWER — feedback, per the canonical Concept 04 design
    (PROGRESSIVE EXPANSION): a 320px diagnostic drawer off the right edge on
@@ -129,6 +130,9 @@ export function FeedbackDrawer({ open, onClose, context }: Props) {
           screenshot: shot ? { name: shot.name, mime: shot.mime, data: shot.data } : undefined,
         }),
       });
+      // Confirmed by the API — count the submission type only, never the
+      // title/description/screenshot/context that accompanied it.
+      if (res.ok) captureEvent('feedback_submitted', { type: type as FeedbackEventType });
       setState(res.ok ? 'success' : 'error');
     } catch {
       setState('error');

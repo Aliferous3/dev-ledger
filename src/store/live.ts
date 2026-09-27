@@ -9,6 +9,13 @@ import {
   type Week,
 } from '../fieldData';
 import { fmtBytes, fmtCompact, type LangRow } from '../codeData';
+import {
+  captureEvent,
+  mapSyncFailReason,
+  syncFailReasonFromHttp,
+  type SyncFailReason,
+  type SyncTrigger,
+} from '../analytics/posthog';
 // Dev-only demo fixtures — '../fixtures' resolves to an inert stub in
 // production builds, so none of this data ever ships.
 import {
@@ -448,6 +455,48 @@ export function useDashboardStore(period: Period): LedgerStore {
   // Live sync state reported by /api/sync during a pump — folded into
   // dash.sync so every surface (UtilityBar, account menu) shares one state.
   const [syncLive, setSyncLive] = useState<DashboardData['sync'] | null>(null);
+  // Analytics: the trigger of the currently open sync run — 'manual' only
+  // while this tab's pump drives it. A run opens on the first observed
+  // 'syncing' and closes on the first terminal status, so exactly one
+  // started + one completed/failed is emitted per run regardless of which
+  // observer (pump, passive poll) reports the status. updatedAt guards the
+  // reopen: a late-arriving 'syncing' snapshot older than the close can't
+  // reopen a phantom run — only authoritative /api/sync responses feed
+  // this, never dashboard payload snapshots.
+  const syncRun = useRef<SyncTrigger | null>(null);
+  const closedRunAt = useRef(0);
+  // Open/close helper shared by pump and passive poll.
+  const noteSyncStatus = useCallback((s: DashboardData['sync'] | null | undefined) => {
+    const status = s?.status;
+    const updatedAt = s?.updatedAt ? Date.parse(s.updatedAt) || 0 : 0;
+    if (status === 'syncing') {
+      if (!syncRun.current) {
+        if (closedRunAt.current && updatedAt <= closedRunAt.current) return;
+        syncRun.current = 'automatic';
+        captureEvent('sync_started', { trigger: 'automatic' });
+      }
+      return;
+    }
+    const trigger = syncRun.current;
+    if (!trigger) return;
+    if (status === 'complete') {
+      closedRunAt.current = Math.max(closedRunAt.current, updatedAt);
+      syncRun.current = null;
+      captureEvent('sync_completed', { trigger });
+    } else if (status === 'rate_limited' || status === 'revoked' || status === 'error') {
+      closedRunAt.current = Math.max(closedRunAt.current, updatedAt);
+      syncRun.current = null;
+      captureEvent('sync_failed', { trigger, reason: mapSyncFailReason(status) });
+    }
+  }, []);
+  // Terminal failure paths that never produce a status row (HTTP error,
+  // thrown fetch) close the run through the same single emit path.
+  const failSyncRun = useCallback((reason: SyncFailReason) => {
+    const trigger = syncRun.current;
+    if (!trigger) return;
+    syncRun.current = null;
+    captureEvent('sync_failed', { trigger, reason });
+  }, []);
   const [fetchTick, setFetchTick] = useState(0);
   const requested = useRef(new Set<string>());
   const pumping = useRef(false);
@@ -498,10 +547,18 @@ export function useDashboardStore(period: Period): LedgerStore {
     if (pumping.current) return;
     pumping.current = true;
     setPumpingState(true);
+    // A user-driven run begins now — claim the open run before any status
+    // observation so observers don't re-label it 'automatic'.
+    syncRun.current = 'manual';
+    captureEvent('sync_started', { trigger: 'manual' });
     const poll = setInterval(async () => {
       try {
         const r = await fetch('/api/sync', { credentials: 'same-origin' });
-        if (r.ok) setSyncLive(await r.json());
+        if (r.ok) {
+          const s = await r.json();
+          setSyncLive(s);
+          noteSyncStatus(s);
+        }
       } catch {
         /* transient poll failure — the POST loop is authoritative */
       }
@@ -513,9 +570,16 @@ export function useDashboardStore(period: Period): LedgerStore {
             method: 'POST',
             credentials: 'same-origin',
           });
-          if (!res.ok) break;
+          if (!res.ok) {
+            failSyncRun(syncFailReasonFromHttp(res.status));
+            break;
+          }
           const s = await res.json();
           setSyncLive(s);
+          // Terminal statuses are emitted here — the finally below clears
+          // syncLive, and a batched render could otherwise hide the
+          // transition.
+          noteSyncStatus(s);
           if (s?.status === 'syncing') {
             await new Promise((r) => setTimeout(r, 1500));
             continue;
@@ -524,6 +588,7 @@ export function useDashboardStore(period: Period): LedgerStore {
         }
       } catch {
         /* offline/API-less preview — nothing to do */
+        failSyncRun('network');
       } finally {
         clearInterval(poll);
         pumping.current = false;
@@ -534,7 +599,7 @@ export function useDashboardStore(period: Period): LedgerStore {
         setFetchTick((t) => t + 1);
       }
     })();
-  }, []);
+  }, [noteSyncStatus, failSyncRun]);
 
   // Re-pull every dashboard payload — used after mutations like a repo
   // disconnect so the ledger reflects the new state immediately.
@@ -563,6 +628,7 @@ export function useDashboardStore(period: Period): LedgerStore {
         if (!r.ok) return;
         const s = (await r.json()) as DashboardData['sync'];
         setSyncLive(s);
+        noteSyncStatus(s);
         // A sync nobody local drove (login-kicked initial run, cron, another
         // tab) updates only syncLive — the held dashboard payloads still
         // predate the ingested data. When a completion stamp lands newer
@@ -589,7 +655,7 @@ export function useDashboardStore(period: Period): LedgerStore {
     }, cadence);
     return () => clearInterval(t);
     // resumeAt re-derives cadence targets; status changes restart the poll.
-  }, [live, syncStatus, resumeAt, pumpingState, syncNow, refresh, booting]);
+  }, [live, syncStatus, resumeAt, pumpingState, syncNow, refresh, booting, noteSyncStatus]);
 
   // Skeleton window: still waiting on the first payload(s). Once live, or
   // once every requested fetch has settled, data (real or fixture) owns

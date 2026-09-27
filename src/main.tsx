@@ -15,6 +15,7 @@ import "@fontsource-variable/newsreader/opsz.css";
 import "@fontsource-variable/newsreader/opsz-italic.css";
 import "./index.css";
 import App from "./App";
+import { initAnalytics } from "./analytics/posthog";
 import { SecurityPrivacyPage } from "./security/SecurityPrivacyPage";
 import { LoginScreen } from "./ledger/LoginScreen";
 import { BootLogOverlay, BootLogPreloader } from "./transitions/BootLog";
@@ -158,6 +159,11 @@ function Root() {
   if (p === "/security") return <SecurityPrivacyPage />;
   return <Gate />;
 }
+
+// PostHog product analytics — initialized once at boot. Lazy-loaded and
+// no-ops without a configured token; sends only allowlisted custom events
+// through the same-origin /rly proxy.
+initAnalytics();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
