@@ -208,29 +208,3 @@ export const POSTHOG_INIT_OPTIONS = {
   persistence: 'memory',
   advanced_disable_flags: true,
 };
-) && !allowedCustom.has(key) && !requiredSdk.has(key)) continue;
-    clean[key] = value;
-  }
-  return clean;
-}
-
-// ── SDK initialization options ─────────────────────────────────────────────
-
-// Every automatic collector explicitly OFF — custom allowlisted events only.
-// Property names are the exact posthog-js option names for the installed
-// SDK; tests assert this object stays complete.
-export const POSTHOG_INIT_OPTIONS = {
-  autocapture: false,
-  rageclick: false,
-  capture_pageview: false,
-  capture_pageleave: false,
-  disable_session_recording: true,
-  disable_surveys: true,
-  enable_heatmaps: false,
-  capture_dead_clicks: false,
-  capture_performance: false,
-  capture_exceptions: false,
-  person_profiles: 'never',
-  persistence: 'memory',
-  advanced_disable_flags: true,
-};
