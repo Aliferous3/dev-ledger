@@ -2,12 +2,31 @@ import { LegalPageShell, LegalSection } from './LegalPageShell';
 
 const EFFECTIVE = '28 SEPTEMBER 2026';
 
+const SECTIONS = [
+  { id: 'terms-acceptance', num: '00', name: 'ACCEPTANCE OF THESE TERMS' },
+  { id: 'terms-service', num: '01', name: 'THE SERVICE' },
+  { id: 'terms-eligibility', num: '02', name: 'ELIGIBILITY & AUTHORITY' },
+  { id: 'terms-github', num: '03', name: 'GITHUB ACCESS' },
+  { id: 'terms-account', num: '04', name: 'ACCOUNT & SESSION RESPONSIBILITIES' },
+  { id: 'terms-use', num: '05', name: 'ACCEPTABLE USE' },
+  { id: 'terms-data', num: '06', name: 'YOUR DATA & PERMISSIONS' },
+  { id: 'terms-output', num: '07', name: 'METRICS & OUTPUT LIMITATIONS' },
+  { id: 'terms-thirdparty', num: '08', name: 'THIRD-PARTY SERVICES' },
+  { id: 'terms-ip', num: '09', name: 'DEV LEDGER INTELLECTUAL PROPERTY' },
+  { id: 'terms-availability', num: '10', name: 'AVAILABILITY, CHANGES & TERMINATION' },
+  { id: 'terms-disclaimer', num: '11', name: 'DISCLAIMERS' },
+  { id: 'terms-liability', num: '12', name: 'LIMITATION OF LIABILITY' },
+  { id: 'terms-law', num: '13', name: 'APPLICABLE LAW & DISPUTES' },
+  { id: 'terms-changes', num: '14', name: 'CHANGES & CONTACT' },
+] as const;
+
 export function TermsOfServicePage() {
   return (
     <LegalPageShell
       title="TERMS OF SERVICE"
       subtitle="The rules that apply when you access or use Dev Ledger."
       effective={EFFECTIVE}
+      sections={SECTIONS.map((section) => ({ ...section }))}
     >
       <LegalSection id="terms-acceptance" num="00" title="ACCEPTANCE OF THESE TERMS">
         <p>

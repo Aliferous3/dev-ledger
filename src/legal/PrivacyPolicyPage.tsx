@@ -2,12 +2,29 @@ import { LegalPageShell, LegalSection } from './LegalPageShell';
 
 const EFFECTIVE = '28 SEPTEMBER 2026';
 
+const SECTIONS = [
+  { id: 'privacy-scope', num: '00', name: 'WHO WE ARE & SCOPE' },
+  { id: 'privacy-data', num: '01', name: 'INFORMATION WE PROCESS' },
+  { id: 'privacy-exclusions', num: '02', name: 'INFORMATION WE DELIBERATELY DO NOT STORE' },
+  { id: 'privacy-sources', num: '03', name: 'WHERE THE INFORMATION COMES FROM' },
+  { id: 'privacy-purposes', num: '04', name: 'WHY WE USE THE INFORMATION' },
+  { id: 'privacy-basis', num: '05', name: 'LEGAL BASES WHERE REQUIRED' },
+  { id: 'privacy-sharing', num: '06', name: 'SERVICE PROVIDERS & DISCLOSURES' },
+  { id: 'privacy-retention', num: '07', name: 'RETENTION & DELETION' },
+  { id: 'privacy-transfers', num: '08', name: 'INTERNATIONAL PROCESSING' },
+  { id: 'privacy-rights', num: '09', name: 'YOUR RIGHTS & CHOICES' },
+  { id: 'privacy-security', num: '10', name: 'SECURITY' },
+  { id: 'privacy-children', num: '11', name: 'CHILDREN' },
+  { id: 'privacy-changes', num: '12', name: 'CHANGES & CONTACT' },
+] as const;
+
 export function PrivacyPolicyPage() {
   return (
     <LegalPageShell
       title="PRIVACY POLICY"
       subtitle="How Dev Ledger collects, uses, stores, shares, and deletes personal data."
       effective={EFFECTIVE}
+      sections={SECTIONS.map((section) => ({ ...section }))}
     >
       <LegalSection id="privacy-scope" num="00" title="WHO WE ARE & SCOPE">
         <p>
