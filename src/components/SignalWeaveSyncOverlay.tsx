@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLedger } from '../store/live';
-import { NumPct } from '../ledger/Num';
 
 /* S15 · SIGNAL WEAVE
    Adapted directly from the supplied sync-overlay prototype. The overlay is
@@ -31,6 +30,59 @@ function activeProgress(
   return Math.min(99, Math.max(0, n * 100));
 }
 
+function useTweenedProgress(
+  target: number,
+  active: boolean,
+  durationMs: number,
+  reducedMotion: boolean,
+) {
+  const [value, setValue] = useState(target);
+  const valueRef = useRef(target);
+  const wasActive = useRef(active);
+
+  useEffect(() => {
+    // A new run gets a clean baseline immediately: manual runs begin at 0,
+    // while an already-running external sync opens at its truthful position.
+    if (active && !wasActive.current) {
+      valueRef.current = target;
+      setValue(target);
+    }
+    wasActive.current = active;
+  }, [active, target]);
+
+  useEffect(() => {
+    if (!active) return;
+
+    if (reducedMotion || durationMs <= 0) {
+      valueRef.current = target;
+      setValue(target);
+      return;
+    }
+
+    const from = valueRef.current;
+    // A single sync's overall progress is monotonic. Ignore stale lower
+    // observations rather than making the write head jerk backwards.
+    const to = Math.max(from, target);
+    if (Math.abs(to - from) < 0.01) return;
+
+    let raf = 0;
+    const started = performance.now();
+
+    const frame = (now: number) => {
+      const k = Math.min(1, (now - started) / durationMs);
+      const next = from + (to - from) * k;
+      valueRef.current = next;
+      setValue(next);
+      if (k < 1) raf = requestAnimationFrame(frame);
+    };
+
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, [active, durationMs, reducedMotion, target]);
+
+  return value;
+}
+
 export function SignalWeaveSyncOverlay({
   previewProgress,
   previewPhase,
@@ -50,6 +102,15 @@ export function SignalWeaveSyncOverlay({
     (pumping && (!sync || sync.status === 'idle' || sync.status === 'complete'));
   const [justDone, setJustDone] = useState(false);
   const wasSyncing = useRef(syncing);
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => setReducedMotion(mq.matches);
+    update();
+    mq.addEventListener?.('change', update);
+    return () => mq.removeEventListener?.('change', update);
+  }, []);
 
   useEffect(() => {
     const was = wasSyncing.current;
@@ -74,23 +135,26 @@ export function SignalWeaveSyncOverlay({
 
   if (!syncing && !justDone) return null;
 
+  const targetP = justDone
+    ? 100
+    : activeProgress(pumping, sync?.status, sync?.progress);
+  const realP = useTweenedProgress(
+    targetP,
+    syncing || justDone,
+    REAL_SYNC_TWEEN_MS,
+    reducedMotion,
+  );
+  // The QA-only preview already supplies a requestAnimationFrame-driven
+  // percentage, so do not smooth it a second time.
   const p = previewing
-    ? Math.max(0, Math.min(100, Math.round(Number(previewProgress))))
-    : justDone
-      ? 100
-      : activeProgress(pumping, sync?.status, sync?.progress);
+    ? Math.max(0, Math.min(100, Number(previewProgress)))
+    : realP;
   const hx = p;
-  // Keep S15's faster vertical lead, but do not let it hit the bottom early
-  // and sit there while the horizontal axis keeps moving. This continuous
-  // lead curve reaches 100 only when H reaches 100, so the weave stays alive
-  // and visually balanced for the entire sync.
+  // Preserve S15's faster vertical feel without the old early-stop at 100%.
+  // The vertical axis leads throughout the run but reaches the bottom only
+  // with the horizontal axis at completion.
   const t = Math.max(0, Math.min(1, p / 100));
   const vy = 100 * (1 - Math.pow(1 - t, 1.6));
-  // Real sync state arrives in ~1.5s slices. Tween almost the whole interval
-  // so each new target retimes from the current rendered position instead of
-  // jumping in short 150ms bursts. Preview mode already updates every frame.
-  const tweenMs = previewing ? 90 : REAL_SYNC_TWEEN_MS;
-  const motionTransition = `all ${tweenMs}ms linear`;
   const phase = previewing
     ? phaseLabel(previewPhase ?? 'commits')
     : justDone
@@ -110,7 +174,7 @@ export function SignalWeaveSyncOverlay({
       {/* Horizontal scan: unresolved guide + resolved lime segment. */}
       <div
         className="absolute left-0 right-0 h-px motion-reduce:transition-none"
-        style={{ top: `${vy}%`, background: 'rgba(214,255,62,.45)', transition: motionTransition, willChange: 'top' }}
+        style={{ top: `${vy}%`, background: 'rgba(214,255,62,.45)', willChange: 'top' }}
       />
       <div
         className="absolute left-0 h-px motion-reduce:transition-none"
@@ -119,7 +183,6 @@ export function SignalWeaveSyncOverlay({
           width: `${hx}%`,
           background: LIME,
           boxShadow: `0 0 6px ${LIME}`,
-          transition: motionTransition,
           willChange: 'top, width',
         }}
       />
@@ -127,7 +190,7 @@ export function SignalWeaveSyncOverlay({
       {/* Vertical scan: unresolved guide + resolved lime segment. */}
       <div
         className="absolute top-0 bottom-0 w-px motion-reduce:transition-none"
-        style={{ left: `${hx}%`, background: 'rgba(214,255,62,.45)', transition: motionTransition, willChange: 'left' }}
+        style={{ left: `${hx}%`, background: 'rgba(214,255,62,.45)', willChange: 'left' }}
       />
       <div
         className="absolute top-0 w-px motion-reduce:transition-none"
@@ -136,7 +199,6 @@ export function SignalWeaveSyncOverlay({
           height: `${vy}%`,
           background: LIME,
           boxShadow: `0 0 6px ${LIME}`,
-          transition: motionTransition,
           willChange: 'left, height',
         }}
       />
@@ -153,7 +215,6 @@ export function SignalWeaveSyncOverlay({
             'linear-gradient(135deg, rgba(0,0,0,.18) 0%, rgba(0,0,0,.48) 58%, #000 100%)',
           maskImage:
             'linear-gradient(135deg, rgba(0,0,0,.18) 0%, rgba(0,0,0,.48) 58%, #000 100%)',
-          transition: motionTransition,
           willChange: 'width, height',
         }}
       />
@@ -165,7 +226,6 @@ export function SignalWeaveSyncOverlay({
           left: `${hx}%`,
           top: `${vy}%`,
           transform: 'translate(-50%,-50%)',
-          transition: motionTransition,
           willChange: 'left, top',
         }}
       >
@@ -178,7 +238,7 @@ export function SignalWeaveSyncOverlay({
             className="absolute left-1/2 -top-4 -translate-x-1/2 whitespace-nowrap px-1 mono-tag text-[8px] tabular-nums"
             style={{ color: '#0a0a0a', background: LIME }}
           >
-            <NumPct value={p} format={{ maximumFractionDigits: 0 }} />
+            {Math.round(p)}%
           </span>
         </div>
       </div>
