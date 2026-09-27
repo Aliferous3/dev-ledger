@@ -148,6 +148,20 @@ export default function App({ me = null }: { me?: Identity | null }) {
             SYNC.MON pip (fixed bottom-right) can never cover footer links. */}
         <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 md:gap-4 max-sm:pr-14">
           <a
+            href="/privacy"
+            className="text-neutral-500 hover:text-neutral-200 focus-visible:text-neutral-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40 transition-colors"
+          >
+            PRIVACY
+          </a>
+          <span className="text-neutral-700">|</span>
+          <a
+            href="/terms"
+            className="text-neutral-500 hover:text-neutral-200 focus-visible:text-neutral-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40 transition-colors"
+          >
+            TERMS
+          </a>
+          <span className="text-neutral-700">|</span>
+          <a
             href="/security"
             className="text-neutral-500 hover:text-neutral-200 focus-visible:text-neutral-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40 transition-colors"
           >
