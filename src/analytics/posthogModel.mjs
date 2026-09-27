@@ -165,16 +165,47 @@ export const DENIED_EVENT_PROPERTIES = [
   'gbraid',
 ];
 
+// posthog-js places these two transport-critical fields inside the event's
+// properties object before before_send runs. They are not caller-controlled:
+// token is the public project token already present in the browser bundle,
+// while distinct_id is the SDK's anonymous identifier. Removing either can
+// make an otherwise valid event impossible to ingest.
+export const REQUIRED_SDK_EVENT_PROPERTIES = ['token', 'distinct_id'];
+
 // before_send: remove every URL/query/campaign-derived property and any
-// non-$ key outside the emitting event's own schema — so even a future
-// caller-side mistake cannot widen the payload.
+// non-$ key outside the emitting event's own schema, while preserving the
+// transport-critical SDK fields above. This keeps the privacy allowlist
+// narrow without corrupting the event envelope that PostHog must ingest.
 export function scrubEventProperties(eventName, properties) {
   const schema = EVENT_PROPERTIES[eventName];
   const allowedCustom = schema ? new Set(Object.keys(schema)) : new Set();
+  const requiredSdk = new Set(REQUIRED_SDK_EVENT_PROPERTIES);
   const clean = {};
   for (const [key, value] of Object.entries(properties || {})) {
     if (DENIED_EVENT_PROPERTIES.includes(key)) continue;
-    if (!key.startsWith('$') && !allowedCustom.has(key)) continue;
+    if (!key.startsWith('
+
+// ── SDK initialization options ─────────────────────────────────────────────
+
+// Every automatic collector explicitly OFF — custom allowlisted events only.
+// Property names are the exact posthog-js option names for the installed
+// SDK; tests assert this object stays complete.
+export const POSTHOG_INIT_OPTIONS = {
+  autocapture: false,
+  rageclick: false,
+  capture_pageview: false,
+  capture_pageleave: false,
+  disable_session_recording: true,
+  disable_surveys: true,
+  enable_heatmaps: false,
+  capture_dead_clicks: false,
+  capture_performance: false,
+  capture_exceptions: false,
+  person_profiles: 'never',
+  persistence: 'memory',
+  advanced_disable_flags: true,
+};
+) && !allowedCustom.has(key) && !requiredSdk.has(key)) continue;
     clean[key] = value;
   }
   return clean;
