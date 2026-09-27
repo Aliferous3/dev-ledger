@@ -287,6 +287,28 @@ test('feedback screenshot must verify as its declared image type', async () => {
   assert.ok(row.screenshot.length > 0)
 })
 
+test('feedback stores screenshots as PostgREST \\x-hex bytea, not a Buffer', async () => {
+  // postgrest-js JSON-serializes the insert payload — a raw Buffer would
+  // cross the wire as {"type":"Buffer","data":[...]} and fail the bytea
+  // cast. The API must send \x<hex>; verify the exact stored value.
+  const cookie = await mintSession(crypto.randomUUID())
+  const res = mockRes()
+  await userHandler(
+    feedbackReq(cookie, {
+      type: 'BUG',
+      title: 'x',
+      screenshot: { name: 'c.png', mime: 'image/png', data: PNG_1PX.toString('base64') },
+    }),
+    res,
+  )
+  assert.equal(res.statusCode, 201)
+  const shot = db.t('feedback').at(-1).screenshot
+  assert.equal(typeof shot, 'string')
+  assert.match(shot, /^\\x[0-9a-f]+$/)
+  // The hex payload round-trips byte-identically to the original image.
+  assert.deepEqual(Buffer.from(shot.slice(2), 'hex'), PNG_1PX)
+})
+
 /* ── routing + drawer wiring ────────────────────────────────────────── */
 
 test('/api/feedback is a rewrite, not a new function (12-function cap)', () => {

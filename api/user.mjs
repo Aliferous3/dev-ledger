@@ -209,6 +209,9 @@ async function handleFeedback(res, userId, body) {
     }
   }
 
+  // bytea via PostgREST must be the \x<hex> wire format — a raw Buffer would
+  // JSON.stringify into {"type":"Buffer","data":[...]}, which Postgres cannot
+  // cast to bytea. Encode explicitly so the bytes survive the REST boundary.
   const { data, error } = await supabase
     .from('feedback')
     .insert({
@@ -216,7 +219,7 @@ async function handleFeedback(res, userId, body) {
       type: parsed.value.type,
       title: parsed.value.title,
       description: parsed.value.description,
-      screenshot: shotBuf,
+      screenshot: shotBuf ? '\\x' + shotBuf.toString('hex') : null,
       screenshot_mime: shot.value?.mime ?? null,
       screenshot_name: shot.value?.name ?? null,
       page: parsed.value.page,
