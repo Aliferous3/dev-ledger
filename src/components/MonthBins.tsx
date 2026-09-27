@@ -3,6 +3,7 @@ import type { DayData } from '../types';
 import { smoothPath } from '../retained/primitives';
 import { fmt } from '../codeData';
 import { NumCompact } from '../ledger/Num';
+import { useMediaQuery } from '../ledger/useMediaQuery';
 
 const W = 1000;
 const LIME = '#d6ff3e';
@@ -108,6 +109,10 @@ export function MonthBins({ days }: { days: DayData[] }) {
   const n = days.length;
   const { idx, setIdx, bind } = useHoverIndex(n);
   const boxRef = useRef<HTMLDivElement>(null);
+  // Coarse-pointer devices get a touch verb in the inspection hint; it
+  // quiets down after the first successful scrub.
+  const coarse = useMediaQuery('(pointer: coarse)');
+  const [scrubbed, setScrubbed] = useState(false);
 
   const { series, months, maxCum, maxMonth } = (() => {
     let cum = 0;
@@ -154,7 +159,17 @@ export function MonthBins({ days }: { days: DayData[] }) {
         {/* FIG. A — cumulative integral, lime gradient area */}
         <div>
           <FigHead tag="FIG. A" title="CUMULATIVE NET SOURCE GROWTH" right={`${n} OBS.`} />
-          <div {...bind} ref={boxRef} className="relative cursor-crosshair" style={{ touchAction: 'pan-y' }}>
+          <div
+            {...bind}
+            ref={boxRef}
+            className="relative cursor-crosshair select-none [-webkit-touch-callout:none]"
+            style={{ touchAction: 'pan-y' }}
+            onPointerDown={(e) => {
+              bind.onPointerDown(e);
+              setScrubbed(true);
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+          >
             {cur && (() => {
               // Keep the readout inside the chart box on every width —
               // trail the cursor right, flip left past ~55%, clamp to bounds.
@@ -189,7 +204,12 @@ export function MonthBins({ days }: { days: DayData[] }) {
         </div>
 
         {/* FIG. B — month buckets with nested day strips */}
-        <div onPointerLeave={() => setIdx(null)}>
+        <div
+          className="select-none [-webkit-touch-callout:none]"
+          onPointerLeave={() => setIdx(null)}
+          onPointerDown={() => setScrubbed(true)}
+          onContextMenu={(e) => e.preventDefault()}
+        >
           <FigHead tag="FIG. B" title="NET CHANGE BY MONTH · DAY DETAIL" right={<span className="inline-flex gap-1">MAX <NumCompact value={maxMonth} /> / MO</span>} />
           <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-12 gap-1.5">
             {months.map((m) => {
@@ -225,7 +245,13 @@ export function MonthBins({ days }: { days: DayData[] }) {
       </div>
       <div className="relative flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-neutral-900/70 mono-tag text-[9px]">
         <span className="text-neutral-600">// BINNED STREAM: 12 MONTH BUCKETS · DAY STRIPS NESTED INSIDE</span>
-        <span className="text-neutral-500">HOVER / DRAG HORIZON TO INSPECT OBS.</span>
+        <span
+          className={`text-neutral-500 transition-opacity duration-700 ${
+            coarse && scrubbed ? 'opacity-40' : ''
+          }`}
+        >
+          {coarse ? 'LONG-PRESS + DRAG TO INSPECT' : 'HOVER / DRAG HORIZON TO INSPECT OBS.'}
+        </span>
       </div>
     </div>
   );

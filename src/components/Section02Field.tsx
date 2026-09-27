@@ -41,7 +41,14 @@ export function Section02Field({ period }: Props) {
   // center within the bar wrapper, so the label rides directly above it.
   const barWrapRef = useRef<HTMLDivElement>(null);
   const matrixRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
   const [segTip, setSegTip] = useState<{ x: number; w: number } | null>(null);
+  // Track pixel width of the month-label strip (drives label thinning)
+  // and whether the matrix overflows its viewport (drives the swipe cue).
+  const [trackW, setTrackW] = useState(0);
+  const [canScroll, setCanScroll] = useState(false);
+  const [scrolledAway, setScrolledAway] = useState(false);
+  const didInitScroll = useRef(false);
 
   // Shared pick for hover AND tap — a touch tap on a cell selects the day
   // and anchors the HUD exactly like a mouse hover.
@@ -73,6 +80,58 @@ export function Section02Field({ period }: Props) {
       mx?.removeEventListener('scroll', clear);
     };
   }, [hoverCell]);
+
+  // Horizontal overflow handling (small viewports): the matrix renders
+  // oldest→newest left→right, so an overflowing scrollport must open on
+  // the RIGHT edge — the latest days — not the distant past. One-time
+  // snap; user scrolls are never overridden. The same pass measures the
+  // inner track so cramped month labels can be thinned instead of
+  // overlapping.
+  useEffect(() => {
+    const el = matrixRef.current;
+    const track = trackRef.current;
+    if (!el || !track || resolving) return;
+    let raf = 0;
+    const measure = () => {
+      setTrackW(track.clientWidth);
+      const over = el.scrollWidth - el.clientWidth > 8;
+      setCanScroll(over);
+      if (over && !didInitScroll.current) {
+        didInitScroll.current = true;
+        raf = requestAnimationFrame(() => {
+          el.scrollLeft = el.scrollWidth - el.clientWidth;
+        });
+      }
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    ro.observe(track);
+    return () => {
+      ro.disconnect();
+      cancelAnimationFrame(raf);
+    };
+  }, [resolving]);
+
+  // Month labels sit one-per-week-column; when columns get narrow the
+  // labels would collide, so keep only labels ≥36px apart — anchored
+  // from the RIGHT so the most recent month always survives.
+  const keptMonths = useMemo(() => {
+    const usable = Math.max(0, trackW - 32); // minus DOW rail + flex gap
+    const colW = weeks.length ? usable / weeks.length : 0;
+    const keep = new Set<number>();
+    let lastX = Infinity;
+    for (let i = weeks.length - 1; i >= 0; i--) {
+      const w = weeks[i];
+      if (!w.monthLabel) continue;
+      const x = w.index * colW;
+      if (keep.size === 0 || lastX - x >= 36) {
+        keep.add(w.index);
+        lastX = x;
+      }
+    }
+    return keep;
+  }, [weeks, trackW]);
 
   // Six-stat strip reacts to the canonical global period.
   const stats = useMemo(
@@ -127,10 +186,22 @@ export function Section02Field({ period }: Props) {
         {/* Matrix Container */}
         <div
           ref={matrixRef}
-          className="relative bg-black/60 border border-neutral-900 p-3 sm:p-6 overflow-x-auto select-none"
+          className="relative bg-black/60 border border-neutral-900 p-3 sm:p-6 overflow-x-auto select-none [-webkit-touch-callout:none]"
           onMouseLeave={() => {
             setHoverCell(null);
             setTipCoords(null);
+          }}
+          onScroll={(e) => {
+            // Dismiss the swipe cue only on a real user scroll away from
+            // the right (latest) edge — the programmatic init snap isn't
+            // trusted, so it can't self-dismiss.
+            if (
+              e.nativeEvent.isTrusted &&
+              e.currentTarget.scrollLeft <
+                e.currentTarget.scrollWidth - e.currentTarget.clientWidth - 24
+            ) {
+              setScrolledAway(true);
+            }
           }}
           onPointerDown={(e) => {
             // Tap on padding/labels clears a tap-selected day; taps on a
@@ -146,7 +217,7 @@ export function Section02Field({ period }: Props) {
             <div className="scan-line-horiz absolute top-0 bottom-0 w-1/3 bg-gradient-to-r from-transparent via-[#d6ff3e]/[0.16] to-transparent" />
           </div>
 
-          <div className="flex gap-2 min-w-[720px]">
+          <div ref={trackRef} className="flex gap-2 min-w-[720px]">
             {resolving ? (
               <SkHeatmap cols={weeks.length || 52} rows={7} cell={12} gap={2} className="flex-1" />
             ) : (
@@ -228,7 +299,7 @@ export function Section02Field({ period }: Props) {
                     key={week.index}
                     className="text-[9px] mono-tag text-neutral-600 leading-none"
                   >
-                    {week.monthLabel ?? ''}
+                    {week.monthLabel && keptMonths.has(week.index) ? week.monthLabel : ''}
                   </div>
                 ))}
               </div>
@@ -248,6 +319,18 @@ export function Section02Field({ period }: Props) {
             </div>,
             document.body,
           )}
+        </div>
+
+        {/* Mobile-only history affordance — the field opens on the latest
+            days (right edge), so earlier weeks sit offscreen left. Fades
+            once the user actually swipes back. */}
+        <div
+          aria-hidden={scrolledAway || !canScroll}
+          className={`sm:hidden mono-tag text-[9px] text-neutral-600 text-right transition-opacity duration-500 ${
+            canScroll && !scrolledAway ? 'opacity-100' : 'opacity-0'
+          }`}
+        >
+          ◂ SWIPE TO EXPLORE HISTORY
         </div>
       </div>
 
@@ -376,11 +459,15 @@ export function Section02Field({ period }: Props) {
           </div>
         </div>
 
-        {/* Legend — centered as one composed unit under the bar on phones,
-            left-aligned with the desktop rhythm ≥ sm. */}
-        <div className="flex flex-wrap justify-center sm:justify-start gap-x-5 sm:gap-x-6 gap-y-2">
-          {languages.map((l) => {
+        {/* Legend — phones get a true 2-col composition (block centered as
+            one unit, every swatch/label pair on the same grid rhythm) so
+            entries can't drift row-to-row; an odd tail cell spans both
+            columns instead of orphaning left. ≥sm keeps the desktop
+            left-aligned wrap. */}
+        <div className="flex flex-wrap justify-center sm:justify-start gap-x-5 sm:gap-x-6 gap-y-2 max-sm:grid max-sm:grid-cols-2 max-sm:w-max max-sm:max-w-full max-sm:mx-auto max-sm:justify-items-start">
+          {languages.map((l, i) => {
             const on = hoverLang === l.name;
+            const orphan = languages.length % 2 === 1 && i === languages.length - 1;
             return (
               <button
                 key={l.name}
@@ -389,12 +476,14 @@ export function Section02Field({ period }: Props) {
                 onMouseLeave={() => setHoverLang(null)}
                 onFocus={() => setHoverLang(l.name)}
                 onBlur={() => setHoverLang(null)}
-                className={`text-[10px] mono-tag transition-colors ${
+                className={`inline-flex items-center text-[10px] mono-tag transition-colors ${
+                  orphan ? 'max-sm:col-span-2 max-sm:justify-self-center' : ''
+                } ${
                   on ? 'text-[#d6ff3e]' : 'text-neutral-500 hover:text-neutral-300'
                 }`}
               >
                 <span
-                  className="inline-block w-2 h-2 mr-2 align-middle"
+                  className="inline-block w-2 h-2 mr-2 shrink-0"
                   style={{ background: on ? '#d6ff3e' : '#f4f4f4' }}
                 />
                 {l.name.toUpperCase()}

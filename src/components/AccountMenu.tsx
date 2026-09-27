@@ -14,9 +14,10 @@ import {
    presentation data only. Sync uses the store's shared /api/sync pump, so
    the UtilityBar and any other surface see the same state. */
 
-function Avatar({ url, login, size = 24 }: { url?: string; login?: string; size?: number }) {
+function Avatar({ url, login, size = 24, sizeClass }: { url?: string; login?: string; size?: number; sizeClass?: string }) {
   const [failed, setFailed] = useState(false);
   const cls = 'rounded-full object-cover border border-neutral-700 bg-[#0a0a0a] block';
+  const dim = sizeClass ? undefined : { width: size, height: size };
   if (url && !failed) {
     return (
       <img
@@ -25,8 +26,8 @@ function Avatar({ url, login, size = 24 }: { url?: string; login?: string; size?
         width={size}
         height={size}
         onError={() => setFailed(true)}
-        className={cls}
-        style={{ width: size, height: size }}
+        className={`${cls}${sizeClass ? ` ${sizeClass}` : ''}`}
+        style={dim}
         referrerPolicy="no-referrer"
       />
     );
@@ -34,8 +35,8 @@ function Avatar({ url, login, size = 24 }: { url?: string; login?: string; size?
   return (
     <span
       aria-hidden
-      className="rounded-full bg-[#0a0a0a] border border-neutral-700 flex items-center justify-center mono-tag text-neutral-100 font-bold"
-      style={{ width: size, height: size, fontSize: size > 24 ? 10 : 8 }}
+      className={`rounded-full bg-[#0a0a0a] border border-neutral-700 flex items-center justify-center mono-tag text-neutral-100 font-bold${sizeClass ? ` ${sizeClass}` : ''}`}
+      style={sizeClass ? { fontSize: 8 } : { ...dim, fontSize: size > 24 ? 10 : 8 }}
     >
       {initialsFromLogin(login)}
     </span>
@@ -201,7 +202,7 @@ export function AccountMenu() {
         <span className="relative shrink-0">
           <span className="absolute -inset-[2px] rounded-full bg-[conic-gradient(from_180deg,#d6ff3e,#38bdf8,#f97316,#d6ff3e)] opacity-80 group-hover:opacity-100 transition-opacity spin-slower" />
           <span className="relative block group-hover:brightness-110 transition">
-            <Avatar url={avatarUrl} login={login} size={24} />
+            <Avatar url={avatarUrl} login={login} size={24} sizeClass="w-[22px] h-[22px] md:w-6 md:h-6" />
           </span>
         </span>
         <span className="mono-tag text-[10px] text-neutral-200 group-hover:text-[#d6ff3e] transition-colors tracking-[0.12em] max-w-[6rem] sm:max-w-[9rem] truncate" title={`@${login}`}>

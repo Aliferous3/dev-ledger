@@ -39,7 +39,7 @@ export const TerminalTicker: React.FC<TerminalTickerProps> = () => {
   ];
 
   return (
-    <div className="w-full bg-[#050505] border-y border-[#1a1a1a] overflow-hidden select-none py-1.5 relative">
+    <div className="w-full bg-[#050505] border-y border-[#1a1a1a] overflow-hidden select-none py-1 md:py-1.5 relative">
       <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-[#050505] to-transparent z-10 pointer-events-none" />
       <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-[#050505] to-transparent z-10 pointer-events-none" />
 
