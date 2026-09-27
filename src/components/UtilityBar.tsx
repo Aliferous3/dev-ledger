@@ -26,7 +26,7 @@ export function UtilityBar({
   }, []);
 
   return (
-    <div className="w-full border-b border-[#161616] bg-[#0a0a0a] px-4 sm:px-6 py-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[9px] mono-tag select-none">
+    <div className="w-full border-b border-[#161616] bg-[#0a0a0a] px-4 sm:px-6 py-1 sm:py-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[9px] mono-tag select-none">
       {/* LEFT — local system time + resolved IANA zone */}
       <span className="text-neutral-600 whitespace-nowrap">
         <span className="text-neutral-500">&gt;_</span> SYS.TIME //{' '}

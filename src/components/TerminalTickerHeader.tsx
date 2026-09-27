@@ -35,13 +35,13 @@ export function TerminalTickerHeader({ period, setPeriod, page, navigate, onShar
             navigate(PAGES[n - 1].id);
           }
         }}
-        className="max-w-[1360px] mx-auto px-4 sm:px-6 md:px-12 py-2.5 md:py-3 outline-none focus:ring-1 focus:ring-[#d6ff3e]/30"
+        className="max-w-[1360px] mx-auto px-4 sm:px-6 md:px-12 py-1.5 md:py-3 outline-none focus:ring-1 focus:ring-[#d6ff3e]/30"
       >
         {/* ROW 2 — brand / hint / range / user. Below md this splits into
             two composed rows: brand + account on the first, the range
             keypad + share stretched across the second. Above md the order
             classes collapse back to the original single control row. */}
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 md:gap-x-6 md:gap-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 md:gap-x-6 md:gap-y-3">
           <div className="flex items-center gap-2.5 md:gap-3 whitespace-nowrap order-1">
             <span className="w-2 h-2 rounded-full bg-[#d6ff3e] pulse-dot shrink-0" />
             <span className="mono-tag text-[11px] text-neutral-100 font-semibold tracking-[0.2em]">
@@ -51,7 +51,7 @@ export function TerminalTickerHeader({ period, setPeriod, page, navigate, onShar
             <span className="mono-tag text-[10px] text-neutral-500 tracking-[0.2em] hidden sm:inline">
               CODE METRICS
             </span>
-            <span className="mono-tag text-[9px] bg-[#d6ff3e] text-black px-1.5 py-0.5 font-bold shadow-[0_0_10px_rgba(214,255,62,.4)]">
+            <span className="mono-tag text-[9px] bg-[#d6ff3e] text-black px-1 py-px md:px-1.5 md:py-0.5 font-bold shadow-[0_0_10px_rgba(214,255,62,.4)]">
               V1.3.0
             </span>
           </div>
@@ -95,7 +95,7 @@ export function TerminalTickerHeader({ period, setPeriod, page, navigate, onShar
                   key={p}
                   type="button"
                   onClick={() => setPeriod(p)}
-                  className={`mono-tag text-[8px] px-1.5 py-2 md:py-[3px] border transition-all text-center ${
+                  className={`mono-tag text-[8px] px-1.5 py-1.5 md:py-[3px] border transition-all text-center ${
                     period === p
                       ? 'bg-[#d6ff3e] text-black border-[#d6ff3e] font-bold shadow-[0_0_10px_rgba(214,255,62,.45)]'
                       : 'border-neutral-800 text-neutral-400 hover:text-[#d6ff3e] hover:border-[#d6ff3e]/50'
@@ -118,7 +118,7 @@ export function TerminalTickerHeader({ period, setPeriod, page, navigate, onShar
             chrome (they reference physical keys). */}
         <nav
           aria-label="Pages"
-          className="grid grid-cols-3 gap-1.5 mt-2.5 md:mt-3"
+          className="grid grid-cols-3 gap-1.5 mt-1.5 md:mt-3"
         >
           {PAGES.map((p, i) => {
             const on = page === p.id;
@@ -128,7 +128,7 @@ export function TerminalTickerHeader({ period, setPeriod, page, navigate, onShar
                 type="button"
                 aria-current={on ? 'page' : undefined}
                 onClick={() => navigate(p.id)}
-                className={`flex items-center justify-center md:justify-between px-2 md:px-3 py-2 border transition-all ${
+                className={`flex items-center justify-center md:justify-between px-2 md:px-3 py-1.5 md:py-2 border transition-all ${
                   on
                     ? 'border-[#d6ff3e] bg-[#d6ff3e] text-black'
                     : 'border-neutral-800 text-neutral-400 hover:border-[#d6ff3e]/50 hover:text-[#d6ff3e]'

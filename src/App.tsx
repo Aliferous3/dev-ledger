@@ -119,9 +119,11 @@ export default function App({ me = null }: { me?: Identity | null }) {
         {page === 'code' && <CodeBody period={period} />}
       </main>
 
-      {/* Bottom Footer (matching reference bottom bar "END OF RECORD") */}
-      <footer className="border-t border-neutral-900 bg-black/60 py-6 px-4 sm:px-6 md:px-12 text-[10px] mono-tag text-neutral-500 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      {/* Bottom Footer (matching reference bottom bar "END OF RECORD").
+          Phones get the compact terminal-status variant — same content,
+          tighter rhythm; ≥md keeps the roomier bar. */}
+      <footer className="border-t border-neutral-900 bg-black/60 py-3 md:py-6 px-4 sm:px-6 md:px-12 text-[10px] mono-tag text-neutral-500 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 md:gap-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="text-neutral-400">END OF RECORD</span>
           <span className="text-neutral-700">·</span>
           <span>LONGITUDINAL TELEMETRY [{spanLabel}]</span>
@@ -129,7 +131,7 @@ export default function App({ me = null }: { me?: Identity | null }) {
 
         {/* Right cluster keeps ~56px clearance on phones so the collapsed
             SYNC.MON pip (fixed bottom-right) can never cover footer links. */}
-        <div className="flex items-center gap-4 max-sm:pr-14">
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 md:gap-4 max-sm:pr-14">
           <a
             href="/security"
             className="text-neutral-500 hover:text-neutral-200 focus-visible:text-neutral-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40 transition-colors"
