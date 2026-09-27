@@ -24,3 +24,12 @@ export function periodToRange(
     default: return { mode: '1y', from: shift(364), to: end };
   }
 }
+
+
+export function timelineEndIso(
+  selectedRangeTo: string | null | undefined,
+  allRangeTo: string | null | undefined,
+  todayIso: string,
+): string {
+  return selectedRangeTo ?? allRangeTo ?? todayIso;
+}
