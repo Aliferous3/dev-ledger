@@ -11,6 +11,7 @@ import {
   FEEDBACK_EVENT_TYPES,
   POSTHOG_INIT_OPTIONS,
   PROXY_PATH,
+  REQUIRED_SDK_EVENT_PROPERTIES,
   SYNC_FAIL_REASONS,
   SYNC_TRIGGERS,
   mapSyncFailReason,
@@ -209,9 +210,12 @@ test('analytics host is always same-origin — external URLs are refused', () =>
 
 /* ── 6. Property scrubbing ── */
 
-test('before_send strips URL/query/campaign-derived SDK properties', () => {
+test('before_send strips private extras but preserves SDK ingestion fields', () => {
+  assert.deepEqual(REQUIRED_SDK_EVENT_PROPERTIES, ['token', 'distinct_id']);
   const dirty = {
     trigger: 'manual',
+    token: 'phc_public_project_token',
+    distinct_id: 'anonymous-sdk-id',
     $current_url: 'https://app.example/?secret=1',
     $pathname: '/',
     $referrer: 'https://ref.example/?q=2',
@@ -219,17 +223,15 @@ test('before_send strips URL/query/campaign-derived SDK properties', () => {
     gclid: 'abc',
     $browser: 'Chrome',
     stray_key: 'must be dropped',
-    // envelope-level fields (distinct_id, token, uuid) never appear inside
-    // properties — a stray non-$ key here must be dropped regardless.
-    distinct_id: 'envelope-lookalike',
   };
   const clean = scrubEventProperties('sync_started', dirty);
   for (const key of DENIED_EVENT_PROPERTIES) {
     assert.ok(!(key in clean), `${key} survived scrubbing`);
   }
   assert.equal(clean.stray_key, undefined, 'non-schema custom key survived');
-  assert.equal(clean.distinct_id, undefined, 'non-$ non-schema key survived');
   assert.equal(clean.trigger, 'manual');
+  assert.equal(clean.token, 'phc_public_project_token', 'SDK project token was stripped');
+  assert.equal(clean.distinct_id, 'anonymous-sdk-id', 'SDK anonymous distinct id was stripped');
   assert.equal(clean.$browser, 'Chrome', 'neutral SDK props stay');
 });
 
