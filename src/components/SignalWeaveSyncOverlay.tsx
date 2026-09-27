@@ -32,7 +32,12 @@ function activeProgress(
 export function SignalWeaveSyncOverlay() {
   const { dash, pumping } = useLedger();
   const sync = dash.sync;
-  const syncing = pumping || sync?.status === 'syncing';
+  // Match SYNC.MON's effective-status rule exactly: a local pump counts as
+  // active before the first response only while the held server state is
+  // idle/complete. A real blocked/error state immediately stops the weave.
+  const syncing =
+    sync?.status === 'syncing' ||
+    (pumping && (!sync || sync.status === 'idle' || sync.status === 'complete'));
   const [justDone, setJustDone] = useState(false);
   const wasSyncing = useRef(syncing);
 
