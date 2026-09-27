@@ -17,6 +17,8 @@ import "./index.css";
 import App from "./App";
 import { initAnalytics } from "./analytics/posthog";
 import { SecurityPrivacyPage } from "./security/SecurityPrivacyPage";
+import { PrivacyPolicyPage } from "./legal/PrivacyPolicyPage";
+import { TermsOfServicePage } from "./legal/TermsOfServicePage";
 import { LoginScreen } from "./ledger/LoginScreen";
 import { BootLogOverlay, BootLogPreloader } from "./transitions/BootLog";
 import type { Identity } from "./store/live";
@@ -145,17 +147,15 @@ function Gate() {
   );
 }
 
-/* Public-route layer — sits ABOVE the authenticated Gate. /security (and
-   the /privacy alias, canonicalized here for non-Vercel servers) renders
-   the trust record without touching /api/user, so it works with no
-   session and no backend. The authenticated PAGES registry is untouched:
-   top-level destinations remain exactly OVERVIEW / ACTIVITY / CODE. */
+/* Public legal/trust routes sit ABOVE the authenticated Gate. They render
+   without touching /api/user, so the Privacy Policy, Terms of Service and
+   technical trust record remain available before sign-in. The authenticated
+   PAGES registry is untouched: OVERVIEW / ACTIVITY / CODE remain the only
+   product destinations. */
 function Root() {
   const p = window.location.pathname.replace(/\/+$/, "") || "/";
-  if (p === "/privacy") {
-    history.replaceState({}, "", "/security");
-    return <SecurityPrivacyPage />;
-  }
+  if (p === "/privacy") return <PrivacyPolicyPage />;
+  if (p === "/terms") return <TermsOfServicePage />;
   if (p === "/security") return <SecurityPrivacyPage />;
   return <Gate />;
 }
