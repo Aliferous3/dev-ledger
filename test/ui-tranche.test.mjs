@@ -199,7 +199,7 @@ test('header nav exposes only the three pages', () => {
 
 test('vercel rewrites make direct loads + refresh work on all pages', () => {
   const v = JSON.parse(src('vercel.json'))
-  const pages = ['/overview', '/activity', '/code', '/security']
+  const pages = ['/overview', '/activity', '/code', '/security', '/privacy', '/terms']
   for (const p of pages) {
     const rewrite = v.rewrites.find((r) => r.source === p)
     assert.ok(rewrite, p)
