@@ -8,6 +8,7 @@ import { TerminalTickerHeader } from './components/TerminalTickerHeader';
 import { UtilityBar } from './components/UtilityBar';
 import { SyncMonitor } from './components/SyncMonitor';
 import { SyncAssist } from './components/SyncAssist';
+import { TerminalCursorSyncOverlay } from './components/TerminalCursorSyncOverlay';
 import { FeedbackDrawer } from './feedback/FeedbackDrawer';
 import { RightSidebarNav } from './components/RightSidebarNav';
 import { Section01Measure } from './components/Section01Measure';
@@ -170,6 +171,10 @@ export default function App({ me = null }: { me?: Identity | null }) {
           build: 'V1.3.0',
         }}
       />
+
+      {/* S10 TERMINAL CURSOR — full-width write head driven by the same
+          canonical sync state as SYNC.MON. Purely visual; controls stay usable. */}
+      <TerminalCursorSyncOverlay />
 
       {/* SYNC.04 system monitor — app-level, persists across all pages */}
       <SyncMonitor />
