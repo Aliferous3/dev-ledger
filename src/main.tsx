@@ -1,5 +1,6 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { Analytics } from "@vercel/analytics/react";
 // Self-hosted typefaces (OFL-licensed via Fontsource) — replaces the previous
 // Google Fonts request so production never contacts fonts.g* APIs/CDNs.
 import "@fontsource/instrument-serif/latin-400.css";
@@ -161,5 +162,6 @@ function Root() {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <Root />
+    <Analytics />
   </StrictMode>
 );
