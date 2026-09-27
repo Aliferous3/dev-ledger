@@ -13,17 +13,19 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const src = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const PAGE = 'src/security/SecurityPrivacyPage.tsx';
 
-// ── Routing: /security is public, /privacy canonicalizes ────────────────────
+// ── Routing: trust + legal documents are public ─────────────────────────────
 
-test('vercel.json serves /security and redirects /privacy → /security', () => {
+test('vercel.json serves /security, /privacy and /terms directly', () => {
   const v = JSON.parse(src('vercel.json'));
+  for (const route of ['/security', '/privacy', '/terms']) {
+    assert.ok(
+      v.rewrites?.some((r) => r.source === route && r.destination === '/index.html'),
+      `${route} must rewrite to index.html for direct loads`,
+    );
+  }
   assert.ok(
-    v.rewrites?.some((r) => r.source === '/security' && r.destination === '/index.html'),
-    '/security must rewrite to index.html for direct loads',
-  );
-  assert.ok(
-    v.redirects?.some((r) => r.source === '/privacy' && r.destination === '/security' && r.permanent === true),
-    '/privacy must permanently redirect to /security',
+    !(v.redirects || []).some((r) => r.source === '/privacy'),
+    '/privacy must be its own legal policy, not redirect to the trust record',
   );
 });
 
@@ -34,12 +36,14 @@ test('authenticated PAGES registry stays exactly three destinations', () => {
   assert.ok(!/id:\s*'security'/.test(pages), 'security must not join PAGES');
 });
 
-test('public route layer renders /security without the auth gate', () => {
+test('public route layer renders legal/trust pages without the auth gate', () => {
   const main = src('src/main.tsx');
   assert.match(main, /import\s*\{\s*SecurityPrivacyPage\s*\}/);
-  // The public layer must handle the path itself (before Gate auth work).
+  assert.match(main, /import\s*\{\s*PrivacyPolicyPage\s*\}/);
+  assert.match(main, /import\s*\{\s*TermsOfServicePage\s*\}/);
   assert.match(main, /p === ['"]\/security['"]/, '/security must be matched in the public layer');
-  assert.match(main, /p === ['"]\/privacy['"]/, '/privacy must be canonicalized in the public layer');
+  assert.match(main, /p === ['"]\/privacy['"]/, '/privacy must be matched in the public layer');
+  assert.match(main, /p === ['"]\/terms['"]/, '/terms must be matched in the public layer');
 });
 
 // ── The page itself: static, no API dependency, no secrets, no overclaims ───
@@ -82,11 +86,13 @@ test('security page makes no unsupported certification or absolute claims', () =
 
 // ── Discoverability links ───────────────────────────────────────────────────
 
-test('login screen and authenticated footer link to /security', () => {
-  assert.ok(src('src/ledger/LoginScreen.tsx').includes('href="/security"'),
-    'login screen must link to /security');
-  assert.ok(src('src/App.tsx').includes('href="/security"'),
-    'authenticated footer must link to /security');
+test('login screen and authenticated footer expose legal + trust links', () => {
+  const login = src('src/ledger/LoginScreen.tsx');
+  const app = src('src/App.tsx');
+  for (const route of ['/privacy', '/terms', '/security']) {
+    assert.ok(login.includes(`href="${route}"`), `login screen must link to ${route}`);
+    assert.ok(app.includes(`href="${route}"`), `authenticated footer must link to ${route}`);
+  }
 });
 
 // ── No new function: Vercel Hobby budget stays at exactly 12 ────────────────
