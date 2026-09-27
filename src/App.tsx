@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import type { Period } from './types';
 import { IdentityContext, LedgerContext, useDashboardStore, useLedger, type Identity } from './store/live';
 import { buildShareRecord } from './share/shareModel';
@@ -176,6 +177,7 @@ export default function App({ me = null }: { me?: Identity | null }) {
       {/* SYNC.ASSIST — zero-metrics prompt, anchored above the monitor */}
       <SyncAssist />
     </div>
+    <Analytics />
     </LedgerContext.Provider>
     </IdentityContext.Provider>
   );
