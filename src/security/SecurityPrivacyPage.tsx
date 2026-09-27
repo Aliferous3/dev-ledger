@@ -1,6 +1,6 @@
 /* SECURITY & PRIVACY — public trust record.
-   Route: /security (canonical; /privacy redirects here). Rendered by the
-   public-route layer in src/main.tsx, ABOVE the authenticated Gate — no
+   Route: /security. Rendered by the public-route layer in src/main.tsx,
+   ABOVE the authenticated Gate — no
    session, /api/user call, or dashboard data is required. PAGES stays
    exactly overview/activity/code; this page is deliberately not in it.
 
@@ -302,9 +302,16 @@ export function SecurityPrivacyPage() {
             <Rule {...SECTIONS[11]} />
             <p className="text-sm text-neutral-400 leading-relaxed max-w-[62ch]">
               This page describes Dev Ledger's current technical data-handling and security
-              design. It is not a certification, an independent security audit, or a legal
-              privacy policy — and it deliberately avoids absolute claims. What it states
-              is what the code does today; when the code changes, this record is updated.
+              design. It is not a certification, an independent security audit, or the legal
+              Privacy Policy — and it deliberately avoids absolute claims. The legal{' '}
+              <a href="/privacy" className="text-neutral-300 underline underline-offset-4 hover:text-[#d6ff3e]">
+                Privacy Policy
+              </a>{' '}
+              and <a href="/terms" className="text-neutral-300 underline underline-offset-4 hover:text-[#d6ff3e]">
+                Terms of Service
+              </a>{' '}
+              are separate public documents. What this trust record states is what the code does today; when the
+              code changes, this record is updated.
             </p>
           </section>
         </main>
