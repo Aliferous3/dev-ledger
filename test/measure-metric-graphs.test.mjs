@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { buildMetricSeries, METRIC_META } from '../src/measure/metricModel.mjs';
+import { buildMetricSeries, centeredMean3, METRIC_META, resampleSeries } from '../src/measure/metricModel.mjs';
 import { timelineEndIso } from '../src/ledger/periods.ts';
 
 const DAYS = [
@@ -38,4 +38,25 @@ test('live timeline ends at the selected range end or today, never last activity
 test('overview passes the selected metric into MonthBins', () => {
   const section = readFileSync(new URL('../src/components/Section01Measure.tsx', import.meta.url), 'utf8');
   assert.match(section, /<MonthBins days=\{filteredDays\} metric=\{activeTab\} \/>/);
+});
+
+
+test('line 07 companion is a 3-day centred mean and resamples to stable path topology', () => {
+  const mean = centeredMean3([2, 8, 5, 1]);
+  assert.deepEqual(mean, [5, 5, 14 / 3, 3]);
+
+  const sampled = resampleSeries([0, 10, 20], 96);
+  assert.equal(sampled.length, 96);
+  assert.equal(sampled[0], 0);
+  assert.equal(sampled[95], 20);
+});
+
+test('MonthBins renders only the soft-white daily companion line and morphs graph paths', () => {
+  const monthBins = readFileSync(new URL('../src/components/MonthBins.tsx', import.meta.url), 'utf8');
+  assert.match(monthBins, /const DAILY_STROKE = '#f0f0ec'/);
+  assert.match(monthBins, /centeredMean3\(series\.map\(\(d\) => d\.daily\)\)/);
+  assert.match(monthBins, /animate=\{\{ d: dailyLine \}\}/);
+  assert.match(monthBins, /animate=\{\{ d: line \}\}/);
+  assert.match(monthBins, /duration: 0\.62/);
+  assert.doesNotMatch(monthBins, /DAILY · 3D MEAN/);
 });

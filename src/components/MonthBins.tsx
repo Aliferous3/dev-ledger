@@ -1,13 +1,16 @@
 import { useCallback, useRef, useState } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import type { DayData, MetricKey } from '../types';
 import { smoothPath } from '../retained/primitives';
 import { fmt } from '../codeData';
 import { NumCompact } from '../ledger/Num';
 import { useMediaQuery } from '../ledger/useMediaQuery';
-import { buildMetricSeries, METRIC_META } from '../measure/metricModel.mjs';
+import { buildMetricSeries, centeredMean3, METRIC_META, resampleSeries } from '../measure/metricModel.mjs';
 
 const W = 1000;
 const LIME = '#d6ff3e';
+const DAILY_STROKE = '#f0f0ec';
+const GRAPH_SAMPLES = 96;
 
 interface BinDay {
   i: number;           // index within the filtered series
@@ -111,9 +114,10 @@ export function MonthBins({ days, metric }: { days: DayData[]; metric: MetricKey
   const boxRef = useRef<HTMLDivElement>(null);
   const coarse = useMediaQuery('(pointer: coarse)');
   const [scrubbed, setScrubbed] = useState(false);
+  const reduceMotion = useReducedMotion();
   const meta = METRIC_META[metric];
 
-  const { series, months, minCum, maxCum, maxMonth } = (() => {
+  const { series, months, minCum, maxCum, maxMonth, dailyMean } = (() => {
     const series = buildMetricSeries(days, metric) as BinDay[];
     const map = new Map<string, BinDay[]>();
     series.forEach((d) => {
@@ -133,6 +137,7 @@ export function MonthBins({ days, metric }: { days: DayData[]; metric: MetricKey
       minCum: Math.min(0, ...series.map((d) => d.cum)),
       maxCum: Math.max(0, ...series.map((d) => d.cum)),
       maxMonth: Math.max(1, ...months.map((m) => Math.abs(m.total))),
+      dailyMean: centeredMean3(series.map((d) => d.daily)),
     };
   })();
 
@@ -148,7 +153,38 @@ export function MonthBins({ days, metric }: { days: DayData[]; metric: MetricKey
     y: yAt(d.cum),
   }));
   const zeroY = yAt(0);
-  const line = smoothPath(pts);
+
+  // Both plotted lines are normalized to a fixed point count before their
+  // SVG paths are built. That keeps the command topology stable when the
+  // user changes range or metric, allowing Framer Motion to morph the paths
+  // instead of snapping between differently-sized day series.
+  const cumulativeSamples = resampleSeries(series.map((d) => d.cum), GRAPH_SAMPLES);
+  const cumulativePts = cumulativeSamples.map((value, i) => ({
+    x: xAt(i, GRAPH_SAMPLES),
+    y: yAt(value),
+  }));
+  const line = smoothPath(cumulativePts);
+
+  // Line 07 — SMOOTHED COMPANION from the supplied design study:
+  // a 3-day centred mean rendered only as a soft white smooth curve.
+  // It owns an independent value scale but shares the exact FIG.A plot area.
+  const minDaily = Math.min(0, ...dailyMean);
+  const maxDaily = Math.max(0, ...dailyMean);
+  const dailySpan = maxDaily - minDaily;
+  const dailyYAt = (v: number) =>
+    dailySpan <= 0
+      ? H - pad
+      : pad + (H - pad * 2) * (1 - (v - minDaily) / dailySpan);
+  const dailySamples = resampleSeries(dailyMean, GRAPH_SAMPLES);
+  const dailyPts = dailySamples.map((value, i) => ({
+    x: xAt(i, GRAPH_SAMPLES),
+    y: dailyYAt(value),
+  }));
+  const dailyLine = smoothPath(dailyPts);
+
+  const graphTransition = reduceMotion
+    ? { duration: 0 }
+    : { duration: 0.62, ease: [0.22, 1, 0.36, 1] as const };
   const cur = idx !== null ? series[idx] : null;
 
   return (
@@ -191,8 +227,40 @@ export function MonthBins({ days, metric }: { days: DayData[]; metric: MetricKey
                 const x = xAt(m.days[0].i, n);
                 return <line key={m.key} x1={x} y1="0" x2={x} y2={H} stroke="#151515" strokeWidth="1" vectorEffect="non-scaling-stroke" />;
               })}
-              {line && <path d={`${line} L ${W},${zeroY} L 0,${zeroY} Z`} fill="url(#binsAreaGrad)" />}
-              {line && <path d={line} fill="none" stroke={LIME} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
+              {line && (
+                <motion.path
+                  initial={false}
+                  animate={{ d: `${line} L ${W},${zeroY} L 0,${zeroY} Z` }}
+                  transition={graphTransition}
+                  fill="url(#binsAreaGrad)"
+                />
+              )}
+              {dailyLine && (
+                <motion.path
+                  initial={false}
+                  animate={{ d: dailyLine }}
+                  transition={graphTransition}
+                  fill="none"
+                  stroke={DAILY_STROKE}
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+              {line && (
+                <motion.path
+                  initial={false}
+                  animate={{ d: line }}
+                  transition={graphTransition}
+                  fill="none"
+                  stroke={LIME}
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
               {idx !== null && cur && (
                 <>
                   <line x1={xAt(idx, n)} y1="0" x2={xAt(idx, n)} y2={H} stroke={LIME} strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
