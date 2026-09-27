@@ -17,6 +17,7 @@ export const CORE_TABLES = [
   'repository_languages',  // byte-share language stats
   'commits',               // ingested commit rows — the expensive history
   'pull_requests',         // ingested PR rows (no titles — data minimization)
+  'feedback',              // user-submitted transmissions — not re-ingestable
 ]
 
 // OPERATIONAL — reconstructable in principle, but restoring them avoids a

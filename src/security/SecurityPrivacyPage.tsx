@@ -170,6 +170,7 @@ export function SecurityPrivacyPage() {
               ['ANALYTICS', 'Repository metadata, language byte counts, per-commit statistics, and pull-request metadata described in section 01.'],
               ['SYNC BOOKKEEPING', 'Coverage windows, sync phase, and progress markers so ingestion can resume incrementally instead of re-reading history.'],
               ['SESSION RECORDS', 'A server-side record per active session — the revocation mechanism described in section 05.'],
+              ['FEEDBACK', 'Bug reports and feature requests you submit through the diagnostic drawer — type, title, optional description, an optional verified screenshot, and automatic page/range/build context. No email address is collected.'],
               ['TELEMETRY', 'A privacy-safe subset of security events, described in section 09.'],
             ]} />
           </section>
@@ -257,7 +258,7 @@ export function SecurityPrivacyPage() {
               ['STOP SYNCING, KEEP HISTORY', 'Per repository: future ingestion stops, and the analytics already collected remain — history stays because you chose to keep it.'],
               ['RESUME SYNCING', 'Re-enables ingestion for a retained repository.'],
               ['DISCONNECT & DELETE', 'Permanently removes the repository record and its stored commits, pull requests, language data, coverage, and repository-specific sync bookkeeping.'],
-              ['DELETE MY DATA', 'Revokes every active session, then deletes your account record — cascading through installations, repositories, languages, commits, pull requests, and sync state.'],
+              ['DELETE MY DATA', 'Revokes every active session, then deletes your account record — cascading through installations, repositories, languages, commits, pull requests, feedback submissions, and sync state.'],
             ]} />
             <p className="text-sm text-neutral-400 leading-relaxed max-w-[62ch] mt-4">
               Two honest caveats: privacy-safe security telemetry may outlive deletion under

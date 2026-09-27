@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { isSyncStale, passivePollMs, rateLimitElapsed } from '../ledger/syncModel.mjs';
+import { isSyncStale, passivePollMs, rateLimitElapsed, snapshotPredatesSync, SYNC_BOOT_WATCH_MS } from '../ledger/syncModel.mjs';
 import { periodToRange } from '../ledger/periods';
 import type { DayData, Period, RepoItem } from '../types';
 import {
@@ -458,6 +458,20 @@ export function useDashboardStore(period: Period): LedgerStore {
   // loading state.
   const settled = useRef(new Set<string>());
   const [settleTick, setSettleTick] = useState(0);
+  // Server generation stamp per held payload — compared against a sync's
+  // lastSyncedAt to detect snapshots that predate a completed run.
+  const genAt = useRef<Partial<Record<string, number>>>({});
+  // The last sync completion that already triggered a refresh — one-shot
+  // per completion, so an externally-driven run can't start a refetch loop.
+  const consumedSyncAt = useRef<string | null>(null);
+  // Boot watch: a login-kicked sync may begin and even finish before the
+  // first /api/sync poll lands, so the window right after mount polls at
+  // the in-flight cadence regardless of what the stale payload claims.
+  const [booting, setBooting] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setBooting(false), SYNC_BOOT_WATCH_MS);
+    return () => clearTimeout(t);
+  }, []);
 
   // Fetch the period-scoped payload on every period change (backend respects
   // the range) and the all-time payload once for structural views.
@@ -469,7 +483,10 @@ export function useDashboardStore(period: Period): LedgerStore {
       fetchDashboard(m).then((d) => {
         settled.current.add(m);
         setSettleTick((t) => t + 1);
-        if (d) setPayloads((p) => ({ ...p, [m]: d }));
+        if (d) {
+          genAt.current[m] = Date.parse(d.generatedAt);
+          setPayloads((p) => ({ ...p, [m]: d }));
+        }
       });
     }
   }, [mode, fetchTick]);
@@ -538,8 +555,7 @@ export function useDashboardStore(period: Period): LedgerStore {
   const resumeAt = dash.sync?.resumeAt;
   useEffect(() => {
     if (!live || pumpingState) return;
-    const cadence = passivePollMs(syncStatus);
-    if (cadence == null) return;
+    const cadence = passivePollMs(syncStatus, booting);
     const t = setInterval(async () => {
       if (pumping.current) return;
       try {
@@ -547,6 +563,22 @@ export function useDashboardStore(period: Period): LedgerStore {
         if (!r.ok) return;
         const s = (await r.json()) as DashboardData['sync'];
         setSyncLive(s);
+        // A sync nobody local drove (login-kicked initial run, cron, another
+        // tab) updates only syncLive — the held dashboard payloads still
+        // predate the ingested data. When a completion stamp lands newer
+        // than any snapshot, re-pull every payload once. consumedSyncAt
+        // makes the completion a single trigger: post-refetch snapshots
+        // compare clean, and no poll can start a duplicate sync or refetch
+        // loop. This is the refresh the manual syncNow()'s finally performs
+        // — extended to externally-driven runs.
+        if (
+          s?.lastSyncedAt &&
+          consumedSyncAt.current !== s.lastSyncedAt &&
+          snapshotPredatesSync(genAt.current, s.lastSyncedAt)
+        ) {
+          consumedSyncAt.current = s.lastSyncedAt;
+          refresh();
+        }
         // Self-heal a wedged 'syncing' claim: no writer has touched the row
         // within the slice budget, so nobody is driving it — re-enter the
         // pump. The backend lock CAS makes this safe alongside real runners.
@@ -557,7 +589,7 @@ export function useDashboardStore(period: Period): LedgerStore {
     }, cadence);
     return () => clearInterval(t);
     // resumeAt re-derives cadence targets; status changes restart the poll.
-  }, [live, syncStatus, resumeAt, pumpingState, syncNow]);
+  }, [live, syncStatus, resumeAt, pumpingState, syncNow, refresh, booting]);
 
   // Skeleton window: still waiting on the first payload(s). Once live, or
   // once every requested fetch has settled, data (real or fixture) owns

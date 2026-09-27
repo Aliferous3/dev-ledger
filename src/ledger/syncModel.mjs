@@ -86,9 +86,28 @@ export function isSyncStale(sync, now = Date.now()) {
 
 // Passive-poll cadence while the local pump isn't running: short while a
 // sync is in flight (cron or another tab may be driving it), slower while
-// waiting out a rate limit. Null means no polling needed.
-export function passivePollMs(status) {
+// waiting out a rate limit. Otherwise: the boot window polls fast so a
+// login-kicked sync is discovered within seconds; afterwards a 60s idle
+// watch keeps discovering externally-driven runs (cron, other tabs) for
+// the life of the session — a completed run still refreshes held payloads.
+export const SYNC_BOOT_WATCH_MS = 90_000
+export const SYNC_IDLE_POLL_MS = 60_000
+export function passivePollMs(status, booting = false) {
   if (status === 'syncing') return 2000
   if (status === 'rate_limited') return 30000
-  return null
+  return booting ? 2000 : SYNC_IDLE_POLL_MS
+}
+
+// True when any held dashboard snapshot was generated BEFORE the observed
+// sync completion stamp — the sync wrote data the snapshot predates. This
+// is the stale-dashboard detector for syncs nobody local drove (login-kicked
+// run, cron, another tab): lastSyncedAt only advances on 'complete', so a
+// mid-run or failed status can never produce a spurious refresh, and a
+// snapshot generated after completion compares clean — no refetch loop.
+export function snapshotPredatesSync(generatedAts, lastSyncedAt) {
+  const done = Date.parse(lastSyncedAt || '')
+  if (!Number.isFinite(done)) return false
+  return Object.values(generatedAts || {}).some(
+    (g) => Number.isFinite(g) && g < done,
+  )
 }

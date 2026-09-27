@@ -172,7 +172,10 @@ export function CodePage({ period }: Props) {
       <M12 i={2} id="code-growth">
         {resolving ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 md:gap-10 pt-4 md:pt-6 border-t border-neutral-900">
-            <div className="lg:col-span-7"><SkChart h={190} /></div>
+            <div className="lg:col-span-7">
+              <SkChart h={190} />
+              <span id="code-projects-spy" aria-hidden className="block h-0" />
+            </div>
             <div className="lg:col-span-5" id="code-projects"><SkRows rows={6} cols={[24, '1fr', 72]} h={15} rowGap={20} /></div>
           </div>
         ) : (
@@ -182,6 +185,11 @@ export function CodePage({ period }: Props) {
               $ GIT LOG --STAT --GRAPH // GROWTH
             </div>
             <GrowthCurve points={growth} />
+            {/* PROJECTS scroll-spy sentinel: the two columns share one
+                vertical band on desktop, so the anchor needs its own
+                crossing point — the end of the growth curve marks where
+                the table becomes the row's remaining content. */}
+            <span id="code-projects-spy" aria-hidden className="block h-0" />
           </div>
           <div className="lg:col-span-5" id="code-projects">
             <ProjectTable projects={projects} />
