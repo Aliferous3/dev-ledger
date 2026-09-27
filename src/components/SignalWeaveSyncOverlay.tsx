@@ -29,13 +29,21 @@ function activeProgress(
   return Math.min(99, Math.max(0, Math.round(n * 100)));
 }
 
-export function SignalWeaveSyncOverlay() {
+export function SignalWeaveSyncOverlay({
+  previewProgress,
+  previewPhase,
+}: {
+  previewProgress?: number;
+  previewPhase?: string;
+} = {}) {
   const { dash, pumping } = useLedger();
   const sync = dash.sync;
   // Match SYNC.MON's effective-status rule exactly: a local pump counts as
   // active before the first response only while the held server state is
   // idle/complete. A real blocked/error state immediately stops the weave.
+  const previewing = Number.isFinite(previewProgress);
   const syncing =
+    previewing ||
     sync?.status === 'syncing' ||
     (pumping && (!sync || sync.status === 'idle' || sync.status === 'complete'));
   const [justDone, setJustDone] = useState(false);
@@ -64,12 +72,18 @@ export function SignalWeaveSyncOverlay() {
 
   if (!syncing && !justDone) return null;
 
-  const p = justDone
-    ? 100
-    : activeProgress(pumping, sync?.status, sync?.progress);
+  const p = previewing
+    ? Math.max(0, Math.min(100, Math.round(Number(previewProgress))))
+    : justDone
+      ? 100
+      : activeProgress(pumping, sync?.status, sync?.progress);
   const hx = p;
   const vy = Math.min(100, p * 1.6);
-  const phase = justDone ? 'COMPLETE' : phaseLabel(sync?.phase);
+  const phase = previewing
+    ? phaseLabel(previewPhase ?? 'commits')
+    : justDone
+      ? 'COMPLETE'
+      : phaseLabel(sync?.phase);
 
   return (
     <div
