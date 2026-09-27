@@ -13,6 +13,7 @@
     { "source": "/privacy", "destination": "/security", "permanent": true }
   ],
   "rewrites": [
+    { "source": "/rly/:path*", "destination": "https://eu.i.posthog.com/:path*" },
     { "source": "/api/feedback", "destination": "/api/user?action=feedback" },
     { "source": "/overview", "destination": "/index.html" },
     { "source": "/activity", "destination": "/index.html" },

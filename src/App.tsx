@@ -18,6 +18,7 @@ import { Section04Longitudinal } from './components/Section04Longitudinal';
 import { ActivityPage } from './components/ActivityPage';
 import { CodePage } from './components/CodePage';
 import { M12 } from './ledger/m12';
+import { captureEvent } from './analytics/posthog';
 
 /* Three-page authenticated app — the ONLY top-level destinations are
    OVERVIEW / ACTIVITY / CODE (see src/pages.ts). The dashboard store,
@@ -37,6 +38,7 @@ export default function App({ me = null }: { me?: Identity | null }) {
   // the default keeps the canonical clean URL.
   const setPeriod = useCallback((p: Period) => {
     setPeriodState(p);
+    captureEvent('range_changed', { range: p });
     const url = window.location.pathname + rangeSearch(p) + window.location.hash;
     history.pushState({ period: p }, '', url);
   }, []);
@@ -99,7 +101,12 @@ export default function App({ me = null }: { me?: Identity | null }) {
         navigate={navigate}
         netGrowth={netGrowth}
         commits={totalCommits}
-        onShare={() => setShareOpen(true)}
+        onShare={() => {
+          // Only a successfully-opened modal with a valid record counts.
+          if (!shareRecord) return;
+          captureEvent('share_opened', { range: period });
+          setShareOpen(true);
+        }}
         shareDisabled={ledger.resolving || !shareRecord}
         onFeedback={() => setFeedbackOpen((v) => !v)}
         feedbackOpen={feedbackOpen}

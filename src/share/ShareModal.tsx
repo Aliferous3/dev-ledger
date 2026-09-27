@@ -8,6 +8,7 @@ import {
   sharePngFile,
 } from './shareExport.ts';
 import { fmtHumanRange, shareFileName, type ShareRecordData } from './shareModel.ts';
+import { captureEvent } from '../analytics/posthog';
 
 /* The prepared PNG artifact for the CURRENT record. Built once when the
    card mounts (and again whenever the record changes), so SHARE can reach
@@ -142,7 +143,7 @@ export function ShareModal({
     else {
       // No file-capable system share — fall back to the local PNG so the
       // gesture still produces the artifact.
-      downloadBlob(prepared.blob, prepared.fileName);
+      savePng();
       say('SYSTEM SHARE UNAVAILABLE — PNG SAVED');
     }
   };
@@ -157,9 +158,17 @@ export function ShareModal({
     }
   };
 
+  // The only PNG-save path — reached solely when a prepared artifact
+  // exists, so every emit is a real download, never a failed attempt.
+  const savePng = () => {
+    if (!prepared) return;
+    downloadBlob(prepared.blob, prepared.fileName);
+    captureEvent('share_downloaded', { range: record.period });
+  };
+
   const onDownload = () => {
     if (phase !== 'ready' || !prepared) return;
-    downloadBlob(prepared.blob, prepared.fileName);
+    savePng();
     say('PNG SAVED');
   };
 

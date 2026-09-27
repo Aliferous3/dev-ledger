@@ -17,6 +17,15 @@ const load = (rel) => JSON.parse(src(rel));
 // Deny-by-default: Dev Ledger ships no custom VITE_* variables.
 const VITE_BUILTINS = new Set(['DEV', 'PROD', 'MODE', 'SSR', 'BASE_URL']);
 
+// Explicit security decision: the PostHog product-analytics integration
+// ships exactly two PUBLIC client configuration values — the PostHog
+// project token (a publishable client key by design, not a secret) and
+// the same-origin proxy host. Anything else stays denied.
+const ALLOWED_PUBLIC_VITE_VARS = new Set([
+  'VITE_POSTHOG_PROJECT_TOKEN',
+  'VITE_POSTHOG_HOST',
+]);
+
 function allFiles(dir, acc = []) {
   if (!existsSync(dir)) return acc;
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -78,17 +87,20 @@ test('browser source never touches process.env', () => {
   }
 });
 
-test('import.meta.env usage is limited to Vite built-ins (deny custom VITE_*)', () => {
+test('import.meta.env usage is limited to Vite built-ins + allowlisted public vars', () => {
   for (const f of clientFiles()) {
     const content = readFileSync(f, 'utf8');
     for (const m of content.matchAll(/import\.meta\.env\.([A-Z_][A-Z0-9_]*)/g)) {
       assert.ok(
-        VITE_BUILTINS.has(m[1]),
+        VITE_BUILTINS.has(m[1]) || ALLOWED_PUBLIC_VITE_VARS.has(m[1]),
         `${path.relative(ROOT, f)} reads custom env import.meta.env.${m[1]} — ` +
           'add no VITE_* variables without an explicit security decision',
       );
     }
-    assert.doesNotMatch(content, /\bVITE_[A-Z]/, `${path.relative(ROOT, f)} references a VITE_* name`);
+    // The two allowlisted public names are the only VITE_* strings
+    // permitted in client source at all.
+    const stripped = content.replace(/\bVITE_POSTHOG_PROJECT_TOKEN\b|\bVITE_POSTHOG_HOST\b/g, '');
+    assert.doesNotMatch(stripped, /\bVITE_[A-Z]/, `${path.relative(ROOT, f)} references a VITE_* name`);
   }
 });
 
