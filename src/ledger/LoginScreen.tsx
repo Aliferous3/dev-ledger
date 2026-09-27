@@ -121,12 +121,32 @@ export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
                 <div ref={registerM12} style={m12Delay(9)} className="m12 relative">
                   <GithubButton onLogin={onLogin} remember={remember} />
                 </div>
+                <p
+                  ref={registerM12}
+                  style={m12Delay(10)}
+                  className="m12 relative max-w-[320px] text-left md:text-right text-[8px] leading-relaxed text-neutral-600"
+                >
+                  By continuing with GitHub, you agree to the{' '}
+                  <a
+                    href="/terms"
+                    className="text-neutral-500 underline underline-offset-2 hover:text-neutral-300 focus-visible:text-neutral-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40"
+                  >
+                    Terms of Service
+                  </a>{' '}
+                  and acknowledge the{' '}
+                  <a
+                    href="/privacy"
+                    className="text-neutral-500 underline underline-offset-2 hover:text-neutral-300 focus-visible:text-neutral-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40"
+                  >
+                    Privacy Policy
+                  </a>.
+                </p>
               </div>
             </div>
 
             {/* quiet trust link — deliberately below the CTA fold, never
                 competing with the GitHub button */}
-            <div ref={registerM12} style={m12Delay(10)} className="m12 relative pt-2 text-center">
+            <div ref={registerM12} style={m12Delay(11)} className="m12 relative pt-2 text-center">
               <a
                 href="/security"
                 className="mono-tag text-[8px] tracking-[0.22em] text-neutral-600 hover:text-neutral-300 focus-visible:text-neutral-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40 transition-colors"
