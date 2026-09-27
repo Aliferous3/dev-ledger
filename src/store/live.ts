@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { isSyncStale, passivePollMs, rateLimitElapsed, snapshotPredatesSync, SYNC_BOOT_WATCH_MS } from '../ledger/syncModel.mjs';
-import { periodToRange } from '../ledger/periods';
+import { periodToRange, timelineEndIso } from '../ledger/periods';
 import type { DayData, Period, RepoItem } from '../types';
 import {
   cellsFromDaily,
@@ -674,13 +674,12 @@ export function useDashboardStore(period: Period): LedgerStore {
         : emptyStore(period, syncNow, pumpingState, refresh);
     }
 
-    const endIso =
-      all.daily[all.daily.length - 1]?.date ??
-      all.workShape.span?.lastActive ??
-      all.range.to ??
-      isoToday();
+    // The visible horizon is the selected range end (or today for ALL), not
+    // the last active GitHub day. Sparse activity rows are densified through
+    // this date so quiet days/months remain visible as flat/zero periods.
+    const endIso = timelineEndIso(dash.range.to, all.range.to, isoToday());
     const allFromIso =
-      all.daily[0]?.date ?? all.workShape.span?.firstActive ?? endIso;
+      all.workShape.span?.firstActive ?? all.daily[0]?.date ?? endIso;
     const cells = cellsFromDaily(all.daily, all.prsDaily, endIso);
     const langs = all.languages.map((l) => ({ name: l.language, bytes: l.code }));
 

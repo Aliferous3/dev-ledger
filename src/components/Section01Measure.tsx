@@ -18,7 +18,7 @@ const TABS: { key: MetricKey; label: string; heroLabel: string }[] = [
   { key: 'COMMITS', label: 'COMMITS', heroLabel: 'COMMITS' },
 ];
 
-export function Section01Measure({ daysData }: Props) {
+export function Section01Measure({ period, daysData }: Props) {
   const [activeTab, setActiveTab] = useState<MetricKey>('GROWTH');
   // Canonical period → ISO range (fixture window or live telemetry horizon).
   const { range, all, resolving } = useLedger();
@@ -56,6 +56,15 @@ export function Section01Measure({ daysData }: Props) {
     (activeTab === 'GROWTH' || activeTab === 'ADDED') && heroValue > 0 ? '+' : '';
 
   const currentTabObj = TABS.find((t) => t.key === activeTab)!;
+  const bucketCount = useMemo(
+    () => new Set(filteredDays.map((d) => d.date.slice(0, 7))).size,
+    [filteredDays],
+  );
+  const periodLabel =
+    period === '1Y' ? 'LAST YEAR' :
+    period === 'ALL' ? 'ALL TIME' :
+    period === 'YTD' ? 'YEAR TO DATE' :
+    period;
 
   return (
     <section id="section-01" className="relative scroll-mt-28 space-y-8 md:space-y-12">
@@ -75,7 +84,7 @@ export function Section01Measure({ daysData }: Props) {
           <span className="inline-flex items-center justify-center w-3 h-3 rounded-full border border-neutral-700 text-[8px] text-neutral-400">
             i
           </span>
-          <span>· LAST YEAR</span>
+          <span>· {periodLabel}</span>
         </div>
 
         {/* Large Editorial Serif Number */}
@@ -129,13 +138,13 @@ export function Section01Measure({ daysData }: Props) {
           <div className="flex items-center gap-3">
             <span className="bg-[#d6ff3e] text-black px-2 py-0.5 font-semibold text-[10px]">FIG.03</span>
             <span className="text-neutral-100">MONTH BINS</span>
-            <span className="text-neutral-500 hidden sm:inline">— FIG.B: 12 BUCKETS</span>
+            <span className="text-neutral-500 hidden sm:inline">— FIG.B: {bucketCount} BUCKETS</span>
           </div>
           <span className="text-neutral-600 text-[9px] hidden md:inline">
-            12 MONTH CARDS WITH NESTED DAY STRIPS — NO DEAD SPACE
+            {bucketCount} MONTH CARDS WITH NESTED DAY STRIPS — NO DEAD SPACE
           </span>
         </div>
-        <MonthBins days={filteredDays} />
+        <MonthBins days={filteredDays} metric={activeTab} />
       </div>
     </section>
   );
