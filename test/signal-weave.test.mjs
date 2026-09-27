@@ -22,8 +22,11 @@ test('S15 Signal Weave is screen-wide, non-blocking, and sync-state driven', () 
   assert.match(overlay, /sync\?\.status === 'syncing'/);
   assert.match(overlay, /pumping &&/);
 
-  // Canonical S15 visual grammar from the supplied prototype.
-  assert.match(overlay, /const vy = Math\.min\(100, p \* 1\.6\)/);
+  // Canonical S15 visual grammar from the supplied prototype, with the
+  // production smoothing layer that bridges real ~1.5s sync updates.
+  assert.match(overlay, /REAL_SYNC_TWEEN_MS = 1450/);
+  assert.match(overlay, /requestAnimationFrame\(frame\)/);
+  assert.match(overlay, /Math\.pow\(1 - t, 1\.6\)/);
   assert.match(overlay, /repeating-linear-gradient\(45deg/);
   assert.match(overlay, /H-AXIS/);
   assert.match(overlay, /V-AXIS/);
