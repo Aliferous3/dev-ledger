@@ -34,3 +34,12 @@ test('S10 Terminal Cursor preserves the supplied reference grammar', () => {
   assert.match(overlay, /CURSOR_TWEEN_MS = 1800/);
   assert.match(overlay, /translate3d/);
 });
+
+
+test('temporary Terminal Cursor visual-QA hook is absent from the release diff', () => {
+  const main = src('src/main.tsx');
+  const overlay = src('src/components/TerminalCursorSyncOverlay.tsx');
+
+  assert.doesNotMatch(main, /TerminalCursorPreview|cursor-preview|S10 VISUAL QA/);
+  assert.doesNotMatch(overlay, /previewProgress|previewPhase|previewing/);
+});
