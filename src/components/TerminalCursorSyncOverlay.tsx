@@ -42,17 +42,9 @@ function syncTarget(
   return Math.min(99, Math.max(0, n * 100));
 }
 
-export function TerminalCursorSyncOverlay({
-  previewProgress,
-  previewPhase,
-}: {
-  previewProgress?: number;
-  previewPhase?: string;
-} = {}) {
+export function TerminalCursorSyncOverlay() {
   const { dash, pumping } = useLedger();
   const sync = dash.sync;
-  const previewing = Number.isFinite(previewProgress);
-
   const [freshPump, setFreshPump] = useState(false);
   const prevPumping = useRef(pumping);
 
@@ -66,7 +58,6 @@ export function TerminalCursorSyncOverlay({
   // Same effective-state rule as SYNC.MON. A blocked/error state ends the
   // animation immediately rather than allowing a decorative overlay to lie.
   const syncing =
-    previewing ||
     sync?.status === 'syncing' ||
     (pumping && (!sync || sync.status === 'idle' || sync.status === 'complete'));
 
@@ -102,38 +93,28 @@ export function TerminalCursorSyncOverlay({
 
   if (!syncing && !justDone) return null;
 
-  const p = previewing
-    ? Math.max(0, Math.min(100, Number(previewProgress)))
-    : justDone
-      ? 100
-      : syncTarget(
-          freshPump,
-          pumping,
-          sync?.status,
-          sync?.phase,
-          sync?.progress,
-        );
+  const p = justDone
+    ? 100
+    : syncTarget(
+        freshPump,
+        pumping,
+        sync?.status,
+        sync?.phase,
+        sync?.progress,
+      );
 
-  const phase = previewing
-    ? phaseLabel(previewPhase ?? 'commits')
-    : justDone
-      ? 'COMPLETE'
-      : phaseLabel(sync?.phase);
+  const phase = justDone ? 'COMPLETE' : phaseLabel(sync?.phase);
 
   // Real sync updates arrive in discrete slices. The write head itself is a
   // compositor-friendly transform with a linear transition long enough to
   // bridge those observations, so it glides instead of stepping.
   const transformTransition = reducedMotion
     ? 'none'
-    : previewing
-      ? 'none'
-      : `transform ${CURSOR_TWEEN_MS}ms linear`;
+    : `transform ${CURSOR_TWEEN_MS}ms linear`;
 
   const veilTransition = reducedMotion
     ? 'none'
-    : previewing
-      ? 'none'
-      : `transform ${CURSOR_TWEEN_MS}ms linear`;
+    : `transform ${CURSOR_TWEEN_MS}ms linear`;
 
   return (
     <div
