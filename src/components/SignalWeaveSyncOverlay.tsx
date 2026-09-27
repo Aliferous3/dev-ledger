@@ -33,22 +33,24 @@ function activeProgress(
 function useTweenedProgress(
   target: number,
   active: boolean,
+  syncing: boolean,
   durationMs: number,
   reducedMotion: boolean,
 ) {
   const [value, setValue] = useState(target);
   const valueRef = useRef(target);
-  const wasActive = useRef(active);
+  const wasSyncing = useRef(syncing);
 
   useEffect(() => {
     // A new run gets a clean baseline immediately: manual runs begin at 0,
     // while an already-running external sync opens at its truthful position.
-    if (active && !wasActive.current) {
+    // Completion is NOT a new run, so the final 100% leg can tween smoothly.
+    if (syncing && !wasSyncing.current) {
       valueRef.current = target;
       setValue(target);
     }
-    wasActive.current = active;
-  }, [active, target]);
+    wasSyncing.current = syncing;
+  }, [syncing, target]);
 
   useEffect(() => {
     if (!active) return;
@@ -133,17 +135,18 @@ export function SignalWeaveSyncOverlay({
     setJustDone(false);
   }, [syncing, sync?.status, sync?.phase]);
 
-  if (!syncing && !justDone) return null;
-
   const targetP = justDone
     ? 100
     : activeProgress(pumping, sync?.status, sync?.progress);
   const realP = useTweenedProgress(
     targetP,
     syncing || justDone,
+    syncing,
     REAL_SYNC_TWEEN_MS,
     reducedMotion,
   );
+
+  if (!syncing && !justDone) return null;
   // The QA-only preview already supplies a requestAnimationFrame-driven
   // percentage, so do not smooth it a second time.
   const p = previewing
