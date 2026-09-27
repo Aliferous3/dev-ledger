@@ -2,93 +2,35 @@
   "buildCommand": "npm run build",
   "framework": "vite",
   "functions": {
-    "api/sync.mjs": {
-      "maxDuration": 60
-    },
-    "api/sync-range.mjs": {
-      "maxDuration": 60
-    },
-    "api/cron/sync.mjs": {
-      "maxDuration": 60
-    }
+    "api/sync.mjs": { "maxDuration": 60 },
+    "api/sync-range.mjs": { "maxDuration": 60 },
+    "api/cron/sync.mjs": { "maxDuration": 60 }
   },
   "crons": [
-    {
-      "path": "/api/cron/sync",
-      "schedule": "0 2 * * *"
-    }
+    { "path": "/api/cron/sync", "schedule": "0 2 * * *" }
   ],
-  "redirects": [],
   "rewrites": [
-    {
-      "source": "/rly/e/",
-      "destination": "https://eu.i.posthog.com/e/"
-    },
-    {
-      "source": "/rly/i/v0/e/",
-      "destination": "https://eu.i.posthog.com/i/v0/e/"
-    },
-    {
-      "source": "/rly/:path*",
-      "destination": "https://eu.i.posthog.com/:path*"
-    },
-    {
-      "source": "/og.png",
-      "destination": "/api/user?action=social-card"
-    },
-    {
-      "source": "/api/feedback",
-      "destination": "/api/user?action=feedback"
-    },
-    {
-      "source": "/overview",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/activity",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/code",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/security",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/privacy",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/terms",
-      "destination": "/index.html"
-    }
+    { "source": "/rly/e/", "destination": "https://eu.i.posthog.com/e/" },
+    { "source": "/rly/i/v0/e/", "destination": "https://eu.i.posthog.com/i/v0/e/" },
+    { "source": "/rly/:path*", "destination": "https://eu.i.posthog.com/:path*" },
+    { "source": "/og.png", "destination": "/api/user?action=social-card" },
+    { "source": "/api/feedback", "destination": "/api/user?action=feedback" },
+    { "source": "/overview", "destination": "/index.html" },
+    { "source": "/activity", "destination": "/index.html" },
+    { "source": "/code", "destination": "/index.html" },
+    { "source": "/security", "destination": "/index.html" },
+    { "source": "/privacy", "destination": "/index.html" },
+    { "source": "/terms", "destination": "/index.html" }
   ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "strict-origin-when-cross-origin"
-        },
-        {
-          "key": "Strict-Transport-Security",
-          "value": "max-age=63072000; includeSubDomains"
-        },
-        {
-          "key": "Permissions-Policy",
-          "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
-        },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()" },
         {
           "key": "Content-Security-Policy",
           "value": "default-src 'self'; script-src 'self'; script-src-attr 'none'; style-src 'self'; style-src-elem 'self' 'sha256-HR6/MuuYfB8aijiNP5MPm3YOR8WqVmL7UkE3Q8OslTs='; style-src-attr 'none'; font-src 'self'; img-src 'self' data: https://avatars.githubusercontent.com; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
