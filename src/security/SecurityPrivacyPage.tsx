@@ -10,6 +10,7 @@
      - stored schema (migrations/*) — especially data-minimization fields
      - session/auth model (lib/auth.mjs, lib/sessions.mjs, lib/config.mjs)
      - security telemetry fields/retention (lib/security-events.mjs, 009)
+     - platform analytics wiring (Vercel Web Analytics mount in src/main.tsx)
      - account/repo deletion behavior (api/user.mjs)
      - backup/retention posture (scripts/backup-*.mjs, docs/disaster-recovery.md)
    Code and migrations remain authoritative; this file carries no secrets
@@ -280,6 +281,7 @@ export function SecurityPrivacyPage() {
               ['RECORDED', 'Event type, severity, route and method, status, request id, reason code, and HMAC-derived correlation hashes that can group repeated events without storing the raw actor or source identifier in the security-event record.'],
               ['SECURITY EVENT EXCLUSIONS', 'Dev Ledger\u2019s security-event records and structured security-event log lines do not include raw IP address, User-Agent, cookies, authorization headers, OAuth tokens, request bodies, or stack traces. This statement does not describe separate platform-level request or operational logs.'],
               ['RETENTION', 'Core analytics are kept while your account or a repository\u2019s history is retained. Persisted security events target a 30-day retention window via scheduled cleanup. Webhook replay-deduplication rows are pruned once older than 30 days when subsequent valid webhook traffic arrives, so actual deletion can occur later during quiet periods. Sessions expire and revoke independently. Backups carry their own recovery retention.'],
+              ['PLATFORM ANALYTICS', 'This site is hosted on Vercel and loads Vercel Web Analytics — the platform\u2019s built-in, cookieless traffic measurement. Per Vercel\u2019s documentation it records page views (page URL, referrer, browser, OS, device type, and country-level location), identifies visitors by a hash derived from the incoming request that resets daily, reports only aggregated statistics, and cannot identify or re-identify an individual visitor or follow them across days or other sites. Its script and beacons are served same-origin under /_vercel/insights/ — no third-party domain is contacted. This platform measurement is separate from Dev Ledger\u2019s own records: it is not stored in the Dev Ledger database, it does not read your GitHub or dashboard data, and it is not covered by DELETE MY DATA because Dev Ledger does not hold it.'],
             ]} />
           </section>
 
