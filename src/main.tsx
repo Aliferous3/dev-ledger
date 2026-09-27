@@ -1,5 +1,6 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { Analytics } from "@vercel/analytics/react";
 // Self-hosted typefaces (OFL-licensed via Fontsource) — replaces the previous
 // Google Fonts request so production never contacts fonts.g* APIs/CDNs.
 import "@fontsource/instrument-serif/latin-400.css";
@@ -161,5 +162,9 @@ function Root() {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <Root />
+    {/* Vercel Web Analytics — one instance at the true root so it covers
+        /security, /privacy, the login gate, and every authenticated page.
+        Same-origin /_vercel/insights/* — fits the existing CSP. */}
+    <Analytics />
   </StrictMode>
 );

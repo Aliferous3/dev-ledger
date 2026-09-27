@@ -27,6 +27,19 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const BACKED_UP = BACKUP_TABLES
 const DATA_TABLES = [...BACKED_UP, ...EPHEMERAL_TABLES.filter((t) => t !== 'schema_migrations')]
 
+// The number of migrations the runner applies = the .sql files in
+// migrations/ — derived, so adding a migration never desyncs the drill.
+const MIGRATION_COUNT = fs
+  .readdirSync(path.join(root, 'migrations'))
+  .filter((f) => f.endsWith('.sql')).length
+
+// Deterministic bytea fixture — a real PNG signature + payload so the
+// drill proves binary data survives the dump/restore byte-identically.
+const DRILL_SCREENSHOT = Buffer.from(
+  '89504e470d0a1a0a' + '00010203040506070809fffefdfcfbfaf9f8',
+  'hex'
+)
+
 function fail(msg) {
   console.error(`drill: ${msg}`)
   process.exit(1)
@@ -76,6 +89,11 @@ async function seed(sql) {
   await sql`insert into user_sync (user_id, status, phase, progress) values (${uid}, 'complete', 'done', 1)`
   await sql`insert into repo_coverage (user_id, repository_id, covered_from, covered_to, complete)
             values (${uid}, ${repoId}, now() - interval '30 days', now(), true)`
+  // 010_feedback — user-authored, not re-ingestable; the drill must prove
+  // the bytea screenshot survives the round-trip byte-identically.
+  await sql`insert into feedback (user_id, type, title, description, screenshot, screenshot_mime, screenshot_name, page, selected_range, build)
+            values (${uid}, 'BUG', 'drill transmission', 'synthetic drill row', ${DRILL_SCREENSHOT},
+                    'image/png', 'drill.png', 'OVERVIEW', '90D', 'V1.3.0')`
   // ephemeral rows — must NOT survive the backup
   await sql`insert into auth_sessions (sid, user_id, expires_at) values ('drill-sid', ${uid}, now() + interval '1 day')`
   await sql`insert into webhook_deliveries (delivery_id, event) values ('drill-delivery', 'push')`
@@ -129,7 +147,23 @@ async function verify(src, dst, ids, extraProblems = []) {
   }
   // schema_migrations rebuilt by the runner, not the dump
   const [mig] = await dst`select count(*)::int c from schema_migrations`
-  check(mig.c === 9, `schema_migrations: expected 9 rows, found ${mig.c}`)
+  check(mig.c === MIGRATION_COUNT, `schema_migrations: expected ${MIGRATION_COUNT} rows, found ${mig.c}`)
+
+  // feedback field-level round-trip — counts alone would miss a bytea that
+  // silently corrupted across the dump/restore boundary.
+  const [fb] = await dst`
+    select user_id, type, title, description, encode(screenshot, 'hex') as shot_hex,
+           screenshot_mime, screenshot_name, page, selected_range, build
+    from feedback`
+  check(fb?.user_id === ids.uid, 'feedback user_id did not round-trip')
+  check(fb?.type === 'BUG' && fb?.title === 'drill transmission' && fb?.description === 'synthetic drill row',
+    'feedback type/title/description did not round-trip')
+  check(fb?.shot_hex === DRILL_SCREENSHOT.toString('hex'),
+    'feedback screenshot bytes differ after restore')
+  check(fb?.screenshot_mime === 'image/png' && fb?.screenshot_name === 'drill.png',
+    'feedback screenshot metadata did not round-trip')
+  check(fb?.page === 'OVERVIEW' && fb?.selected_range === '90D' && fb?.build === 'V1.3.0',
+    'feedback context fields did not round-trip')
 
   // FK integrity + uuid round-trip
   const [orphans] = await dst`select count(*)::int c from commits c left join repositories r on c.repository_id = r.id where r.id is null`
