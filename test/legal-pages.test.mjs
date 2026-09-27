@@ -64,3 +64,21 @@ test('legal pages do not claim certifications or absolute compliance', () => {
     assert.ok(!re.test(legal), `legal pages must not overclaim: ${re}`);
   }
 });
+
+
+test('legal pages mirror the security trust-record visual grammar', () => {
+  const shell = src('src/legal/LegalPageShell.tsx');
+  const privacy = src('src/legal/PrivacyPolicyPage.tsx');
+  const terms = src('src/legal/TermsOfServicePage.tsx');
+
+  assert.match(shell, /max-w-\[880px\]/);
+  assert.match(shell, /aria-label="Sections"/);
+  assert.match(shell, /grid sm:grid-cols-2 gap-x-8 gap-y-1\.5/);
+  assert.match(shell, /00|LEGAL RECORD/);
+  assert.match(shell, /END OF RECORD/);
+
+  assert.match(privacy, /const SECTIONS = \[/);
+  assert.match(privacy, /sections=\{SECTIONS\.map/);
+  assert.match(terms, /const SECTIONS = \[/);
+  assert.match(terms, /sections=\{SECTIONS\.map/);
+});
