@@ -13,6 +13,8 @@
     { "source": "/privacy", "destination": "/security", "permanent": true }
   ],
   "rewrites": [
+    { "source": "/rly/e/", "destination": "https://eu.i.posthog.com/e/" },
+    { "source": "/rly/i/v0/e/", "destination": "https://eu.i.posthog.com/i/v0/e/" },
     { "source": "/rly/:path*", "destination": "https://eu.i.posthog.com/:path*" },
     { "source": "/api/feedback", "destination": "/api/user?action=feedback" },
     { "source": "/overview", "destination": "/index.html" },
