@@ -183,8 +183,11 @@ export function scrubEventProperties(eventName, properties) {
   const clean = {};
   for (const [key, value] of Object.entries(properties || {})) {
     if (DENIED_EVENT_PROPERTIES.includes(key)) continue;
-    if (!key.startsWith('
-
+    if (!key.startsWith('$') && !allowedCustom.has(key) && !requiredSdk.has(key)) continue;
+    clean[key] = value;
+  }
+  return clean;
+}
 // ── SDK initialization options ─────────────────────────────────────────────
 
 // Every automatic collector explicitly OFF — custom allowlisted events only.
