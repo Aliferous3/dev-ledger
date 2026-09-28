@@ -14,12 +14,6 @@ Dev Ledger is an open-source, privacy-conscious, read-only developer analytics a
   />
 </p>
 
-<p align="center">
-  <a href="https://devledger.site">
-    <img src="https://devledger.site/og.png" alt="Dev Ledger — Your work, measured over time." width="900">
-  </a>
-</p>
-
 ## What it does
 
 Dev Ledger connects through a GitHub App and builds a read-only analytical record from repositories the user explicitly authorizes.
