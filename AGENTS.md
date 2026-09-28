@@ -3,7 +3,7 @@
 ## Commands
 
 - Test: `npm test` (node:test, no DOM runner — source-level guards where DOM is needed)
-- Build: `npm run build` (Vite + vite-plugin-singlefile)
+- Build: `npm run build` (Vite, hashed multi-file assets)
 - Preview: `npm run dev` (plain Vite, no API — design/fixture mode) · `vercel dev` (real API routes)
 - DB ops: `npm run db:migrate` (apply `migrations/` to the operator DB) · `npm run db:backup` (pg_dump `--data-only` of core tables → gitignored `.recovery/` + sha256 sidecar) · `npm run db:drill` (localhost-only synthetic migrate→dump→restore→verify; refuses non-local hosts). Operator env precedence: process env > `.env.local` > `.env` via `scripts/operator-env.mjs` — secrets ride `PG*` env vars, never argv/logs. Runbook: `docs/disaster-recovery.md`.
 
@@ -35,7 +35,7 @@ No cookie attribute can force process-exit expiry, and process-exit detection pr
 
 Accepted trade-offs (intentional): sleep/hibernate or offline > lease → re-login on return; reopening within the lease window after closing stays signed in.
 
-Production acceptance matrix (real OAuth, canonical `https://devledger-app.vercel.app`):
+Production acceptance matrix (real OAuth, canonical `https://devledger.site`):
 
 - Default: OAuth → dashboard → refresh ✓ → hard refresh ✓ → new tab ✓ → tab open >5min stays in (heartbeat) · all tabs closed >5min → logged out (any browser, restore or not)
 - Remember: same, and restart → still logged in (~30 days, no lease)
