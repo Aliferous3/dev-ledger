@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 // Self-hosted typefaces (OFL-licensed via Fontsource) — replaces the previous
 // Google Fonts request so production never contacts fonts.g* APIs/CDNs.
 import "@fontsource/instrument-serif/latin-400.css";
@@ -172,5 +173,7 @@ createRoot(document.getElementById("root")!).render(
         /security, /privacy, the login gate, and every authenticated page.
         Same-origin /_vercel/insights/* — fits the existing CSP. */}
     <Analytics />
+    {/* Vercel Speed Insights — captures real-user Core Web Vitals in production. */}
+    <SpeedInsights />
   </StrictMode>
 );
