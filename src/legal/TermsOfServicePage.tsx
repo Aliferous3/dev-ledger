@@ -30,8 +30,8 @@ export function TermsOfServicePage() {
     >
       <LegalSection id="terms-acceptance" num="00" title="ACCEPTANCE OF THESE TERMS">
         <p>
-          By selecting “Continue with GitHub”, creating or using a Dev Ledger account, or otherwise accessing the
-          authenticated service, you agree to these Terms of Service. If you do not agree, do not continue with GitHub
+          By selecting “Continue on GitHub”, creating or using a Dev Ledger account, or otherwise accessing the
+          authenticated service, you agree to these Terms of Service. If you do not agree, do not continue on GitHub
           or use the authenticated service.
         </p>
         <p>
