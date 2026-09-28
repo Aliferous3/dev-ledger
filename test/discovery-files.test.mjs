@@ -12,6 +12,8 @@ test('sitemap exposes only canonical public pages and has a human stylesheet', (
     'https://devledger.site/security',
     'https://devledger.site/privacy',
     'https://devledger.site/terms',
+    'https://devledger.site/blog',
+    'https://devledger.site/blog/analyze-github-development-history',
   ]) assert.ok(sitemap.includes(url), 'missing sitemap URL: ' + url)
   assert.ok(!sitemap.includes('/api/'))
   assert.ok(!sitemap.includes('/overview'))
@@ -40,6 +42,7 @@ test('llms.txt follows the discovery manifest contract', () => {
   assert.ok(llms.startsWith('# Dev Ledger\n'))
   assert.ok(llms.includes('> Dev Ledger is an open-source developer analytics application'))
   assert.ok(llms.includes('https://devledger.site/security'))
+  assert.ok(llms.includes('https://devledger.site/blog'))
   assert.ok(llms.includes('https://github.com/Aliferous3/dev-ledger'))
   assert.ok(llms.includes('does not persist repository source code'))
   assert.ok(llms.includes('## Discovery'))
@@ -53,4 +56,16 @@ test('sitemap presentation assets exist and llms discovery is advertised by HTTP
   assert.ok(xsl.includes('href="/sitemap.css"'))
   assert.ok(css.includes('#d6ff3e'))
   assert.ok(vercel.includes('</llms.txt>; rel=\\"describedby\\"; type=\\"text/markdown\\"'))
+})
+
+test('blog discovery exposes RSS and keeps authenticated routes out of the sitemap', () => {
+  const sitemap = src('public/sitemap.xml')
+  const rss = src('public/rss.xml')
+  assert.ok(sitemap.includes('https://devledger.site/blog'))
+  assert.ok(sitemap.includes('https://devledger.site/blog/analyze-github-development-history'))
+  assert.ok(!sitemap.includes('https://devledger.site/overview'))
+  assert.ok(!sitemap.includes('https://devledger.site/activity'))
+  assert.ok(!sitemap.includes('https://devledger.site/code'))
+  assert.ok(rss.includes('<title>Dev Ledger Blog</title>'))
+  assert.ok(rss.includes('How to Analyze Your GitHub Development History'))
 })
