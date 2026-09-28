@@ -124,9 +124,12 @@ export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
                 <p
                   ref={registerM12}
                   style={m12Delay(10)}
-                  className="m12 relative max-w-[320px] text-left md:text-right text-[8px] leading-relaxed text-neutral-600"
+                  className="m12 relative max-w-[320px] text-left md:text-right text-[8px] leading-relaxed text-neutral-500"
                 >
-                  By continuing with GitHub, you agree to the{' '}
+                  Authentication takes place on github.com. Dev Ledger never asks for or receives your GitHub password.
+                </p>
+                <p className="relative max-w-[320px] text-left md:text-right text-[8px] leading-relaxed text-neutral-600">
+                  By continuing on GitHub, you agree to the{' '}
                   <a
                     href="/terms"
                     className="text-neutral-500 underline underline-offset-2 hover:text-neutral-300 focus-visible:text-neutral-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40"
