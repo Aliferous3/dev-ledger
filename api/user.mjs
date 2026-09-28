@@ -6,7 +6,6 @@ import { revokeAllSessions, isSessionLive } from '../lib/sessions.mjs'
 import { requestQuery } from '../lib/request-query.mjs'
 import { forbidCrossSite } from '../lib/same-origin.mjs'
 import { securityEvent, sessionDenied } from '../lib/security-events.mjs'
-import { sendSocialCard } from '../lib/social-card.mjs'
 import {
   normalizeFeedback,
   normalizeScreenshot,
@@ -20,13 +19,6 @@ import {
 //          the Hobby cap instead of adding a dedicated function).
 // DELETE — permanently delete the caller's Dev Ledger data, then sign out.
 export default async function handler(req, res) {
-  // Public launch asset: serve before session lookup so social crawlers do
-  // not create/destroy cookies and so this reuses an existing Hobby function.
-  if (req.method === 'GET' && requestQuery(req).action === 'social-card') {
-    sendSocialCard(res)
-    return
-  }
-
   // Mutations must fail closed before getSession() runs: it can destroy an
   // expired session, which emits a Set-Cookie — a cross-site request must not
   // even reach cookie-writing code.

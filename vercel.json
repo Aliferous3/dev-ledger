@@ -32,10 +32,6 @@
       "destination": "https://eu.i.posthog.com/:path*"
     },
     {
-      "source": "/og.png",
-      "destination": "/api/user?action=social-card"
-    },
-    {
       "source": "/api/feedback",
       "destination": "/api/user?action=feedback"
     },
