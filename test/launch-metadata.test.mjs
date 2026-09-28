@@ -34,3 +34,29 @@ test('social preview endpoint returns a static PNG with cache headers', () => {
   assert.match(vercel, /"source": "\/og\.png"/);
   assert.match(vercel, /"destination": "\/api\/user\?action=social-card"/);
 });
+
+test('public trust and legal routes ship route-specific crawl-time metadata', () => {
+  const cases = [
+    ['security.html', 'Security & Privacy — Dev Ledger', 'https://devledger.site/security'],
+    ['privacy.html', 'Privacy Policy — Dev Ledger', 'https://devledger.site/privacy'],
+    ['terms.html', 'Terms of Service — Dev Ledger', 'https://devledger.site/terms'],
+  ];
+
+  for (const [file, title, canonical] of cases) {
+    const html = src(file);
+    assert.ok(html.includes(`<title>${title}</title>`), file + ' title');
+    assert.ok(html.includes(`<link rel="canonical" href="${canonical}" />`), file + ' canonical');
+    assert.ok(html.includes(`property="og:url" content="${canonical}"`), file + ' og:url');
+    assert.ok(html.includes(`property="og:title" content="${title}"`), file + ' og:title');
+    assert.ok(html.includes(`name="twitter:title" content="${title}"`), file + ' twitter:title');
+    assert.ok(html.includes('https://devledger.site/og.png'), file + ' social image');
+    assert.ok(html.includes('name="robots" content="index,follow"'), file + ' robots');
+  }
+});
+
+test('vite builds dedicated public-route HTML entry points', () => {
+  const vite = src('vite.config.ts');
+  for (const file of ['index.html', 'security.html', 'privacy.html', 'terms.html']) {
+    assert.ok(vite.includes(file), 'missing Vite input: ' + file);
+  }
+});

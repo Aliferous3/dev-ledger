@@ -15,12 +15,17 @@ const PAGE = 'src/security/SecurityPrivacyPage.tsx';
 
 // ── Routing: trust + legal documents are public ─────────────────────────────
 
-test('vercel.json serves /security, /privacy and /terms directly', () => {
+test('vercel.json serves /security, /privacy and /terms through dedicated metadata shells', () => {
   const v = JSON.parse(src('vercel.json'));
-  for (const route of ['/security', '/privacy', '/terms']) {
+  const destinations = {
+    '/security': '/security.html',
+    '/privacy': '/privacy.html',
+    '/terms': '/terms.html',
+  };
+  for (const [route, destination] of Object.entries(destinations)) {
     assert.ok(
-      v.rewrites?.some((r) => r.source === route && r.destination === '/index.html'),
-      `${route} must rewrite to index.html for direct loads`,
+      v.rewrites?.some((r) => r.source === route && r.destination === destination),
+      `${route} must rewrite to ${destination} for direct loads`,
     );
   }
   assert.ok(

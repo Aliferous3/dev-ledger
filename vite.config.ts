@@ -12,6 +12,18 @@ export default defineConfig(({ command }) => ({
   // Ordinary hashed assets (no single-file inlining): enables a strict
   // `script-src 'self'` CSP — no inline JavaScript needs to execute.
   plugins: [react(), tailwindcss()],
+  build: {
+    // Multi-page HTML shells give public trust/legal routes crawl-time
+    // metadata without changing the React route layer or authenticated app.
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        security: path.resolve(__dirname, "security.html"),
+        privacy: path.resolve(__dirname, "privacy.html"),
+        terms: path.resolve(__dirname, "terms.html"),
+      },
+    },
+  },
   resolve: {
     alias: [
       { find: "@", replacement: path.resolve(__dirname, "src") },
