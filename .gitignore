@@ -45,6 +45,9 @@ sbom*.json
 *.dump.sha256
 *.backup
 
+# generated static blog HTML (source is content/blog/*.md)
+/blog/
+
 # local build cache
 
 # NOTE: do NOT re-add a bare `.env*` here — it would re-ignore `.env.example`,
