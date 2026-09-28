@@ -2,7 +2,7 @@
 
 > Dev Ledger is an open-source developer analytics application that turns GitHub history into a longitudinal record of source growth, activity patterns, languages, milestones, and project evolution.
 
-Dev Ledger is available at https://devledger.site and its source is public at https://github.com/Aliferous3/dev-ledger. The hosted application authenticates through GitHub OAuth and a read-only GitHub App. Public product, legal, and security pages may be indexed and summarized. Authenticated application routes, API endpoints, and telemetry relays are not intended for crawling.
+Dev Ledger is available at https://devledger.site and its source is public at https://github.com/Aliferous3/dev-ledger. The hosted application authenticates through GitHub OAuth and a read-only GitHub App. Public product, legal, security, and blog pages may be indexed and summarized. Authenticated application routes, API endpoints, and telemetry relays are not intended for crawling.
 
 Key data-handling facts: Dev Ledger does not persist repository source code, commit messages, pull-request titles, GitHub email addresses, GitHub OAuth access tokens, GitHub App installation tokens, or raw webhook payload bodies. It stores GitHub-derived metadata needed to compute analytics and maintain sync state.
 
@@ -12,6 +12,11 @@ Key data-handling facts: Dev Ledger does not persist repository source code, com
 - [Security & Privacy](https://devledger.site/security): Public trust record covering access, storage, authentication, isolation, controls, and recovery.
 - [Privacy Policy](https://devledger.site/privacy): Privacy policy for the hosted service.
 - [Terms of Service](https://devledger.site/terms): Terms governing use of the hosted service.
+
+## Blog
+
+- [Dev Ledger Blog](https://devledger.site/blog): Writing about GitHub history, code metrics, developer analytics, privacy, and the systems behind Dev Ledger.
+- [How to Analyze Your GitHub Development History](https://devledger.site/blog/analyze-github-development-history): A practical guide to reading source growth, churn, commits, active days, languages, and repository evolution.
 
 ## Open-source documentation
 
@@ -26,6 +31,7 @@ Key data-handling facts: Dev Ledger does not persist repository source code, com
 ## Discovery
 
 - [Sitemap](https://devledger.site/sitemap.xml): Canonical list of public indexable pages.
+- [RSS feed](https://devledger.site/rss.xml): Dev Ledger blog feed.
 - [Crawler policy](https://devledger.site/robots.txt): Search and AI crawler access policy.
 
 ## Optional
