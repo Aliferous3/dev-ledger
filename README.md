@@ -7,6 +7,14 @@ Dev Ledger is an open-source, privacy-conscious, read-only developer analytics a
 [Live app](https://devledger.site) · [Source license](LICENSE) · [Privacy Policy](https://devledger.site/privacy) · [Terms of Service](https://devledger.site/terms) · [Security & Privacy](https://devledger.site/security)
 
 <p align="center">
+  <img
+    src="https://d2ol7oe51mr4n9.cloudfront.net/user_3GpOWm9epe88c9na7udIEi8dsIo/d3b6f6b5-3c09-4dea-815a-05a655ed10b1.webp"
+    alt="Dev Ledger product demo"
+    width="900"
+  />
+</p>
+
+<p align="center">
   <a href="https://devledger.site">
     <img src="https://devledger.site/og.png" alt="Dev Ledger — Your work, measured over time." width="900">
   </a>
