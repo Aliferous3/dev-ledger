@@ -26,7 +26,7 @@ test('privacy policy is a standalone public legal document', () => {
 test('terms cover assent, authorized use, service limits, deletion and liability boundaries', () => {
   const terms = src('src/legal/TermsOfServicePage.tsx');
   assert.match(terms, /TERMS OF SERVICE/);
-  assert.match(terms, /By selecting “Continue with GitHub”/);
+  assert.match(terms, /By selecting “Continue on GitHub”/);
   assert.match(terms, /GITHUB ACCESS/);
   assert.match(terms, /ACCEPTABLE USE/);
   assert.match(terms, /METRICS & OUTPUT LIMITATIONS/);
@@ -39,7 +39,8 @@ test('terms cover assent, authorized use, service limits, deletion and liability
 
 test('login uses affirmative click-through notice with both legal documents', () => {
   const login = src('src/ledger/LoginScreen.tsx');
-  assert.match(login, /By continuing with GitHub, you agree to the/);
+  assert.match(login, /By continuing on GitHub, you agree to the/);
+  assert.match(login, /Authentication takes place on github\.com\. Dev Ledger never asks for or receives your GitHub password\./);
   assert.match(login, /Terms of Service/);
   assert.match(login, /and acknowledge the/);
   assert.match(login, /Privacy Policy/);
