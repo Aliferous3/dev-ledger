@@ -191,8 +191,7 @@ incl. CSP), all code, migrations.
 - Production env var **names** — the complete list is
   `security/secret-inventory.json` (values come from the secret store /
   rotation runbook, never the repo).
-- Production alias/custom domain — `devledger-app.vercel.app` baseline;
-  re-point DNS if a custom domain exists.
+- Production custom domain — `devledger.site`; re-point DNS to the replacement deployment if infrastructure is recreated.
 - Deployment Protection — expected: preview protection requires login.
   *(operator verification item — not verifiable from the repo)*
 - Firewall/WAF — expected posture: custom observation rules on auth login,
