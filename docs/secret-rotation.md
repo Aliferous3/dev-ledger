@@ -69,7 +69,7 @@ Shared verification primitives referenced below:
   `cron_auth_failed`, `auth_callback_failed`, `security_internal_error`) are
   **console-only by design** — anonymous traffic must not be able to force
   DB writes. Check Runtime Logs for those, not the table.
-- **Health:** `GET https://devledger-app.vercel.app/api/health` → 200.
+- **Health:** `GET https://devledger.site/api/health` → 200.
 - **Auth path:** sign in through the OAuth flow in a private window.
 - **Sync path:** authenticated `POST /api/sync` → confirm rows update.
 - **Webhook path:** GitHub App settings → Recent Deliveries → redeliver a
