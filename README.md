@@ -2,9 +2,9 @@
 
 **Your GitHub history, made legible.**
 
-Dev Ledger is a private, read-only developer analytics application that turns GitHub history into a longitudinal record of work: commits, source growth, activity patterns, languages, projects, and change over time.
+Dev Ledger is an open-source, privacy-conscious, read-only developer analytics application that turns GitHub history into a longitudinal record of work: commits, source growth, activity patterns, languages, projects, and change over time.
 
-[Live app](https://devledger.site) · [Privacy Policy](https://devledger.site/privacy) · [Terms of Service](https://devledger.site/terms) · [Security & Privacy](https://devledger.site/security)
+[Live app](https://devledger.site) · [Source license](LICENSE) · [Privacy Policy](https://devledger.site/privacy) · [Terms of Service](https://devledger.site/terms) · [Security & Privacy](https://devledger.site/security)
 
 <p align="center">
   <a href="https://devledger.site">
@@ -157,3 +157,12 @@ The repository CI is intentionally fail-closed around common release risks: depe
 Current application version: **v1.3.0**
 
 Dev Ledger is under active development. Metrics are derived from available GitHub history and can be affected by repository deletion, force-pushes, attribution gaps, API limits, and disconnected repositories.
+
+
+## License
+
+Dev Ledger is open source under the **GNU Affero General Public License v3.0 only (AGPL-3.0-only)**. See [LICENSE](LICENSE).
+
+The AGPL permits use, modification, redistribution, and commercial use subject to its terms, including source-availability obligations for qualifying modified network deployments. The Dev Ledger name, logo, and distinctive branding are addressed separately in [TRADEMARKS.md](TRADEMARKS.md).
+
+Contributions are welcome under [CONTRIBUTING.md](CONTRIBUTING.md) and the [Contributor License Agreement](CONTRIBUTOR_LICENSE_AGREEMENT.md).
