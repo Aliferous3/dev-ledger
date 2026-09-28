@@ -1,4 +1,39 @@
+# DEV LEDGER — crawler policy
+# Public product and documentation pages are intentionally discoverable.
+# Authenticated application surfaces, API routes, and telemetry relays are not.
+# Updated: 2026-09-28
+
 User-agent: *
 Allow: /
 Disallow: /api/
+Disallow: /rly/
+Disallow: /overview
+Disallow: /activity
+Disallow: /code
+
+# AI search, answer, retrieval, and model crawlers.
+# Discoverability-first policy: public pages are allowed; private/app surfaces remain blocked.
+User-agent: OAI-SearchBot
+User-agent: GPTBot
+User-agent: ChatGPT-User
+User-agent: ClaudeBot
+User-agent: Claude-SearchBot
+User-agent: Claude-User
+User-agent: PerplexityBot
+User-agent: Perplexity-User
+User-agent: Google-Extended
+User-agent: Applebot
+User-agent: Applebot-Extended
+User-agent: meta-webindexer
+User-agent: meta-externalagent
+User-agent: meta-externalfetcher
+User-agent: CCBot
+User-agent: Bytespider
+Allow: /
+Disallow: /api/
+Disallow: /rly/
+Disallow: /overview
+Disallow: /activity
+Disallow: /code
+
 Sitemap: https://devledger.site/sitemap.xml
