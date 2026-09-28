@@ -74,6 +74,14 @@ Do not add persistent storage for:
 
 unless the product model is deliberately changed and the legal/security documentation is updated in the same pull request.
 
+## Contributor licensing
+
+Dev Ledger preserves the option to offer the project under additional licenses in the future while keeping published open-source releases available under their existing license.
+
+By submitting a pull request or other contribution intended for inclusion in Dev Ledger, you agree to the [Contributor License Agreement](CONTRIBUTOR_LICENSE_AGREEMENT.md). You retain copyright in your contribution while granting the Project Maintainer the rights described there, including the right to distribute and relicense the contribution.
+
+If you contribute as part of your employment or for another organization, make sure you have authority to grant those rights before submitting the contribution.
+
 ## Pull requests
 
 Keep PRs focused. A good PR includes:

@@ -33,3 +33,8 @@
 ## Screenshots
 
 <!-- Add before/after images for visible changes. Remove this section if not applicable. -->
+
+
+## Contributor agreement
+
+- [ ] I have read and agree to the [Contributor License Agreement](../CONTRIBUTOR_LICENSE_AGREEMENT.md) for this contribution.

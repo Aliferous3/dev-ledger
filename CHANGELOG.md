@@ -6,6 +6,8 @@ Notable user-facing and platform changes are recorded here.
 
 ### Added
 
+- Public open-source release under AGPL-3.0-only, with contributor licensing and a separate trademark policy.
+
 - Three-page Dev Ledger interface: Overview, Activity, and Code.
 - GitHub OAuth and GitHub App installation flow.
 - Incremental repository, commit, pull-request, language, and history synchronization.
