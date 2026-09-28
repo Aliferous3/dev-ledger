@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Dev Ledger Blog</title>
+    <link>https://devledger.site/blog</link>
+    <description>Writing about GitHub history, code metrics, developer analytics, privacy, and Dev Ledger.</description>
+    <language>en</language>
+    <lastBuildDate>Mon, 28 Sep 2026 00:00:00 GMT</lastBuildDate>
+    <item>
+      <title>How to Analyze Your GitHub Development History</title>
+      <link>https://devledger.site/blog/analyze-github-development-history</link>
+      <guid isPermaLink="true">https://devledger.site/blog/analyze-github-development-history</guid>
+      <pubDate>Mon, 28 Sep 2026 00:00:00 GMT</pubDate>
+      <description>A practical way to read commits, source growth, churn, activity patterns, languages, and repository evolution without reducing development work to a single score.</description>
+      <author>Noaman Ali</author>
+      <category>GitHub analytics</category>
+      <category>developer analytics</category>
+      <category>code metrics</category>
+      <category>developer productivity</category>
+    </item>
+  </channel>
+</rss>
