@@ -16,7 +16,7 @@ import "@fontsource-variable/newsreader/opsz.css";
 import "@fontsource-variable/newsreader/opsz-italic.css";
 import "./index.css";
 import App from "./App";
-import { initAnalytics, captureEvent } from "./analytics/posthog";
+import { initAnalytics, captureEvent, capturePageview } from "./analytics/posthog";
 import { consumeLoginPending } from "./analytics/loginFunnel";
 import { SecurityPrivacyPage } from "./security/SecurityPrivacyPage";
 import { PrivacyPolicyPage } from "./legal/PrivacyPolicyPage";
@@ -170,8 +170,10 @@ function Root() {
 
 // PostHog product analytics — initialized once at boot. Lazy-loaded and
 // no-ops without a configured token; sends only allowlisted custom events
-// through the same-origin /rly proxy.
-initAnalytics();
+// through the same-origin /rly proxy. The initial sanitized $pageview
+// emits once the SDK is ready; client-side route changes emit from
+// useRoute, deduped on pathname.
+void initAnalytics().then(() => capturePageview()).catch(() => {});
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

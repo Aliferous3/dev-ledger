@@ -178,7 +178,7 @@ export const REQUIRED_SDK_EVENT_PROPERTIES = ['token', 'distinct_id'];
 // non-$ key outside the emitting event's own schema, while preserving the
 // transport-critical SDK fields above. This keeps the privacy allowlist
 // narrow without corrupting the event envelope that PostHog must ingest.
-export function scrubEventProperties(eventName, properties) {
+export function scrubEventProperties(eventName, properties, pageviewProps) {
   const schema = EVENT_PROPERTIES[eventName];
   const allowedCustom = schema ? new Set(Object.keys(schema)) : new Set();
   const requiredSdk = new Set(REQUIRED_SDK_EVENT_PROPERTIES);
@@ -188,8 +188,93 @@ export function scrubEventProperties(eventName, properties) {
     if (!key.startsWith('$') && !allowedCustom.has(key) && !requiredSdk.has(key)) continue;
     clean[key] = value;
   }
+  // $pageview re-attaches ONLY the sanitized property set, recomputed from
+  // the live location by the facade — property_denylist has already removed
+  // the SDK's raw URL/referrer fields, and caller-supplied values can never
+  // reach this point.
+  if (eventName === PAGEVIEW_EVENT && pageviewProps) {
+    Object.assign(clean, pageviewProps);
+  }
   return clean;
 }
+
+// ── Sanitized page identity (manual $pageview) ─────────────────────────────
+//
+// Web Analytics needs $current_url/$pathname on $pageview events. Automatic
+// capture stays OFF — the SDK would stamp the raw location (query, hash,
+// referrer) before our scrubber could clean it. Instead the facade emits
+// $pageview with NO caller properties; property_denylist strips every
+// URL-derived field the SDK adds, and before_send re-attaches ONLY the
+// sanitized set below, computed from window.location at send time.
+
+export const PAGEVIEW_EVENT = '$pageview';
+
+// The only standard properties a $pageview may carry — all sanitized here.
+export const PAGEVIEW_PROPERTIES = [
+  '$current_url',
+  '$pathname',
+  '$host',
+  '$referring_domain',
+];
+
+// Canonical analytics pathname: strips query/hash implicitly (caller passes
+// location.pathname), collapses trailing slashes to the canonical non-slash
+// form used by canonicals/sitemap, and refuses anything that is not a plain
+// path — a hostile or malformed value degrades to '/'.
+export function sanitizePathname(pathname) {
+  if (typeof pathname !== 'string' || !pathname.startsWith('/')) return '/';
+  if (/[?#]/.test(pathname)) return '/';
+  const clean = pathname.replace(/\/+$/, '') || '/';
+  // Only allow boring URL-path characters — percent-encoding, whitespace or
+  // anything exotic collapses to the root page.
+  if (!/^\/[A-Za-z0-9\-._~/]*$/.test(clean)) return '/';
+  return clean;
+}
+
+// Web Analytics pageviews are only meaningful for the public production
+// surface. Internal/preview origins (e.g. *.vercel.app deployment URLs)
+// must not create traffic records — only the canonical domain and local
+// dev hosts emit.
+export function isPublicAnalyticsHost(host) {
+  return (
+    host === 'devledger.site' ||
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host.startsWith('localhost:') ||
+    host.startsWith('127.0.0.1:')
+  );
+}
+
+// Referrer reduced to its registrable hostname only — never a URL, path or
+// query. Self-referrals and anything unparseable become ''.
+export function sanitizeReferringDomain(referrer, ownHost) {
+  if (typeof referrer !== 'string' || !referrer) return '';
+  try {
+    const host = new URL(referrer).host;
+    if (!host || host === ownHost) return '';
+    if (!/^[A-Za-z0-9.-]+$/.test(host)) return '';
+    return host;
+  } catch {
+    return '';
+  }
+}
+
+// The complete sanitized $pageview property set, derived from a
+// location-like {origin, pathname, host} and a referrer string. This is the
+// ONLY place those values are built — tests pin the exact shape.
+export function sanitizedPageviewProps(locationLike, referrer) {
+  const pathname = sanitizePathname(locationLike?.pathname);
+  const host = typeof locationLike?.host === 'string' ? locationLike.host : '';
+  const origin = typeof locationLike?.origin === 'string' ? locationLike.origin : '';
+  return {
+    $current_url: origin + pathname,
+    $pathname: pathname,
+    $host: host,
+    $referring_domain: sanitizeReferringDomain(referrer, host),
+  };
+}
+
 // ── SDK initialization options ─────────────────────────────────────────────
 
 // Every automatic collector explicitly OFF — custom allowlisted events only.

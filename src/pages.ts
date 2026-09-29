@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { capturePageview } from './analytics/posthog.ts';
 
 /* Canonical three-page registry — the entire authenticated app is exactly
    OVERVIEW / ACTIVITY / CODE. Header nav, routing and the right rail all
@@ -35,6 +36,7 @@ export function useRoute(): { page: PageId; navigate: (page: PageId) => void } {
   useEffect(() => {
     const onPop = () => {
       const next = pageFromPath(window.location.pathname);
+      capturePageview();
       setPage(next);
       // Section-rail hash jumps land on their anchor; everything else tops.
       const el = window.location.hash
@@ -57,6 +59,7 @@ export function useRoute(): { page: PageId; navigate: (page: PageId) => void } {
       history.pushState({ page: next }, '', pathForPage(next) + window.location.search);
       window.scrollTo(0, 0);
       setPage(next);
+      capturePageview();
     },
     [page],
   );
