@@ -88,13 +88,6 @@ test('built production artifact contains zero fixture identifiers', () => {
     const content = readFileSync(f, 'utf8');
     const rel = path.relative(ROOT, f).replace(/\\/g, '/');
     for (const id of [...FORBIDDEN_IDENTIFIERS, ...FICTIONAL_FIXTURE_NAMES]) {
-      // Public discovery/editorial documents intentionally link to the
-      // author's public GitHub repository. Keep the legacy fixture prefix ban
-      // everywhere else, especially the authenticated application bundle.
-      if (
-        id === 'Aliferous3/' &&
-        (rel === 'dist/llms.txt' || rel.startsWith('dist/blog/'))
-      ) continue;
       assert.ok(!content.includes(id), `${rel} contains "${id}"`);
     }
     // server-side secret env names must never reach the client bundle —

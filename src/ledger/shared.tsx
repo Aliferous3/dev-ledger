@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { GRID, INTENSITY_BG, YEARS, COLS, type GridCell } from './data';
 import { captureEvent } from '../analytics/posthog';
-import { markLoginPending, readBlogAttribution } from '../analytics/blogAttribution';
+import { markLoginPending } from '../analytics/loginFunnel';
 
 /* ---------- scroll reveal hook ---------- */
 export function useReveal<T extends HTMLElement>() {
@@ -41,8 +41,7 @@ export function GithubButton({ large = false, onLogin, remember = false }: { lar
     // Analytics only — the OAuth navigation itself is unchanged. The
     // pending flag lets the post-callback boot emit login_succeeded once.
     markLoginPending();
-    const attribution = readBlogAttribution();
-    captureEvent('github_login_started', { surface: attribution.surface, origin_slug: attribution.origin_slug });
+    captureEvent('github_login_started', {});
     window.location.assign(remember ? '/api/auth/login?remember=1' : '/api/auth/login');
   };
   return (

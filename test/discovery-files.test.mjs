@@ -1,30 +1,25 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const src = (p) => readFileSync(new URL('../' + p, import.meta.url), 'utf8')
 
-const articleSlugs = () =>
-  readdirSync(new URL('../content/blog', import.meta.url))
-    .filter((n) => n.endsWith('.md'))
-    .map((n) => n.replace(/\.md$/, ''))
-
-test('sitemap exposes only canonical public pages and has a human stylesheet', () => {
-  const sitemap = src('public/sitemap.xml')
-  assert.ok(sitemap.includes('<?xml-stylesheet type="text/xsl" href="/sitemap.xsl"?>'))
-  for (const url of [
-    'https://devledger.site/',
-    'https://devledger.site/security',
-    'https://devledger.site/privacy',
-    'https://devledger.site/terms',
-    'https://devledger.site/blog',
-    'https://devledger.site/blog/analyze-github-development-history',
-  ]) assert.ok(sitemap.includes(url), 'missing sitemap URL: ' + url)
-  assert.ok(!sitemap.includes('/api/'))
-  assert.ok(!sitemap.includes('/overview'))
-  assert.ok(!sitemap.includes('/activity'))
-  assert.ok(!sitemap.includes('/code'))
-})
+// The production blog/publishing layer lives in the private
+// dev-ledger-site repository and is served through devledger.site via
+// external rewrites (Vercel checks the local filesystem before rewrites,
+// so these paths must NOT exist in this repo's output).
+const SITE_ORIGIN = 'https://dev-ledger-site.vercel.app'
+const PROXIED_PATHS = [
+  '/blog',
+  '/rss.xml',
+  '/sitemap.xml',
+  '/sitemap.xsl',
+  '/sitemap.css',
+  '/llms.txt',
+]
 
 test('robots policy protects app surfaces and advertises search + AI discovery', () => {
   const robots = src('public/robots.txt')
@@ -42,53 +37,28 @@ test('robots policy protects app surfaces and advertises search + AI discovery',
   assert.ok(robots.includes('Sitemap: https://devledger.site/sitemap.xml'))
 })
 
-test('llms.txt follows the discovery manifest contract', () => {
-  const llms = src('public/llms.txt')
-  assert.ok(llms.startsWith('# Dev Ledger\n'))
-  assert.ok(llms.includes('> Dev Ledger is an open-source developer analytics application'))
-  assert.ok(llms.includes('https://devledger.site/security'))
-  assert.ok(llms.includes('https://devledger.site/blog'))
-  assert.ok(llms.includes('https://github.com/Aliferous3/dev-ledger'))
-  assert.ok(llms.includes('does not persist repository source code'))
-  assert.ok(llms.includes('## Discovery'))
-})
-
-test('sitemap presentation assets exist and llms discovery is advertised by HTTP config', () => {
-  const xsl = src('public/sitemap.xsl')
-  const css = src('public/sitemap.css')
-  const vercel = src('vercel.json')
-  assert.ok(xsl.includes('DEV LEDGER / DISCOVERY'))
-  assert.ok(xsl.includes('href="/sitemap.css"'))
-  assert.ok(css.includes('#d6ff3e'))
-  assert.ok(vercel.includes('</llms.txt>; rel=\\"describedby\\"; type=\\"text/markdown\\"'))
-})
-
-test('blog discovery exposes RSS and keeps authenticated routes out of the sitemap', () => {
-  const sitemap = src('public/sitemap.xml')
-  const rss = src('public/rss.xml')
-  assert.ok(sitemap.includes('https://devledger.site/blog'))
-  assert.ok(sitemap.includes('https://devledger.site/blog/analyze-github-development-history'))
-  assert.ok(!sitemap.includes('https://devledger.site/overview'))
-  assert.ok(!sitemap.includes('https://devledger.site/activity'))
-  assert.ok(!sitemap.includes('https://devledger.site/code'))
-  assert.ok(rss.includes('<title>Dev Ledger Blog</title>'))
-  assert.ok(rss.includes('How to Analyze Your GitHub Development History'))
-})
-
-test('sitemap and RSS contain every published article exactly once', () => {
-  const sitemap = src('public/sitemap.xml')
-  const rss = src('public/rss.xml')
-  const slugs = articleSlugs()
-  assert.ok(slugs.length >= 11, 'expected all published articles to be discovered')
-  for (const slug of slugs) {
-    const loc = '<loc>https://devledger.site/blog/' + slug + '</loc>'
-    const count = sitemap.split(loc).length - 1
-    assert.equal(count, 1, 'sitemap must contain ' + slug + ' exactly once')
-    const item = '<guid isPermaLink="true">https://devledger.site/blog/' + slug + '</guid>'
-    const items = rss.split(item).length - 1
-    assert.equal(items, 1, 'rss must contain ' + slug + ' exactly once')
+test('publishing paths proxy to the private site project under unchanged URLs', () => {
+  const v = JSON.parse(src('vercel.json'))
+  for (const p of PROXIED_PATHS) {
+    const rw = v.rewrites.find((r) => r.source === p)
+    assert.ok(rw, 'missing external rewrite for ' + p)
+    assert.ok(
+      rw.destination.startsWith(SITE_ORIGIN),
+      p + ' must proxy to the private site project, got ' + rw.destination,
+    )
   }
-  assert.ok(!sitemap.includes('localhost'), 'no localhost in sitemap')
-  assert.ok(!sitemap.includes('vercel.app'), 'no preview hosts in sitemap')
-  assert.ok(!rss.includes('localhost'), 'no localhost in rss')
+  const blogDeep = v.rewrites.find((r) => r.source === '/blog/:path*')
+  assert.equal(blogDeep?.destination, SITE_ORIGIN + '/blog/:path*')
+  // Proxied paths must not also exist as local files — the filesystem
+  // wins over rewrites, so a stray file would silently shadow the site.
+  for (const p of ['public/rss.xml', 'public/sitemap.xml', 'public/llms.txt', 'public/sitemap.xsl', 'public/sitemap.css']) {
+    assert.ok(!existsSync(path.join(ROOT, p)), p + ' must not exist locally — it would shadow the site proxy')
+  }
+  assert.ok(!existsSync(path.join(ROOT, 'blog')), 'blog/ output dir must not exist locally')
+  assert.ok(!existsSync(path.join(ROOT, 'content/blog')), 'content/blog must not exist locally')
+})
+
+test('llms discovery is still advertised by HTTP config', () => {
+  const vercel = src('vercel.json')
+  assert.ok(vercel.includes('</llms.txt>; rel=\\"describedby\\"; type=\\"text/markdown\\"'))
 })
