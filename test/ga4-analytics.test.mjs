@@ -177,7 +177,13 @@ test('GA4 event set is exactly the acquisition funnel', () => {
 
 test('login events carry method:github only — never identity', () => {
   assert.deepEqual(validateGA4Event('login', { method: 'github' }), { method: 'github' });
-  assert.deepEqual(validateGA4Event('login_start', { method: 'github' }), { method: 'github' });
+  assert.deepEqual(
+    validateGA4Event('login_start', { method: 'github', transport_type: 'beacon' }),
+    { method: 'github', transport_type: 'beacon' },
+  );
+  // beacon is required — a missing it falls back to batched sends that lose
+  // the event to the OAuth navigation
+  assert.equal(validateGA4Event('login_start', { method: 'github' }), null);
   assert.equal(validateGA4Event('login', { method: 'github', user_id: 'x' }), null);
   assert.equal(validateGA4Event('login', { method: 'github', email: 'a@b.c' }), null);
   assert.equal(validateGA4Event('login', { method: 'google' }), null);
@@ -266,7 +272,7 @@ test('GA4 wiring: boot init + pageview, popstate, navigate, login events', () =>
   assert.ok((pages.match(/captureGooglePageview\(\)/g) || []).length >= 2,
     'navigate + popstate must each emit a GA4 pageview');
   const shared = src('src/ledger/shared.tsx');
-  assert.match(shared, /captureGoogleEvent\('login_start', \{ method: 'github' \}\)/);
+  assert.match(shared, /captureGoogleEvent\('login_start', \{ method: 'github', transport_type: 'beacon' \}\)/);
 });
 
 test('GA4 and PostHog are separate modules — no cross-import', () => {

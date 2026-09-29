@@ -29,8 +29,11 @@
 export const GA4_EVENT_PROPERTIES = {
   // Google recommended `login` event — method only, never any identity.
   login: { method: ['github'] },
-  // Funnel step: the GitHub OAuth button was activated.
-  login_start: { method: ['github'] },
+  // Funnel step: the GitHub OAuth button was activated. transport_type is
+  // a gtag control field (consumed by the tag, never sent as an ep param)
+  // — beacon sends immediately instead of batching, so the event survives
+  // the OAuth navigation that follows the click.
+  login_start: { method: ['github'], transport_type: ['beacon'] },
   // Google recommended `select_content` — used for the blog/product CTA.
   // item_id carries a slug-like identifier only (validated below).
   select_content: { content_type: ['product_cta'], item_id: null },
