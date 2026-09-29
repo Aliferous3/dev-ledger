@@ -172,8 +172,15 @@ function Root() {
 // no-ops without a configured token; sends only allowlisted custom events
 // through the same-origin /rly proxy. The initial sanitized $pageview
 // emits once the SDK is ready; client-side route changes emit from
-// useRoute, deduped on pathname.
-void initAnalytics().then(() => capturePageview()).catch(() => {});
+// useRoute, deduped on pathname. The boot-level popstate listener covers
+// back/forward for anonymous sessions too (useRoute only mounts inside the
+// authenticated App) — pathname dedupe collapses the overlap.
+void initAnalytics()
+  .then(() => {
+    capturePageview();
+    window.addEventListener('popstate', () => capturePageview());
+  })
+  .catch(() => {});
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

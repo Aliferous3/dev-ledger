@@ -509,7 +509,10 @@ test('facade dedupes pageviews and gates on the public host', () => {
 
 test('pageview wiring: boot emit once, route changes and popstate covered', () => {
   const main = src('src/main.tsx');
-  assert.match(main, /initAnalytics\(\)\.then\(\(\) => capturePageview\(\)\)/);
+  assert.match(main, /initAnalytics\(\)[\s\S]*?capturePageview\(\)/);
+  // boot-level popstate covers back/forward even before the authenticated
+  // App mounts; useRoute's own listener dedupes against it on pathname.
+  assert.match(main, /addEventListener\('popstate',[\s\S]*?capturePageview\(\)/);
   const pages = src('src/pages.ts');
   // navigate + popstate each emit — dedup in capturePageview collapses
   // same-path repeats (StrictMode, hash/range-only history entries).
