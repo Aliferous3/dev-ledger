@@ -128,7 +128,8 @@ export function TermsOfServicePage() {
 
       <LegalSection id="terms-thirdparty" num="08" title="THIRD-PARTY SERVICES">
         <p>
-          Dev Ledger depends on third-party services including GitHub, Vercel, Supabase, and PostHog. Their services
+          Dev Ledger depends on third-party services including GitHub, Vercel, Supabase, PostHog, and Google
+          Analytics. Their services
           may be unavailable, changed, rate-limited, or discontinued independently of Dev Ledger, and your use of
           those services is also subject to their own terms and policies.
         </p>

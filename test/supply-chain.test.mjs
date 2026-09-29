@@ -17,13 +17,15 @@ const load = (rel) => JSON.parse(src(rel));
 // Deny-by-default: Dev Ledger ships no custom VITE_* variables.
 const VITE_BUILTINS = new Set(['DEV', 'PROD', 'MODE', 'SSR', 'BASE_URL']);
 
-// Explicit security decision: the PostHog product-analytics integration
-// ships exactly two PUBLIC client configuration values — the PostHog
-// project token (a publishable client key by design, not a secret) and
-// the same-origin proxy host. Anything else stays denied.
+// Explicit security decision: analytics integrations ship exactly three
+// PUBLIC client configuration values — the PostHog project token (a
+// publishable client key by design, not a secret), the same-origin proxy
+// host, and the GA4 measurement ID (a public identifier, not a secret).
+// Anything else stays denied.
 const ALLOWED_PUBLIC_VITE_VARS = new Set([
   'VITE_POSTHOG_PROJECT_TOKEN',
   'VITE_POSTHOG_HOST',
+  'VITE_GA_MEASUREMENT_ID',
 ]);
 
 function allFiles(dir, acc = []) {
@@ -99,7 +101,7 @@ test('import.meta.env usage is limited to Vite built-ins + allowlisted public va
     }
     // The two allowlisted public names are the only VITE_* strings
     // permitted in client source at all.
-    const stripped = content.replace(/\bVITE_POSTHOG_PROJECT_TOKEN\b|\bVITE_POSTHOG_HOST\b/g, '');
+    const stripped = content.replace(/\bVITE_POSTHOG_PROJECT_TOKEN\b|\bVITE_POSTHOG_HOST\b|\bVITE_GA_MEASUREMENT_ID\b/g, '');
     assert.doesNotMatch(stripped, /\bVITE_[A-Z]/, `${path.relative(ROOT, f)} references a VITE_* name`);
   }
 });

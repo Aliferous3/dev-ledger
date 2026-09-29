@@ -17,6 +17,7 @@ import "@fontsource-variable/newsreader/opsz-italic.css";
 import "./index.css";
 import App from "./App";
 import { initAnalytics, captureEvent, capturePageview } from "./analytics/posthog";
+import { initGoogleAnalytics, captureGoogleEvent, captureGooglePageview } from "./analytics/ga4";
 import { consumeLoginPending } from "./analytics/loginFunnel";
 import { SecurityPrivacyPage } from "./security/SecurityPrivacyPage";
 import { PrivacyPolicyPage } from "./legal/PrivacyPolicyPage";
@@ -73,6 +74,7 @@ function Gate() {
         // Auth state itself is untouched — consume only reads a flag.
         if (ok && consumeLoginPending()) {
           captureEvent("github_login_succeeded", {});
+          captureGoogleEvent("login", { method: "github" });
         }
       })
       .catch(() => live && setAuth("out"));
@@ -181,6 +183,13 @@ void initAnalytics()
     window.addEventListener('popstate', () => capturePageview());
   })
   .catch(() => {});
+
+// GA4 acquisition analytics — separate system, same discipline: silent
+// no-op without VITE_GA_MEASUREMENT_ID, emits only on devledger.site
+// (localhost debug mode), manual sanitized page_view only.
+initGoogleAnalytics();
+captureGooglePageview();
+window.addEventListener('popstate', () => captureGooglePageview());
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
