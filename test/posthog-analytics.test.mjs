@@ -237,6 +237,14 @@ test('before_send strips private extras but preserves SDK ingestion fields', () 
     $referrer: 'https://ref.example/?q=2',
     utm_source: 'newsletter',
     gclid: 'abc',
+    // SDK-derived session-entry/initial campaign variants — generated as
+    // $session_entry_${param}, including for query params we never listed.
+    $session_entry_utm_source: 'DO_NOT_SEND',
+    $session_entry_utm_campaign: 'SECRET',
+    $session_entry_gclid: 'click-id',
+    $initial_utm_medium: 'cpc',
+    $initial_fbclid: 'fb-click',
+    $session_entry_custom_param: 'unlisted variant',
     $browser: 'Chrome',
     stray_key: 'must be dropped',
   };
@@ -244,6 +252,12 @@ test('before_send strips private extras but preserves SDK ingestion fields', () 
   for (const key of DENIED_EVENT_PROPERTIES) {
     assert.ok(!(key in clean), `${key} survived scrubbing`);
   }
+  assert.equal(clean.$session_entry_utm_source, undefined, 'session-entry UTM leaked');
+  assert.equal(clean.$session_entry_utm_campaign, undefined, 'session-entry campaign leaked');
+  assert.equal(clean.$session_entry_gclid, undefined, 'session-entry click id leaked');
+  assert.equal(clean.$initial_utm_medium, undefined, 'initial UTM leaked');
+  assert.equal(clean.$initial_fbclid, undefined, 'initial click id leaked');
+  assert.equal(clean.$session_entry_custom_param, undefined, 'unlisted session-entry variant leaked');
   assert.equal(clean.stray_key, undefined, 'non-schema custom key survived');
   assert.equal(clean.trigger, 'manual');
   assert.equal(clean.token, 'phc_public_project_token', 'SDK project token was stripped');
