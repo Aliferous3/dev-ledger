@@ -127,6 +127,29 @@ export function resolveAnalyticsHost(configured, origin) {
 // SDK-assembled properties derived from URLs, query strings, referrers and
 // click/campaign ids — none of these may leave the browser. Applied by
 // property_denylist at capture assembly AND re-checked in before_send.
+// Query-string/campaign parameter names the SDK lifts into campaign_params
+// and $session_entry_/$initial_ variants. The SDK builds those derived names
+// dynamically (`$session_entry_${param}`), so they are enumerated here.
+const CAMPAIGN_PARAM_NAMES = [
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_term',
+  'utm_content',
+  'campaign_params',
+  'gclid',
+  'fbclid',
+  'msclkid',
+  'ttclid',
+  'twclid',
+  'igshid',
+  'li_fat_id',
+  'mc_cid',
+  'dclid',
+  'wbraid',
+  'gbraid',
+];
+
 export const DENIED_EVENT_PROPERTIES = [
   '$current_url',
   '$pathname',
@@ -148,24 +171,20 @@ export const DENIED_EVENT_PROPERTIES = [
   '$initial_referring_domain',
   '$initial_campaign_params',
   '$initial_referrer_info',
-  'utm_source',
-  'utm_medium',
-  'utm_campaign',
-  'utm_term',
-  'utm_content',
-  'campaign_params',
-  'gclid',
-  'fbclid',
-  'msclkid',
-  'ttclid',
-  'twclid',
-  'igshid',
-  'li_fat_id',
-  'mc_cid',
-  'dclid',
-  'wbraid',
-  'gbraid',
+  '$initial_person_info',
+  ...CAMPAIGN_PARAM_NAMES,
+  // Derived session-entry/initial variants — e.g. $session_entry_utm_source.
+  ...CAMPAIGN_PARAM_NAMES.flatMap((p) => [
+    `$session_entry_${p}`,
+    `$initial_${p}`,
+  ]),
 ];
+
+// Prefixes the SDK uses for session-entry and persisted "initial" URL,
+// referrer and campaign properties. Denying at prefix level in
+// before_send covers custom_campaign_params and any future variant the
+// static denylist cannot enumerate.
+const DENIED_PROPERTY_PREFIXES = ['$session_entry_', '$initial_'];
 
 // posthog-js places these two transport-critical fields inside the event's
 // properties object before before_send runs. They are not caller-controlled:
@@ -184,6 +203,7 @@ export function scrubEventProperties(eventName, properties, pageviewProps) {
   const requiredSdk = new Set(REQUIRED_SDK_EVENT_PROPERTIES);
   const clean = {};
   for (const [key, value] of Object.entries(properties || {})) {
+    if (DENIED_PROPERTY_PREFIXES.some((p) => key.startsWith(p))) continue;
     if (DENIED_EVENT_PROPERTIES.includes(key)) continue;
     if (!key.startsWith('$') && !allowedCustom.has(key) && !requiredSdk.has(key)) continue;
     clean[key] = value;
