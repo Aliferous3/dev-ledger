@@ -64,6 +64,10 @@
       "destination": "https://dev-ledger-site.vercel.app/blog"
     },
     {
+      "source": "/blog/",
+      "destination": "https://dev-ledger-site.vercel.app/blog/"
+    },
+    {
       "source": "/blog/:path*",
       "destination": "https://dev-ledger-site.vercel.app/blog/:path*"
     },
