@@ -19,10 +19,50 @@
   </url>
   <url>
     <loc>https://devledger.site/blog</loc>
-    <lastmod>2026-09-28</lastmod>
+    <lastmod>2026-09-29</lastmod>
+  </url>
+  <url>
+    <loc>https://devledger.site/blog/analyze-programming-language-usage-github</loc>
+    <lastmod>2026-09-29</lastmod>
+  </url>
+  <url>
+    <loc>https://devledger.site/blog/compare-github-activity-time-ranges</loc>
+    <lastmod>2026-09-29</lastmod>
+  </url>
+  <url>
+    <loc>https://devledger.site/blog/git-commit-history-analysis</loc>
+    <lastmod>2026-09-29</lastmod>
+  </url>
+  <url>
+    <loc>https://devledger.site/blog/github-analytics-metrics-guide</loc>
+    <lastmod>2026-09-29</lastmod>
+  </url>
+  <url>
+    <loc>https://devledger.site/blog/repository-lifecycle-analytics</loc>
+    <lastmod>2026-09-29</lastmod>
   </url>
   <url>
     <loc>https://devledger.site/blog/analyze-github-development-history</loc>
+    <lastmod>2026-09-28</lastmod>
+  </url>
+  <url>
+    <loc>https://devledger.site/blog/developer-productivity-metrics</loc>
+    <lastmod>2026-09-28</lastmod>
+  </url>
+  <url>
+    <loc>https://devledger.site/blog/github-contribution-graph-limitations</loc>
+    <lastmod>2026-09-28</lastmod>
+  </url>
+  <url>
+    <loc>https://devledger.site/blog/measure-source-code-growth-over-time</loc>
+    <lastmod>2026-09-28</lastmod>
+  </url>
+  <url>
+    <loc>https://devledger.site/blog/privacy-first-github-analytics</loc>
+    <lastmod>2026-09-28</lastmod>
+  </url>
+  <url>
+    <loc>https://devledger.site/blog/what-is-code-churn</loc>
     <lastmod>2026-09-28</lastmod>
   </url>
 </urlset>

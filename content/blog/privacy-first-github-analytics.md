@@ -6,7 +6,7 @@ date: 2026-09-28
 updated: 2026-09-28
 author: Noaman Ali
 tags: privacy-first analytics, GitHub App, developer analytics, GitHub privacy
-ogImage: /og/dev-ledger.png
+ogImage: /blog/privacy-first-github-analytics.png
 ---
 
 Developer analytics does not require a permanent copy of a user's source code.

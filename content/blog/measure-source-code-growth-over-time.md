@@ -6,7 +6,7 @@ date: 2026-09-28
 updated: 2026-09-28
 author: Noaman Ali
 tags: source code growth, GitHub analytics, code metrics, repository analytics
-ogImage: /og/dev-ledger.png
+ogImage: /blog/measure-source-code-growth-over-time.png
 ---
 
 Source code growth sounds like a simple question: how much larger did the codebase become?

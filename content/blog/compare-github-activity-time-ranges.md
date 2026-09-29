@@ -6,7 +6,7 @@ date: 2026-09-29
 updated: 2026-09-29
 author: Noaman Ali
 tags: GitHub activity, date range analytics, GitHub analytics, developer history
-ogImage: /og/dev-ledger.png
+ogImage: /blog/compare-github-activity-time-ranges.png
 ---
 
 The same developer history can tell completely different stories depending on the time window.

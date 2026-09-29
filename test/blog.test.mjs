@@ -40,6 +40,60 @@ test('production build contains blog pages and RSS feed', () => {
   ]) assert.ok(existsSync(path.join(ROOT, p)), p)
 })
 
+// Article slug → shipped banner artwork. The same file is the visible
+// in-article hero and the og:image / twitter:image social card.
+const ARTICLE_BANNERS = [
+  'analyze-github-development-history',
+  'analyze-programming-language-usage-github',
+  'compare-github-activity-time-ranges',
+  'developer-productivity-metrics',
+  'git-commit-history-analysis',
+  'github-contribution-graph-limitations',
+  'measure-source-code-growth-over-time',
+  'privacy-first-github-analytics',
+  'repository-lifecycle-analytics',
+  'what-is-code-churn',
+]
+
+test('every article ships a banner used in-page and as OG/Twitter image', () => {
+  for (const slug of ARTICLE_BANNERS) {
+    const asset = 'public/blog/' + slug + '.png'
+    const page = 'blog/' + slug + '/index.html'
+    assert.ok(existsSync(path.join(ROOT, asset)), asset)
+    const html = src(page)
+    const url = 'https://devledger.site/blog/' + slug + '.png'
+    assert.ok(
+      html.includes('<img class="article-banner" src="/blog/' + slug + '.png"'),
+      slug + ' renders the banner inside the article',
+    )
+    assert.ok(
+      html.includes('property="og:image" content="' + url + '"'),
+      slug + ' og:image',
+    )
+    assert.ok(
+      html.includes('name="twitter:image" content="' + url + '"'),
+      slug + ' twitter:image',
+    )
+    assert.ok(
+      html.includes('itemprop="image" content="' + url + '"'),
+      slug + ' schema.org image',
+    )
+    assert.ok(
+      html.includes('name="twitter:card" content="summary_large_image"'),
+      slug + ' twitter:card',
+    )
+  }
+})
+
+test('articles without custom artwork keep the default OG card and no banner', () => {
+  const html = src('blog/github-analytics-metrics-guide/index.html')
+  assert.ok(
+    html.includes('property="og:image" content="https://devledger.site/og/dev-ledger.png"'),
+    'guide og:image falls back to the default card',
+  )
+  assert.ok(!html.includes('class="article-banner"'), 'guide renders no banner image')
+})
+
 test('vercel keeps clean blog URLs and vite builds generated HTML entries', () => {
   const v = JSON.parse(src('vercel.json'))
   assert.ok(v.rewrites.some((r) => r.source === '/blog' && r.destination === '/blog/index.html'))

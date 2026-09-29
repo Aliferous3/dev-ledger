@@ -6,7 +6,7 @@ date: 2026-09-28
 updated: 2026-09-28
 author: Noaman Ali
 tags: GitHub analytics, developer analytics, code metrics, developer productivity
-ogImage: /og/dev-ledger.png
+ogImage: /blog/analyze-github-development-history.png
 ---
 
 GitHub already records a large part of your development history. The difficult part is not collecting the activity; it is turning that activity into a useful account of how your work changes over time.
