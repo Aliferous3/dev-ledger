@@ -3,7 +3,7 @@ slug: measure-source-code-growth-over-time
 title: How to Measure Source Code Growth Over Time
 description: Learn how to calculate net source growth from additions and deletions, choose meaningful time windows, and interpret codebase growth without equating bigger with better.
 date: 2026-09-28
-updated: 2026-09-28
+updated: 2026-09-29
 author: Noaman Ali
 tags: source code growth, GitHub analytics, code metrics, repository analytics
 ogImage: /blog/measure-source-code-growth-over-time.png
@@ -140,13 +140,13 @@ One project might account for nearly all of the increase. Another might be shrin
 
 Breaking growth down by repository reveals whether the trend is broad or concentrated.
 
-It can also show transitions: one project winding down while another becomes the center of development.
+It can also show [lifecycle transitions](/blog/repository-lifecycle-analytics): one project winding down while another becomes the center of development.
 
 ## Language history adds another layer
 
 Total source growth does not tell you what kind of code changed.
 
-A historical language view can show whether growth came from:
+A [historical language view](/blog/analyze-programming-language-usage-github) can show whether growth came from:
 
 - more TypeScript in a web application
 - a new Python service

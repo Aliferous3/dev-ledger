@@ -16,7 +16,8 @@ import "@fontsource-variable/newsreader/opsz.css";
 import "@fontsource-variable/newsreader/opsz-italic.css";
 import "./index.css";
 import App from "./App";
-import { initAnalytics } from "./analytics/posthog";
+import { initAnalytics, captureEvent } from "./analytics/posthog";
+import { clearBlogAttribution, consumeLoginPending, readBlogAttribution } from "./analytics/blogAttribution";
 import { SecurityPrivacyPage } from "./security/SecurityPrivacyPage";
 import { PrivacyPolicyPage } from "./legal/PrivacyPolicyPage";
 import { TermsOfServicePage } from "./legal/TermsOfServicePage";
@@ -67,6 +68,17 @@ function Gate() {
         setMe(ok ? (body as Identity) : null);
         setAuth(ok ? "in" : "out");
         if (ok) setBooting(true);
+        // Analytics only: when this session was created by an initiated
+        // login this tab session, emit the funnel-completing event once.
+        // Auth state itself is untouched — consume/read only flags.
+        if (ok && consumeLoginPending()) {
+          const attribution = readBlogAttribution();
+          captureEvent("github_login_succeeded", {
+            surface: attribution.surface,
+            origin_slug: attribution.origin_slug,
+          });
+          clearBlogAttribution();
+        }
       })
       .catch(() => live && setAuth("out"));
     return () => {

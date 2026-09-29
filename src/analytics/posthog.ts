@@ -21,6 +21,8 @@ import {
 
 export {
   ANALYTICS_RANGES,
+  BLOG_ARTICLE_SLUGS,
+  BLOG_ATTRIBUTION_SLUGS,
   DENIED_EVENT_PROPERTIES,
   EVENT_PROPERTIES,
   FEEDBACK_EVENT_TYPES,
@@ -39,6 +41,9 @@ export type SyncTrigger = 'manual' | 'automatic';
 export type SyncFailReason = 'network' | 'rate_limited' | 'revoked' | 'server' | 'unknown';
 export type AnalyticsRange = '7D' | '30D' | '90D' | 'YTD' | '1Y' | 'ALL' | 'CUSTOM';
 export type FeedbackEventType = 'BUG' | 'FEATURE' | 'FEEDBACK';
+export type BlogArticleSlug = string;
+export type BlogAttributionSlug = string;
+export type LoginSurface = 'direct' | 'blog';
 
 // The exact emit-table — mirrors EVENT_PROPERTIES in posthogModel.mjs;
 // the model is the runtime guard, this union is the compile-time one.
@@ -50,7 +55,13 @@ export type AnalyticsEventName =
   | 'share_opened'
   | 'share_downloaded'
   | 'feedback_submitted'
-  | 'delete_data_completed';
+  | 'delete_data_completed'
+  | 'blog_article_viewed'
+  | 'blog_index_article_clicked'
+  | 'blog_related_article_clicked'
+  | 'blog_product_cta_clicked'
+  | 'github_login_started'
+  | 'github_login_succeeded';
 
 export interface AnalyticsEventProps {
   sync_started: { trigger: SyncTrigger };
@@ -61,6 +72,21 @@ export interface AnalyticsEventProps {
   share_downloaded: { range: AnalyticsRange };
   feedback_submitted: { type: FeedbackEventType };
   delete_data_completed: Record<string, never>;
+  blog_article_viewed: { article_slug: BlogArticleSlug };
+  blog_index_article_clicked: { target_slug: BlogArticleSlug; placement: 'blog_index' };
+  blog_related_article_clicked: {
+    origin_slug: BlogArticleSlug;
+    target_slug: BlogArticleSlug;
+    placement: 'related_articles';
+  };
+  blog_product_cta_clicked: {
+    article_slug: BlogArticleSlug;
+    cta_id: 'article_end';
+    placement: 'article_end';
+    destination: '/';
+  };
+  github_login_started: { surface: LoginSurface; origin_slug: BlogAttributionSlug };
+  github_login_succeeded: { surface: LoginSurface; origin_slug: BlogAttributionSlug };
 }
 
 type PostHogClient = {

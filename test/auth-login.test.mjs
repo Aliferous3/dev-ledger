@@ -388,6 +388,9 @@ test('the dev login bypass requires BOTH import.meta.env.DEV and no real API', (
 
 test('without the bypass, the CTA navigates to the real /api/auth/login', () => {
   const shared = readSrc('src/ledger/shared.tsx')
-  assert.match(shared, /onLogin\s*\?\?\s*\(\(\)\s*=>\s*window\.location\.assign\(/, 'fallback must be the OAuth redirect')
-  assert.match(shared, /'\/api\/auth\/login\?remember=1'\s*:\s*'\/api\/auth\/login'/, 'remember flag routes through the real login route')
+  assert.match(shared, /onLogin\s*\?\?\s*startLogin/, 'fallback must be the OAuth redirect')
+  assert.match(shared, /window\.location\.assign\(remember \? '\/api\/auth\/login\?remember=1' : '\/api\/auth\/login'\)/, 'remember flag routes through the real login route')
+  // Analytics instrumentation is best-effort and must not gate navigation:
+  // the pending flag + event emit precede the unconditional assign.
+  assert.match(shared, /captureEvent\('github_login_started'[\s\S]*?window\.location\.assign/)
 })

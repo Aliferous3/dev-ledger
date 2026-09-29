@@ -1,8 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 const src = (p) => readFileSync(new URL('../' + p, import.meta.url), 'utf8')
+
+const articleSlugs = () =>
+  readdirSync(new URL('../content/blog', import.meta.url))
+    .filter((n) => n.endsWith('.md'))
+    .map((n) => n.replace(/\.md$/, ''))
 
 test('sitemap exposes only canonical public pages and has a human stylesheet', () => {
   const sitemap = src('public/sitemap.xml')
@@ -68,4 +73,22 @@ test('blog discovery exposes RSS and keeps authenticated routes out of the sitem
   assert.ok(!sitemap.includes('https://devledger.site/code'))
   assert.ok(rss.includes('<title>Dev Ledger Blog</title>'))
   assert.ok(rss.includes('How to Analyze Your GitHub Development History'))
+})
+
+test('sitemap and RSS contain every published article exactly once', () => {
+  const sitemap = src('public/sitemap.xml')
+  const rss = src('public/rss.xml')
+  const slugs = articleSlugs()
+  assert.ok(slugs.length >= 11, 'expected all published articles to be discovered')
+  for (const slug of slugs) {
+    const loc = '<loc>https://devledger.site/blog/' + slug + '</loc>'
+    const count = sitemap.split(loc).length - 1
+    assert.equal(count, 1, 'sitemap must contain ' + slug + ' exactly once')
+    const item = '<guid isPermaLink="true">https://devledger.site/blog/' + slug + '</guid>'
+    const items = rss.split(item).length - 1
+    assert.equal(items, 1, 'rss must contain ' + slug + ' exactly once')
+  }
+  assert.ok(!sitemap.includes('localhost'), 'no localhost in sitemap')
+  assert.ok(!sitemap.includes('vercel.app'), 'no preview hosts in sitemap')
+  assert.ok(!rss.includes('localhost'), 'no localhost in rss')
 })

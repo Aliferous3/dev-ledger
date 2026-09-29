@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -48,6 +48,7 @@ const ARTICLE_BANNERS = [
   'compare-github-activity-time-ranges',
   'developer-productivity-metrics',
   'git-commit-history-analysis',
+  'github-analytics-metrics-guide',
   'github-contribution-graph-limitations',
   'measure-source-code-growth-over-time',
   'privacy-first-github-analytics',
@@ -85,13 +86,101 @@ test('every article ships a banner used in-page and as OG/Twitter image', () => 
   }
 })
 
-test('articles without custom artwork keep the default OG card and no banner', () => {
-  const html = src('blog/github-analytics-metrics-guide/index.html')
-  assert.ok(
-    html.includes('property="og:image" content="https://devledger.site/og/dev-ledger.png"'),
-    'guide og:image falls back to the default card',
-  )
-  assert.ok(!html.includes('class="article-banner"'), 'guide renders no banner image')
+test('every published article ships dedicated artwork — none falls back to the generic card', () => {
+  const mdSlugs = readdirSync(path.join(ROOT, 'content/blog'))
+    .filter((n) => n.endsWith('.md'))
+    .map((n) => n.replace(/\.md$/, ''))
+  assert.deepEqual([...mdSlugs].sort(), [...ARTICLE_BANNERS].sort(),
+    'every content/blog article must have a dedicated banner entry')
+  for (const slug of mdSlugs) {
+    const html = src('blog/' + slug + '/index.html')
+    assert.ok(
+      !html.includes('property="og:image" content="https://devledger.site/og/dev-ledger.png"'),
+      slug + ' must not fall back to the default OG card',
+    )
+    assert.ok(html.includes('class="article-banner"'), slug + ' renders an in-page banner')
+  }
+})
+
+/* ── Related articles ── */
+
+test('every article exposes a valid related-articles section', () => {
+  const slugs = new Set(ARTICLE_BANNERS)
+  for (const slug of ARTICLE_BANNERS) {
+    const html = src('blog/' + slug + '/index.html')
+    assert.ok(html.includes('class="related-articles"'), slug + ' missing related section')
+    const targets = [...html.matchAll(/data-related-target="([a-z0-9-]+)"/g)].map((m) => m[1])
+    assert.ok(targets.length >= 2 && targets.length <= 3, slug + ' should list 2-3 related articles, got ' + targets.length)
+    assert.ok(!targets.includes(slug), slug + ' must not recommend itself')
+    assert.equal(new Set(targets).size, targets.length, slug + ' duplicate related targets')
+    for (const t of targets) {
+      assert.ok(slugs.has(t), slug + ' -> unknown related slug ' + t)
+      assert.ok(
+        html.includes('href="/blog/' + t + '"'),
+        slug + ' related link missing href for ' + t,
+      )
+    }
+  }
+})
+
+/* ── Breadcrumbs ── */
+
+test('every article renders a BreadcrumbList with absolute production URLs', () => {
+  for (const slug of ARTICLE_BANNERS) {
+    const html = src('blog/' + slug + '/index.html')
+    assert.ok(html.includes('itemtype="https://schema.org/BreadcrumbList"'), slug + ' missing BreadcrumbList')
+    assert.ok(html.includes('aria-label="Breadcrumb"'), slug + ' breadcrumb nav missing label')
+    assert.ok(html.includes('itemprop="item" href="https://devledger.site/"'), slug + ' breadcrumb root')
+    assert.ok(html.includes('itemprop="item" href="https://devledger.site/blog"'), slug + ' breadcrumb blog')
+    assert.ok(html.includes('itemprop="position" content="3"'), slug + ' breadcrumb leaf position')
+    assert.ok(html.includes('<meta itemprop="item" content="https://devledger.site/blog/' + slug + '"'), slug + ' breadcrumb leaf item')
+  }
+})
+
+/* ── Article → product CTA ── */
+
+test('every article ends with one product CTA wired for analytics', () => {
+  for (const slug of ARTICLE_BANNERS) {
+    const html = src('blog/' + slug + '/index.html')
+    assert.ok(html.includes('data-cta="article_end"'), slug + ' missing CTA hook')
+    assert.ok(html.includes('SEE YOUR GITHUB HISTORY IN DEV LEDGER'), slug + ' CTA copy')
+    const ctas = html.match(/href="\/"[^>]*data-cta="article_end"|data-cta="article_end"[^>]*href="\/"/g) || []
+    assert.equal(ctas.length, 1, slug + ' must have exactly one article-end CTA')
+  }
+})
+
+/* ── Internal links ── */
+
+test('no generated article links to a nonexistent blog slug', () => {
+  const slugs = new Set(ARTICLE_BANNERS)
+  for (const slug of ARTICLE_BANNERS) {
+    const html = src('blog/' + slug + '/index.html')
+    for (const m of html.matchAll(/href="\/blog\/([a-z0-9-]+)"/g)) {
+      assert.ok(slugs.has(m[1]), slug + ' links to unknown article ' + m[1])
+    }
+  }
+  const index = src('blog/index.html')
+  const indexTargets = new Set([...index.matchAll(/href="\/blog\/([a-z0-9-]+)"/g)].map((m) => m[1]))
+  assert.deepEqual([...indexTargets].sort(), [...ARTICLE_BANNERS].sort(),
+    'blog index must link every published article exactly')
+})
+
+/* ── Analytics wiring on generated pages ── */
+
+test('generated blog pages load the shared analytics module and carry tracking hooks', () => {
+  const index = src('blog/index.html')
+  assert.ok(index.includes('src="/src/blog/analytics.ts"'), 'index missing analytics module')
+  assert.ok(index.includes('data-index-target='), 'index missing click hooks')
+  const article = src('blog/what-is-code-churn/index.html')
+  assert.ok(article.includes('src="/src/blog/analytics.ts"'), 'article missing analytics module')
+  assert.ok(article.includes('data-slug="what-is-code-churn"'), 'article missing slug hook')
+  const mod = src('src/blog/analytics.ts')
+  assert.match(mod, /captureEvent\('blog_article_viewed'/)
+  assert.match(mod, /captureEvent\('blog_index_article_clicked'/)
+  assert.match(mod, /captureEvent\('blog_related_article_clicked'/)
+  assert.match(mod, /captureEvent\('blog_product_cta_clicked'/)
+  assert.match(mod, /initAnalytics\(\)\.then/, 'must wait for lazy SDK before emitting')
+  assert.doesNotMatch(mod, /\$pageview|autocapture|identify\(/)
 })
 
 test('vercel keeps clean blog URLs and vite builds generated HTML entries', () => {

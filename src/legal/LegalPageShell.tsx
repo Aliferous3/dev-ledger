@@ -111,6 +111,8 @@ export function LegalPageShell({
           <a href="/terms" className={linkCls}>TERMS OF SERVICE</a>
           <span className="text-neutral-800">·</span>
           <a href="/security" className={linkCls}>SECURITY &amp; PRIVACY</a>
+          <span className="text-neutral-800">·</span>
+          <a href="/blog" className={linkCls}>BLOG</a>
         </div>
 
         <main className="space-y-14">{children}</main>

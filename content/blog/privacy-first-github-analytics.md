@@ -3,7 +3,7 @@ slug: privacy-first-github-analytics
 title: How to Track Developer Activity Without Storing Source Code
 description: Developer analytics can be built from repository metadata, commit statistics, language counts, timestamps, and repository state without persisting the source code itself.
 date: 2026-09-28
-updated: 2026-09-28
+updated: 2026-09-29
 author: Noaman Ali
 tags: privacy-first analytics, GitHub App, developer analytics, GitHub privacy
 ogImage: /blog/privacy-first-github-analytics.png
@@ -26,7 +26,7 @@ If the goal is to show:
 - source growth over time
 - additions and deletions
 - code churn
-- commit activity
+- [commit activity](/blog/git-commit-history-analysis)
 - active days
 - repository history
 - language composition
@@ -244,7 +244,7 @@ The application uses read-only GitHub access for the repositories a user authori
 
 It does not persist repository source code, commit messages, pull-request titles, GitHub email addresses, OAuth access tokens, installation tokens, or raw webhook payload bodies.
 
-That architecture is what allows the product to show development history while keeping the stored record narrower than the repositories themselves.
+That architecture is what allows the product to show [development history](/blog/analyze-github-development-history) while keeping the stored record narrower than the repositories themselves.
 
 ## The broader lesson
 
@@ -254,4 +254,4 @@ Privacy-first analytics is largely an exercise in asking a disciplined question:
 
 Once that is clear, everything else becomes optional rather than automatic.
 
-For developer analytics, that can be the difference between storing a user's codebase and storing only the measurements needed to understand how it changed.
+For [developer analytics](/blog/github-analytics-metrics-guide), that can be the difference between storing a user's codebase and storing only the measurements needed to understand how it changed.

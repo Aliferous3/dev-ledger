@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 import {
   ANALYTICS_RANGES,
+  BLOG_ARTICLE_SLUGS,
+  BLOG_ATTRIBUTION_SLUGS,
   DENIED_EVENT_PROPERTIES,
   EVENT_PROPERTIES,
   FEEDBACK_EVENT_TYPES,
@@ -35,13 +37,19 @@ function allSourceFiles(dir = path.join(ROOT, 'src'), acc = []) {
 
 /* ── 1. The event-name allowlist is exact ── */
 
-test('the analytics event allowlist is exactly the specified eight events', () => {
+test('the analytics event allowlist is exactly the specified event set', () => {
   assert.deepEqual(SYNC_TRIGGERS, ['manual', 'automatic']);
   assert.deepEqual(SYNC_FAIL_REASONS, ['network', 'rate_limited', 'revoked', 'server', 'unknown']);
   assert.deepEqual(FEEDBACK_EVENT_TYPES, ['BUG', 'FEATURE', 'FEEDBACK']);
   assert.deepEqual(Object.keys(EVENT_PROPERTIES).sort(), [
+    'blog_article_viewed',
+    'blog_index_article_clicked',
+    'blog_product_cta_clicked',
+    'blog_related_article_clicked',
     'delete_data_completed',
     'feedback_submitted',
+    'github_login_started',
+    'github_login_succeeded',
     'range_changed',
     'share_downloaded',
     'share_opened',
@@ -49,6 +57,106 @@ test('the analytics event allowlist is exactly the specified eight events', () =
     'sync_failed',
     'sync_started',
   ]);
+});
+
+test('the blog slug allowlist matches the published content/blog articles', () => {
+  const mdSlugs = readdirSync(path.join(ROOT, 'content/blog'))
+    .filter((n) => n.endsWith('.md'))
+    .map((n) => {
+      const md = readFileSync(path.join(ROOT, 'content/blog', n), 'utf8');
+      return md.match(/^slug:\s*(\S+)/m)?.[1];
+    })
+    .filter(Boolean)
+    .sort();
+  assert.deepEqual([...BLOG_ARTICLE_SLUGS].sort(), mdSlugs);
+  assert.deepEqual(
+    BLOG_ATTRIBUTION_SLUGS,
+    [...BLOG_ARTICLE_SLUGS, 'none'],
+    'attribution enum is exactly the article slugs plus the none sentinel',
+  );
+});
+
+test('blog events accept only allowlisted slugs and fixed placement values', () => {
+  for (const slug of BLOG_ARTICLE_SLUGS) {
+    assert.deepEqual(
+      validateAnalyticsEvent('blog_article_viewed', { article_slug: slug }),
+      { article_slug: slug },
+    );
+  }
+  assert.equal(validateAnalyticsEvent('blog_article_viewed', { article_slug: 'not-a-post' }), null);
+  assert.equal(validateAnalyticsEvent('blog_article_viewed', {}), null);
+  assert.equal(
+    validateAnalyticsEvent('blog_article_viewed', { article_slug: 'what-is-code-churn', path: '/blog/x' }),
+    null,
+    'no path/URL properties allowed',
+  );
+  assert.deepEqual(
+    validateAnalyticsEvent('blog_related_article_clicked', {
+      origin_slug: 'what-is-code-churn',
+      target_slug: 'developer-productivity-metrics',
+      placement: 'related_articles',
+    }),
+    {
+      origin_slug: 'what-is-code-churn',
+      target_slug: 'developer-productivity-metrics',
+      placement: 'related_articles',
+    },
+  );
+  assert.equal(
+    validateAnalyticsEvent('blog_related_article_clicked', {
+      origin_slug: 'what-is-code-churn',
+      target_slug: 'developer-productivity-metrics',
+      placement: 'sidebar',
+    }),
+    null,
+  );
+  assert.deepEqual(
+    validateAnalyticsEvent('blog_product_cta_clicked', {
+      article_slug: 'github-analytics-metrics-guide',
+      cta_id: 'article_end',
+      placement: 'article_end',
+      destination: '/',
+    }),
+    {
+      article_slug: 'github-analytics-metrics-guide',
+      cta_id: 'article_end',
+      placement: 'article_end',
+      destination: '/',
+    },
+  );
+  assert.deepEqual(
+    validateAnalyticsEvent('blog_index_article_clicked', {
+      target_slug: 'what-is-code-churn',
+      placement: 'blog_index',
+    }),
+    { target_slug: 'what-is-code-churn', placement: 'blog_index' },
+  );
+});
+
+test('login events carry only surface plus allowlisted attribution slug', () => {
+  for (const name of ['github_login_started', 'github_login_succeeded']) {
+    assert.deepEqual(
+      validateAnalyticsEvent(name, { surface: 'blog', origin_slug: 'what-is-code-churn' }),
+      { surface: 'blog', origin_slug: 'what-is-code-churn' },
+    );
+    assert.deepEqual(
+      validateAnalyticsEvent(name, { surface: 'direct', origin_slug: 'none' }),
+      { surface: 'direct', origin_slug: 'none' },
+    );
+    assert.equal(validateAnalyticsEvent(name, { surface: 'blog' }), null);
+    assert.equal(
+      validateAnalyticsEvent(name, { surface: 'blog', origin_slug: 'evil-slug' }),
+      null,
+    );
+    assert.equal(
+      validateAnalyticsEvent(name, { surface: 'github', origin_slug: 'none' }),
+      null,
+    );
+    assert.equal(
+      validateAnalyticsEvent(name, { surface: 'blog', origin_slug: 'none', referrer: 'x' }),
+      null,
+    );
+  }
 });
 
 test('arbitrary event names cannot be emitted', () => {
@@ -302,6 +410,19 @@ test('event wiring emits only through captureEvent at the right transitions', ()
   );
   const menu = src('src/components/AccountMenu.tsx');
   assert.match(menu, /captureEvent\('delete_data_completed', \{\}/);
+  // Blog → login funnel: the button emits login_started with allowlisted
+  // attribution, the post-OAuth boot emits login_succeeded once via the
+  // one-shot pending flag. No auth logic is altered — read-only flags.
+  const shared = src('src/ledger/shared.tsx');
+  assert.match(shared, /captureEvent\('github_login_started'/);
+  assert.match(shared, /markLoginPending\(\)/);
+  const gate = src('src/main.tsx');
+  assert.match(gate, /consumeLoginPending\(\)/);
+  assert.match(gate, /captureEvent\("github_login_succeeded"/);
+  // The sessionStorage bridge may only ever carry an allowlisted slug.
+  const attr = src('src/analytics/blogAttribution.ts');
+  assert.match(attr, /BLOG_ARTICLE_SLUGS\.includes\(slug\)/);
+  assert.doesNotMatch(attr, /localStorage|document\.cookie|fetch\(/);
 });
 
 /* ── 10. CSP stays strict; proxy is same-origin ── */

@@ -6,7 +6,7 @@ date: 2026-09-29
 updated: 2026-09-29
 author: Noaman Ali
 tags: GitHub analytics, developer metrics, code metrics, developer history
-ogImage: /og/dev-ledger.png
+ogImage: /blog/github-analytics-metrics-guide.png
 ---
 
 GitHub exposes a large amount of development data.
