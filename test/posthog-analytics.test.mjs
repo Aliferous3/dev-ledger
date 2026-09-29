@@ -7,6 +7,11 @@ import { fileURLToPath } from 'node:url';
 import {
   ANALYTICS_RANGES,
   DENIED_EVENT_PROPERTIES,
+  PAGEVIEW_PROPERTIES,
+  isPublicAnalyticsHost,
+  sanitizePathname,
+  sanitizeReferringDomain,
+  sanitizedPageviewProps,
   EVENT_PROPERTIES,
   FEEDBACK_EVENT_TYPES,
   POSTHOG_INIT_OPTIONS,
@@ -272,7 +277,7 @@ test('init wires api_host, property_denylist and before_send from the model', ()
   assert.match(facade, /api_host: apiHost/);
   assert.match(facade, /property_denylist: \[\.\.\.DENIED_EVENT_PROPERTIES\]/);
   assert.match(facade, /before_send:/);
-  assert.match(facade, /scrubEventProperties\(event\.event, event\.properties\)/);
+  assert.match(facade, /scrubEventProperties\([\s\S]*?event\.event[\s\S]*?event\.properties/);
   assert.match(facade, /\.\.\.\s*\(?\s*POSTHOG_INIT_OPTIONS/);
   assert.match(facade, /import\.meta\.env\.VITE_POSTHOG_PROJECT_TOKEN/);
 });
@@ -388,6 +393,114 @@ test('captureEvent validates before sending and never throws without a client', 
   assert.match(facade, /if \(!token\) return/);
   // no session recording or replay code paths in our source
   assert.doesNotMatch(facade, /sessionRecording|startSessionRecording/i);
+});
+
+/* ── Sanitized manual $pageview ── */
+
+test('$pageview is not a caller-emittable custom event', () => {
+  assert.ok(!('$pageview' in EVENT_PROPERTIES), '$pageview must not join the custom allowlist');
+  assert.equal(validateAnalyticsEvent('$pageview', {}), null);
+  assert.equal(validateAnalyticsEvent('$pageview', { $current_url: 'x' }), null);
+  const facade = src('src/analytics/posthog.ts');
+  assert.match(facade, /client\.capture\('\$pageview'\)/, 'pageview emits with zero caller properties');
+  assert.match(facade, /export function capturePageview\(\)/, 'dedicated pageview entry point');
+});
+
+test('sanitizePathname strips query, fragment and trailing slashes', () => {
+  assert.equal(sanitizePathname('/blog/foo'), '/blog/foo');
+  assert.equal(sanitizePathname('/blog/foo/'), '/blog/foo');
+  assert.equal(sanitizePathname('/blog/'), '/blog');
+  assert.equal(sanitizePathname('/'), '/');
+  assert.equal(sanitizePathname('/overview'), '/overview');
+  // pathname input never carries ?/# — but hostile input is refused anyway
+  assert.equal(sanitizePathname('/blog/foo?token=SECRET'), '/');
+  assert.equal(sanitizePathname('/x#frag'), '/');
+  assert.equal(sanitizePathname('/bad path'), '/');
+  assert.equal(sanitizePathname('/%2e%2e/'), '/');
+  assert.equal(sanitizePathname('https://evil.example/x'), '/');
+  assert.equal(sanitizePathname(''), '/');
+  assert.equal(sanitizePathname(undefined), '/');
+});
+
+test('sanitizedPageviewProps produces the exact allowed shape', () => {
+  const loc = {
+    origin: 'https://devledger.site',
+    host: 'devledger.site',
+    pathname: '/blog/what-is-code-churn',
+  };
+  assert.deepEqual(sanitizedPageviewProps(loc, ''), {
+    $current_url: 'https://devledger.site/blog/what-is-code-churn',
+    $pathname: '/blog/what-is-code-churn',
+    $host: 'devledger.site',
+    $referring_domain: '',
+  });
+  // A hostile referrer reduces to a bare domain, never a URL.
+  const withRef = sanitizedPageviewProps(loc, 'https://google.com/a/path?user=x&campaign=y');
+  assert.equal(withRef.$referring_domain, 'google.com');
+  const keys = Object.keys(withRef).sort();
+  assert.deepEqual(keys, [...PAGEVIEW_PROPERTIES].sort());
+});
+
+test('referrer never leaks path/query — self-referral yields empty domain', () => {
+  assert.equal(sanitizeReferringDomain('https://github.com/Aliferous3/dev-ledger', 'devledger.site'), 'github.com');
+  assert.equal(sanitizeReferringDomain('https://devledger.site/blog', 'devledger.site'), '');
+  assert.equal(sanitizeReferringDomain('not a url', 'devledger.site'), '');
+  assert.equal(sanitizeReferringDomain('', 'devledger.site'), '');
+});
+
+test('internal origins never emit pageviews', () => {
+  assert.equal(isPublicAnalyticsHost('devledger.site'), true);
+  assert.equal(isPublicAnalyticsHost('dev-ledger-site.vercel.app'), false);
+  assert.equal(isPublicAnalyticsHost('dev-ledger-abc123.vercel.app'), false);
+  assert.equal(isPublicAnalyticsHost('localhost:4173'), true);
+  assert.equal(isPublicAnalyticsHost('localhost'), true);
+  assert.equal(isPublicAnalyticsHost('127.0.0.1:5173'), true);
+});
+
+test('before_send $pageview path re-attaches only sanitized props after denylist', () => {
+  // Simulates the pipeline: denylist already removed the SDK's raw fields;
+  // before_send merges caller leftovers through the scrubber and attaches
+  // the recomputed sanitized set.
+  const dirty = {
+    token: 'phc_x',
+    distinct_id: 'anon',
+    $session_id: 's',
+    stray: 'dropped',
+  };
+  const clean = scrubEventProperties('$pageview', dirty, {
+    $current_url: 'https://devledger.site/security',
+    $pathname: '/security',
+    $host: 'devledger.site',
+    $referring_domain: 'google.com',
+  });
+  assert.deepEqual(clean, {
+    token: 'phc_x',
+    distinct_id: 'anon',
+    $session_id: 's',
+    $current_url: 'https://devledger.site/security',
+    $pathname: '/security',
+    $host: 'devledger.site',
+    $referring_domain: 'google.com',
+  });
+});
+
+test('facade dedupes pageviews and gates on the public host', () => {
+  const facade = src('src/analytics/posthog.ts');
+  assert.match(facade, /lastPageviewPath/);
+  assert.match(facade, /pathname === lastPageviewPath/);
+  assert.match(facade, /isPublicAnalyticsHost\(window\.location\.host\)/);
+  assert.match(facade, /sanitizedPageviewProps\(window\.location, document\.referrer\)/);
+  assert.doesNotMatch(facade, /location\.href/, 'never reads location.href');
+});
+
+test('pageview wiring: boot emit once, route changes and popstate covered', () => {
+  const main = src('src/main.tsx');
+  assert.match(main, /initAnalytics\(\)\.then\(\(\) => capturePageview\(\)\)/);
+  const pages = src('src/pages.ts');
+  // navigate + popstate each emit — dedup in capturePageview collapses
+  // same-path repeats (StrictMode, hash/range-only history entries).
+  assert.match(pages, /capturePageview\(\)/);
+  assert.ok((pages.match(/capturePageview\(\)/g) || []).length >= 2);
 });
 
 test('the built artifact would not contact posthog hosts directly', () => {

@@ -24,15 +24,27 @@ export {
   DENIED_EVENT_PROPERTIES,
   EVENT_PROPERTIES,
   FEEDBACK_EVENT_TYPES,
+  PAGEVIEW_EVENT,
+  PAGEVIEW_PROPERTIES,
   POSTHOG_INIT_OPTIONS,
   PROXY_PATH,
   SYNC_FAIL_REASONS,
   SYNC_TRIGGERS,
+  isPublicAnalyticsHost,
   mapSyncFailReason,
   resolveAnalyticsHost,
+  sanitizePathname,
+  sanitizeReferringDomain,
+  sanitizedPageviewProps,
   scrubEventProperties,
   syncFailReasonFromHttp,
   validateAnalyticsEvent,
+} from './posthogModel.mjs';
+
+import {
+  isPublicAnalyticsHost,
+  sanitizePathname,
+  sanitizedPageviewProps,
 } from './posthogModel.mjs';
 
 export type SyncTrigger = 'manual' | 'automatic';
@@ -102,7 +114,19 @@ export async function initAnalytics(): Promise<void> {
       property_denylist: [...DENIED_EVENT_PROPERTIES],
       before_send: (event: CaptureResult | null) => {
         if (!event || !event.properties || typeof event.event !== 'string') return event;
-        event.properties = scrubEventProperties(event.event, event.properties);
+        // For $pageview, sanitized standard properties are recomputed from
+        // the live location — denylist already removed the SDK's raw URL
+        // fields, so nothing caller-supplied can carry query/hash/referrer
+        // data into the event.
+        const pageviewProps =
+          event.event === '$pageview'
+            ? sanitizedPageviewProps(window.location, document.referrer)
+            : undefined;
+        event.properties = scrubEventProperties(
+          event.event,
+          event.properties,
+          pageviewProps,
+        );
         return event;
       },
     });
@@ -125,6 +149,33 @@ export function captureEvent<E extends AnalyticsEventName>(
   if (!clean || !client) return;
   try {
     client.capture(name, clean, options);
+  } catch {
+    /* analytics is best-effort — never surface to the app */
+  }
+}
+
+// ── Sanitized manual $pageview ─────────────────────────────────────────────
+//
+// Automatic pageview capture stays OFF (capture_pageview: false) — the SDK
+// would stamp raw URL/referrer fields. This is the ONLY way a $pageview is
+// emitted: no caller properties, no raw location data. The sanitized
+// $current_url/$pathname/$host/$referring_domain are recomputed inside
+// before_send from the live location, so this function cannot be used to
+// smuggle arbitrary values.
+
+// Dedupe consecutive views of the same sanitized pathname — protects the
+// initial emit against React StrictMode remounts and keeps hash/query-only
+// pushState entries (?range=, section anchors) from counting as pageviews.
+let lastPageviewPath: string | null = null;
+
+export function capturePageview(): void {
+  if (!client || typeof window === 'undefined') return;
+  if (!isPublicAnalyticsHost(window.location.host)) return;
+  const pathname = sanitizePathname(window.location.pathname);
+  if (pathname === lastPageviewPath) return;
+  lastPageviewPath = pathname;
+  try {
+    client.capture('$pageview');
   } catch {
     /* analytics is best-effort — never surface to the app */
   }
