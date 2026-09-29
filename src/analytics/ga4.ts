@@ -41,7 +41,7 @@ export {
 export type GA4EventName = 'login_start' | 'login' | 'select_content';
 
 export interface GA4EventProps {
-  login_start: { method: 'github' };
+  login_start: { method: 'github'; transport_type: 'beacon' };
   login: { method: 'github' };
   select_content: { content_type: 'product_cta'; item_id: string };
 }
