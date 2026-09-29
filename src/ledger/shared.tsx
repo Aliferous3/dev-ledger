@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { GRID, INTENSITY_BG, YEARS, COLS, type GridCell } from './data';
+import { captureEvent } from '../analytics/posthog';
+import { markLoginPending, readBlogAttribution } from '../analytics/blogAttribution';
 
 /* ---------- scroll reveal hook ---------- */
 export function useReveal<T extends HTMLElement>() {
@@ -35,9 +37,17 @@ export function usePrefersReducedMotion() {
    Phosphor terminal-command treatment: lime fill, black mono uppercase,
    sharp corners, left play indicator, thin dark baseline. */
 export function GithubButton({ large = false, onLogin, remember = false }: { large?: boolean; onLogin?: () => void; remember?: boolean }) {
+  const startLogin = () => {
+    // Analytics only — the OAuth navigation itself is unchanged. The
+    // pending flag lets the post-callback boot emit login_succeeded once.
+    markLoginPending();
+    const attribution = readBlogAttribution();
+    captureEvent('github_login_started', { surface: attribution.surface, origin_slug: attribution.origin_slug });
+    window.location.assign(remember ? '/api/auth/login?remember=1' : '/api/auth/login');
+  };
   return (
     <button
-      onClick={onLogin ?? (() => window.location.assign(remember ? '/api/auth/login?remember=1' : '/api/auth/login'))}
+      onClick={onLogin ?? startLogin}
       className={`group relative flex items-center gap-2.5 bg-[#d6ff3e] text-black font-mono border-b-[3px] border-[#6f8f10] transition-colors duration-200 hover:bg-[#e4ff70] hover:border-black active:translate-y-px ${large ? 'px-6 py-3 text-[11px]' : 'px-5 py-2.5 text-[10px]'}`}
     >
       <span className="text-[9px] leading-none">▶</span>

@@ -320,6 +320,9 @@ export function SecurityPrivacyPage() {
           <a href="/" className={`mono-tag text-[9px] tracking-[0.22em] ${linkCls}`}>
             &lt; RETURN TO DEV LEDGER
           </a>
+          <a href="/blog" className={`mono-tag text-[9px] tracking-[0.22em] ${linkCls}`}>
+            BLOG
+          </a>
           <span className="mono-tag text-[8px] tracking-[0.2em] text-neutral-700">END OF RECORD</span>
         </div>
       </div>

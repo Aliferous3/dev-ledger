@@ -44,6 +44,27 @@ export const ANALYTICS_RANGES = [
 
 export const FEEDBACK_EVENT_TYPES = ['BUG', 'FEATURE', 'FEEDBACK'];
 
+// Published blog article slugs — the only values blog events may carry.
+// Kept in sync with content/blog/*.md by the posthog-analytics tests.
+export const BLOG_ARTICLE_SLUGS = [
+  'analyze-github-development-history',
+  'analyze-programming-language-usage-github',
+  'compare-github-activity-time-ranges',
+  'developer-productivity-metrics',
+  'git-commit-history-analysis',
+  'github-analytics-metrics-guide',
+  'github-contribution-graph-limitations',
+  'measure-source-code-growth-over-time',
+  'privacy-first-github-analytics',
+  'repository-lifecycle-analytics',
+  'what-is-code-churn',
+];
+
+// Blog-sourced login attribution. 'none' marks a login that did not
+// originate from a tracked blog page.
+export const BLOG_ATTRIBUTION_SLUGS = [...BLOG_ARTICLE_SLUGS, 'none'];
+export const LOGIN_SURFACES = ['direct', 'blog'];
+
 // event name -> property name -> allowed values. {} means no properties.
 export const EVENT_PROPERTIES = {
   sync_started: { trigger: SYNC_TRIGGERS },
@@ -54,6 +75,30 @@ export const EVENT_PROPERTIES = {
   share_downloaded: { range: ANALYTICS_RANGES },
   feedback_submitted: { type: FEEDBACK_EVENT_TYPES },
   delete_data_completed: {},
+  blog_article_viewed: { article_slug: BLOG_ARTICLE_SLUGS },
+  blog_index_article_clicked: {
+    target_slug: BLOG_ARTICLE_SLUGS,
+    placement: ['blog_index'],
+  },
+  blog_related_article_clicked: {
+    origin_slug: BLOG_ARTICLE_SLUGS,
+    target_slug: BLOG_ARTICLE_SLUGS,
+    placement: ['related_articles'],
+  },
+  blog_product_cta_clicked: {
+    article_slug: BLOG_ARTICLE_SLUGS,
+    cta_id: ['article_end'],
+    placement: ['article_end'],
+    destination: ['/'],
+  },
+  github_login_started: {
+    surface: LOGIN_SURFACES,
+    origin_slug: BLOG_ATTRIBUTION_SLUGS,
+  },
+  github_login_succeeded: {
+    surface: LOGIN_SURFACES,
+    origin_slug: BLOG_ATTRIBUTION_SLUGS,
+  },
 };
 
 // ── Validation ─────────────────────────────────────────────────────────────

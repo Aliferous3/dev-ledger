@@ -3,7 +3,7 @@ slug: analyze-github-development-history
 title: How to Analyze Your GitHub Development History
 description: A practical way to read commits, source growth, churn, activity patterns, languages, and repository evolution without reducing development work to a single score.
 date: 2026-09-28
-updated: 2026-09-28
+updated: 2026-09-29
 author: Noaman Ali
 tags: GitHub analytics, developer analytics, code metrics, developer productivity
 ogImage: /blog/analyze-github-development-history.png
@@ -11,7 +11,7 @@ ogImage: /blog/analyze-github-development-history.png
 
 GitHub already records a large part of your development history. The difficult part is not collecting the activity; it is turning that activity into a useful account of how your work changes over time.
 
-A contribution graph can tell you that something happened on a given day. It cannot, by itself, tell you whether a repository expanded, contracted, changed languages, went dormant, came back to life, or passed through a period of unusually high churn.
+A [contribution graph](/blog/github-contribution-graph-limitations) can tell you that something happened on a given day. It cannot, by itself, tell you whether a repository expanded, contracted, changed languages, went dormant, came back to life, or passed through a period of unusually high churn.
 
 A better analysis starts by treating Git history as a longitudinal record rather than a score.
 
@@ -19,7 +19,7 @@ A better analysis starts by treating Git history as a longitudinal record rather
 
 Metrics become easier to interpret when every number belongs to a clearly defined period.
 
-Compare the last 30 days with the previous 30 days. Look at a quarter when you want to understand a release cycle. Use a year when you want to see changes in language mix, repository activity, or the cadence of work.
+Compare the last 30 days with the previous 30 days — the [7D, 30D, 90D, YTD, and 1Y ranges](/blog/compare-github-activity-time-ranges) each answer a different question. Look at a quarter when you want to understand a release cycle. Use a year when you want to see changes in language mix, repository activity, or the cadence of work.
 
 The same commit count can mean very different things across different windows. A burst of 80 commits during a migration is not equivalent to 80 commits distributed across several months of maintenance.
 
@@ -41,7 +41,7 @@ The important point is that growth is descriptive, not automatically good or bad
 
 ## Use churn to see how intensely code is changing
 
-Churn looks at additions and deletions together rather than subtracting one from the other.
+[Churn](/blog/what-is-code-churn) looks at additions and deletions together rather than subtracting one from the other.
 
 A useful basic definition is:
 
@@ -94,7 +94,7 @@ This becomes much more useful when language history is considered alongside repo
 
 Repositories are not equally active forever.
 
-A project may begin intensely, become quiet, enter maintenance, or revive after months of inactivity. Looking at those transitions gives you a clearer picture of a body of work than treating every repository as a permanent, equally weighted object.
+A project may begin intensely, become quiet, enter maintenance, or revive after months of inactivity. Looking at those [repository lifecycle transitions](/blog/repository-lifecycle-analytics) gives you a clearer picture of a body of work than treating every repository as a permanent, equally weighted object.
 
 Useful questions include:
 

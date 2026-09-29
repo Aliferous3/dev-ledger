@@ -17,6 +17,16 @@ Key data-handling facts: Dev Ledger does not persist repository source code, com
 
 - [Dev Ledger Blog](https://devledger.site/blog): Writing about GitHub history, code metrics, developer analytics, privacy, and the systems behind Dev Ledger.
 - [How to Analyze Your GitHub Development History](https://devledger.site/blog/analyze-github-development-history): A practical guide to reading source growth, churn, commits, active days, languages, and repository evolution.
+- [GitHub Analytics: 12 Metrics Worth Tracking and What They Actually Mean](https://devledger.site/blog/github-analytics-metrics-guide): A practical guide to 12 GitHub analytics metrics — commits, active days, additions, deletions, net growth, churn, languages, repository activity, streaks, milestones, pull requests, and project lifecycle.
+- [Developer Productivity Metrics: What to Measure and What to Avoid](https://devledger.site/blog/developer-productivity-metrics): A framework for using commits, churn, source growth, active days, repository activity, and milestones without pretending one number measures productivity.
+- [What Is Code Churn? How to Read It Without Misusing It](https://devledger.site/blog/what-is-code-churn): How to calculate churn, interpret it, and avoid turning it into a misleading productivity score.
+- [How to Measure Source Code Growth Over Time](https://devledger.site/blog/measure-source-code-growth-over-time): How to calculate net source growth from additions and deletions and interpret codebase growth without equating bigger with better.
+- [What the GitHub Contribution Graph Doesn't Show](https://devledger.site/blog/github-contribution-graph-limitations): What the contribution graph leaves out — code growth, churn, repository lifecycles, language shifts, and context.
+- [What Your Git Commit History Can Tell You About How You Work](https://devledger.site/blog/git-commit-history-analysis): How commit history reveals cadence, focus, project transitions, bursts, and gaps when treated as context rather than a score.
+- [How to Compare GitHub Activity Across 7D, 30D, 90D, YTD, and 1Y](https://devledger.site/blog/compare-github-activity-time-ranges): When to use short, medium, and long windows and how to compare them without misleading yourself.
+- [How to Analyze Programming Language Usage Across GitHub Repositories](https://devledger.site/blog/analyze-programming-language-usage-github): How to read language composition across repositories and distinguish snapshots from trends.
+- [Repository Lifecycle Analytics: Active, Dormant, and Revived GitHub Projects](https://devledger.site/blog/repository-lifecycle-analytics): How to identify active, dormant, newly started, and revived repositories and read lifecycle patterns.
+- [How to Track Developer Activity Without Storing Source Code](https://devledger.site/blog/privacy-first-github-analytics): How developer analytics can be built from repository metadata without persisting source code.
 
 ## Open-source documentation
 

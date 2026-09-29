@@ -9,6 +9,68 @@ const PUBLIC_DIR = path.join(ROOT, 'public')
 const SITE = 'https://devledger.site'
 const DEFAULT_OG_IMAGE = '/og/dev-ledger.png'
 
+// Curated related-articles map: slug -> up to 3 related slugs, chosen
+// editorially from article content/tags. Deterministic by construction —
+// every entry is validated against the published slug set at build time
+// (unknown slug, self-reference, or duplicate fails the build).
+const RELATED_ARTICLES = {
+  'analyze-github-development-history': [
+    'github-analytics-metrics-guide',
+    'git-commit-history-analysis',
+    'developer-productivity-metrics',
+  ],
+  'analyze-programming-language-usage-github': [
+    'measure-source-code-growth-over-time',
+    'repository-lifecycle-analytics',
+    'github-analytics-metrics-guide',
+  ],
+  'compare-github-activity-time-ranges': [
+    'github-analytics-metrics-guide',
+    'repository-lifecycle-analytics',
+    'github-contribution-graph-limitations',
+  ],
+  'developer-productivity-metrics': [
+    'what-is-code-churn',
+    'github-analytics-metrics-guide',
+    'git-commit-history-analysis',
+  ],
+  'git-commit-history-analysis': [
+    'repository-lifecycle-analytics',
+    'github-contribution-graph-limitations',
+    'developer-productivity-metrics',
+  ],
+  'github-analytics-metrics-guide': [
+    'developer-productivity-metrics',
+    'what-is-code-churn',
+    'compare-github-activity-time-ranges',
+  ],
+  'github-contribution-graph-limitations': [
+    'github-analytics-metrics-guide',
+    'compare-github-activity-time-ranges',
+    'privacy-first-github-analytics',
+  ],
+  'measure-source-code-growth-over-time': [
+    'what-is-code-churn',
+    'analyze-programming-language-usage-github',
+    'repository-lifecycle-analytics',
+  ],
+  'privacy-first-github-analytics': [
+    'github-analytics-metrics-guide',
+    'analyze-github-development-history',
+    'what-is-code-churn',
+  ],
+  'repository-lifecycle-analytics': [
+    'git-commit-history-analysis',
+    'measure-source-code-growth-over-time',
+    'compare-github-activity-time-ranges',
+  ],
+  'what-is-code-churn': [
+    'developer-productivity-metrics',
+    'git-commit-history-analysis',
+    'measure-source-code-growth-over-time',
+  ],
+}
+
 const escapeHtml = (value = '') =>
   String(value)
     .replaceAll('&', '&amp;')
@@ -164,6 +226,26 @@ function readPosts() {
     .sort((a, b) => b.date.localeCompare(a.date))
 }
 
+// Resolve and validate the curated related-articles map. Every article
+// gets up to 3 related posts; a bad entry fails the build rather than
+// shipping a broken or self-referencing link.
+function attachRelated(posts) {
+  const bySlug = new Map(posts.map((p) => [p.slug, p]))
+  for (const post of posts) {
+    const related = RELATED_ARTICLES[post.slug] || []
+    if (related.length > 3) throw new Error(post.slug + ': more than 3 related articles')
+    const seen = new Set()
+    post.related = related.map((slug) => {
+      if (!bySlug.has(slug)) throw new Error(post.slug + ': unknown related slug ' + slug)
+      if (slug === post.slug) throw new Error(post.slug + ': self-referencing related article')
+      if (seen.has(slug)) throw new Error(post.slug + ': duplicate related slug ' + slug)
+      seen.add(slug)
+      return bySlug.get(slug)
+    })
+  }
+  return posts
+}
+
 function head({ title, description, canonical, ogImage, ogImageAlt = '', ogImageSize = null, type = 'website', post = null }) {
   const imageMeta = [
     ogImageSize ? '<meta property="og:image:type" content="image/png" />' : null,
@@ -203,6 +285,7 @@ function head({ title, description, canonical, ogImage, ogImageAlt = '', ogImage
     ${twitterImageAlt}
     ${articleMeta}
     <link rel="stylesheet" href="/src/blog/blog.css" />
+    <script type="module" src="/src/blog/analytics.ts"></script>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230a0a0a'/%3E%3Crect x='5' y='5' width='6' height='6' fill='%23d6ff3e'/%3E%3C/svg%3E" />`
 }
 
@@ -247,7 +330,7 @@ function renderIndex(posts) {
         <div class="post-index">${String(i + 1).padStart(2, '0')}</div>
         <div>
           <div class="post-meta">${escapeHtml(formatDate(post.date).toUpperCase())} · ${post.readMinutes} MIN READ</div>
-          <h2><a href="/blog/${escapeHtml(post.slug)}">${escapeHtml(post.title)}</a></h2>
+          <h2><a href="/blog/${escapeHtml(post.slug)}" data-index-target="${escapeHtml(post.slug)}">${escapeHtml(post.title)}</a></h2>
           <p>${escapeHtml(post.description)}</p>
           <div class="tags">${post.tags.map((tag) => '<span>' + escapeHtml(tag) + '</span>').join('')}</div>
         </div>
@@ -275,11 +358,49 @@ function renderIndex(posts) {
   })
 }
 
+function renderRelated(post) {
+  if (!post.related.length) return ''
+  const items = post.related.map((r) => `
+          <li class="related-item">
+            <a href="/blog/${escapeHtml(r.slug)}" data-related-target="${escapeHtml(r.slug)}">
+              <span class="related-meta">${escapeHtml(formatDate(r.date).toUpperCase())} · ${r.readMinutes} MIN READ</span>
+              <span class="related-title">${escapeHtml(r.title)}</span>
+              <span class="related-desc">${escapeHtml(r.description)}</span>
+            </a>
+          </li>`).join('')
+  return `<section class="related-articles" aria-labelledby="related-articles-heading">
+        <div class="eyebrow">RELATED ARTICLES</div>
+        <h2 id="related-articles-heading">Keep reading</h2>
+        <ol class="related-list">${items}
+        </ol>
+      </section>`
+}
+
+function renderBreadcrumbs(post) {
+  return `<nav class="breadcrumbs" aria-label="Breadcrumb" itemscope itemtype="https://schema.org/BreadcrumbList">
+      <ol>
+        <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+          <a itemprop="item" href="${SITE}/"><span itemprop="name">Dev Ledger</span></a>
+          <meta itemprop="position" content="1" />
+        </li>
+        <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+          <a itemprop="item" href="${SITE}/blog"><span itemprop="name">Blog</span></a>
+          <meta itemprop="position" content="2" />
+        </li>
+        <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+          <span itemprop="name">${escapeHtml(post.title)}</span>
+          <meta itemprop="item" content="${escapeHtml(post.url)}" />
+          <meta itemprop="position" content="3" />
+        </li>
+      </ol>
+    </nav>`
+}
+
 function renderArticle(post) {
   const body = siteChrome(`
     <main class="article-wrap">
-      <a class="back-link" href="/blog">&lt; ALL ARTICLES</a>
-      <article class="article" itemscope itemtype="https://schema.org/BlogPosting">
+      ${renderBreadcrumbs(post)}
+      <article class="article" data-slug="${escapeHtml(post.slug)}" itemscope itemtype="https://schema.org/BlogPosting">
         <meta itemprop="mainEntityOfPage" content="${escapeHtml(post.url)}" />
         <meta itemprop="datePublished" content="${escapeHtml(post.date)}" />
         <meta itemprop="dateModified" content="${escapeHtml(post.updated || post.date)}" />
@@ -300,9 +421,10 @@ function renderArticle(post) {
         <div class="article-body" itemprop="articleBody">
           ${post.html}
         </div>
+        ${renderRelated(post)}
         <footer class="article-end">
           <span>END OF RECORD</span>
-          <a href="/">OPEN DEV LEDGER →</a>
+          <a class="article-cta" href="/" data-cta="article_end">SEE YOUR GITHUB HISTORY IN DEV LEDGER →</a>
         </footer>
       </article>
     </main>`)
@@ -371,7 +493,7 @@ ${p.tags.map((tag) => '      <category>' + escapeXml(tag) + '</category>').join(
   fs.writeFileSync(path.join(PUBLIC_DIR, 'rss.xml'), rss)
 }
 
-const posts = readPosts()
+const posts = attachRelated(readPosts())
 if (!posts.length) throw new Error('At least one blog post is required')
 writeGenerated(posts)
 console.log('Generated blog:', posts.map((p) => p.slug).join(', '))

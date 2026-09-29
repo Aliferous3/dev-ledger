@@ -3,7 +3,7 @@ slug: what-is-code-churn
 title: What Is Code Churn? How to Read It Without Misusing It
 description: Code churn measures how much code is added and deleted over a period. Here is how to calculate it, interpret it, and avoid turning it into a misleading productivity score.
 date: 2026-09-28
-updated: 2026-09-28
+updated: 2026-09-29
 author: Noaman Ali
 tags: code churn, GitHub analytics, code metrics, developer analytics
 ogImage: /blog/what-is-code-churn.png
@@ -79,7 +79,7 @@ The reverse mistake is also common.
 
 Low churn can describe a stable project, but it can also describe:
 
-- a dormant repository
+- a [dormant repository](/blog/repository-lifecycle-analytics)
 - a maintenance-only period
 - development happening elsewhere
 - work concentrated in design, research, infrastructure, or planning
@@ -133,7 +133,7 @@ Then compare the shape of the activity.
 
 Did churn spike during a migration? Did it fall after a release? Did a repository suddenly become active after months of little change?
 
-Time windows turn churn from a static total into a development signal.
+[Fixed time windows](/blog/compare-github-activity-time-ranges) turn churn from a static total into a development signal.
 
 ## Compare repositories carefully
 
@@ -164,7 +164,7 @@ The commit count is identical, but the intensity of source change is not.
 
 The reverse can happen too. One repository might contain many tiny commits while another receives a few large commits.
 
-That is why commit count should not be used as a substitute for code-change volume.
+That is why [commit count](/blog/git-commit-history-analysis) should not be used as a substitute for code-change volume.
 
 A useful developer-history view keeps both.
 
@@ -192,7 +192,7 @@ Git history is not always immutable.
 
 Rebases, force pushes, squashed branches, and repository migrations can change which commits remain visible. A historical metric derived from GitHub therefore reflects the history available at the time it is measured.
 
-This is another reason to treat developer analytics as an observational instrument rather than an unquestionable ledger of effort.
+This is another reason to treat [developer analytics](/blog/developer-productivity-metrics) as an observational instrument rather than an unquestionable ledger of effort.
 
 ## Do not use churn as a standalone performance score
 
