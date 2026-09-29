@@ -61,11 +61,31 @@
     },
     {
       "source": "/blog",
-      "destination": "/blog/index.html"
+      "destination": "https://dev-ledger-site.vercel.app/blog"
     },
     {
-      "source": "/blog/:slug",
-      "destination": "/blog/:slug/index.html"
+      "source": "/blog/:path*",
+      "destination": "https://dev-ledger-site.vercel.app/blog/:path*"
+    },
+    {
+      "source": "/rss.xml",
+      "destination": "https://dev-ledger-site.vercel.app/rss.xml"
+    },
+    {
+      "source": "/sitemap.xml",
+      "destination": "https://dev-ledger-site.vercel.app/sitemap.xml"
+    },
+    {
+      "source": "/sitemap.xsl",
+      "destination": "https://dev-ledger-site.vercel.app/sitemap.xsl"
+    },
+    {
+      "source": "/sitemap.css",
+      "destination": "https://dev-ledger-site.vercel.app/sitemap.css"
+    },
+    {
+      "source": "/llms.txt",
+      "destination": "https://dev-ledger-site.vercel.app/llms.txt"
     }
   ],
   "headers": [
