@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { GRID, INTENSITY_BG, YEARS, COLS, type GridCell } from './data';
 import { captureEvent } from '../analytics/posthog';
+import { captureGoogleEvent } from '../analytics/ga4';
 import { markLoginPending } from '../analytics/loginFunnel';
 
 /* ---------- scroll reveal hook ---------- */
@@ -42,6 +43,7 @@ export function GithubButton({ large = false, onLogin, remember = false }: { lar
     // pending flag lets the post-callback boot emit login_succeeded once.
     markLoginPending();
     captureEvent('github_login_started', {});
+    captureGoogleEvent('login_start', { method: 'github' });
     window.location.assign(remember ? '/api/auth/login?remember=1' : '/api/auth/login');
   };
   return (

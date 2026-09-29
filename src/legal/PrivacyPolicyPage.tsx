@@ -34,8 +34,8 @@ export function PrivacyPolicyPage() {
         </p>
         <p>
           This policy applies to Dev Ledger’s website, GitHub App, account and sync services, dashboard,
-          feedback tools, and product analytics. It does not govern GitHub, Vercel, Supabase, PostHog, or any
-          other third-party service under their own terms and privacy notices.
+          feedback tools, and product analytics. It does not govern GitHub, Vercel, Supabase, PostHog, Google,
+          or any other third-party service under their own terms and privacy notices.
         </p>
       </LegalSection>
 
@@ -48,7 +48,8 @@ export function PrivacyPolicyPage() {
           <li><span className="text-[#d6ff3e]">▸</span> <span className="text-neutral-300">Pull-request metadata:</span> pull-request id and number, author identifiers, state, and created/closed/merged timestamps.</li>
           <li><span className="text-[#d6ff3e]">▸</span> <span className="text-neutral-300">Account operations:</span> server-side session records, sync state, coverage windows, and security-event records.</li>
           <li><span className="text-[#d6ff3e]">▸</span> <span className="text-neutral-300">Feedback:</span> the feedback type, title, optional description, optional verified screenshot, and automatic page/range/build context that you choose to submit.</li>
-          <li><span className="text-[#d6ff3e]">▸</span> <span className="text-neutral-300">Limited product analytics:</span> selected dashboard range, sync lifecycle category, share-card opens/downloads, feedback type, and delete-data completion.</li>
+          <li><span className="text-[#d6ff3e]">▸</span> <span className="text-neutral-300">Limited product analytics:</span> selected dashboard range, sync lifecycle category, share-card opens/downloads, feedback type, delete-data completion, and sanitized page views.</li>
+          <li><span className="text-[#d6ff3e]">▸</span> <span className="text-neutral-300">Acquisition analytics:</span> sanitized page views, coarse campaign-attribution fields when present in the URL (utm_source, utm_medium, utm_campaign, utm_term, utm_content), and login funnel steps measured by Google Analytics 4 — no query strings, URL fragments, account identifiers, or repository data are sent.</li>
         </ul>
       </LegalSection>
 
@@ -109,6 +110,7 @@ export function PrivacyPolicyPage() {
           <li><span className="text-[#d6ff3e]">▸</span> <span className="text-neutral-300">Vercel</span> — application hosting, delivery, operational logs, and cookieless Web Analytics;</li>
           <li><span className="text-[#d6ff3e]">▸</span> <span className="text-neutral-300">Supabase</span> — application database infrastructure;</li>
           <li><span className="text-[#d6ff3e]">▸</span> <span className="text-neutral-300">PostHog</span> — limited product analytics in the EU region, with autocapture, session replay, heatmaps, surveys, console capture, and performance capture disabled in the current configuration.</li>
+          <li><span className="text-[#d6ff3e]">▸</span> <span className="text-neutral-300">Google Analytics 4</span> — acquisition and traffic-source measurement: sanitized page views, campaign attribution fields, and login funnel events. GA4’s own client/session identifier cookies (_ga, _ga_*) are used for this measurement; Google Signals, advertising personalization, remarketing, and User-ID are not enabled. Google processes this data under its own privacy terms.</li>
         </ul>
         <p>
           We may also disclose information when reasonably necessary to comply with law, enforce legal rights, or
