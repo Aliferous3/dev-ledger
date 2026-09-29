@@ -103,6 +103,14 @@ test('config disables automatic page_view and ads/identity features', () => {
   assert.match(facade, /debug_mode: isGA4DebugHost/, 'localhost must run debug_mode');
 });
 
+test('dataLayer shim pushes arguments — plain arrays are ignored by gtag.js', () => {
+  // gtag.js's command interpreter only processes Arguments objects; a
+  // (...args) => push(args) shim silently drops every command.
+  const facade = codeOnly('src/analytics/ga4.ts');
+  assert.match(facade, /push\(arguments\)/);
+  assert.doesNotMatch(facade, /push\(args\)/);
+});
+
 test('gtag script loads async from googletagmanager.com only', () => {
   const facade = src('src/analytics/ga4.ts');
   assert.match(facade, /script\.async\s*=\s*true/);

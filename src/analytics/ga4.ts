@@ -84,8 +84,11 @@ export function initGoogleAnalytics(): void {
   if (!id || (!isGA4ProductionHost(host) && !isGA4DebugHost(host))) return;
   try {
     window.dataLayer = window.dataLayer || [];
-    window.gtag = function gtagShim(...args: unknown[]) {
-      window.dataLayer!.push(args);
+    // MUST push `arguments`, not a rest-args array — gtag.js's command
+    // interpreter only processes Arguments objects in dataLayer; plain
+    // arrays are ignored (container registers but no hits ever flush).
+    window.gtag = function gtagShim() {
+      window.dataLayer!.push(arguments);
     };
     window.gtag('js', new Date());
     window.gtag('config', id, {
