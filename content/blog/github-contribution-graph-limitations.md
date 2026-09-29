@@ -6,7 +6,7 @@ date: 2026-09-28
 updated: 2026-09-28
 author: Noaman Ali
 tags: GitHub contribution graph, GitHub analytics, developer history, code metrics
-ogImage: /og/dev-ledger.png
+ogImage: /blog/github-contribution-graph-limitations.png
 ---
 
 The GitHub contribution graph is one of the most recognizable views of developer activity.

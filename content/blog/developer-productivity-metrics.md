@@ -6,7 +6,7 @@ date: 2026-09-28
 updated: 2026-09-28
 author: Noaman Ali
 tags: developer productivity, engineering metrics, GitHub analytics, developer analytics
-ogImage: /og/dev-ledger.png
+ogImage: /blog/developer-productivity-metrics.png
 ---
 
 Developer productivity is difficult to measure because software work is not a uniform production line.

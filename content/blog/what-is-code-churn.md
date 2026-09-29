@@ -6,7 +6,7 @@ date: 2026-09-28
 updated: 2026-09-28
 author: Noaman Ali
 tags: code churn, GitHub analytics, code metrics, developer analytics
-ogImage: /og/dev-ledger.png
+ogImage: /blog/what-is-code-churn.png
 ---
 
 Code churn is one of the simplest development metrics to calculate and one of the easiest to misread.

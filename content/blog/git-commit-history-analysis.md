@@ -6,7 +6,7 @@ date: 2026-09-29
 updated: 2026-09-29
 author: Noaman Ali
 tags: git commit history, GitHub analytics, developer habits, developer history
-ogImage: /og/dev-ledger.png
+ogImage: /blog/git-commit-history-analysis.png
 ---
 
 A Git commit history is more than a list of changes.

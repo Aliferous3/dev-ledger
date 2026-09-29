@@ -6,7 +6,7 @@ date: 2026-09-29
 updated: 2026-09-29
 author: Noaman Ali
 tags: repository analytics, GitHub analytics, developer history, project lifecycle
-ogImage: /og/dev-ledger.png
+ogImage: /blog/repository-lifecycle-analytics.png
 ---
 
 Repositories have lifecycles.

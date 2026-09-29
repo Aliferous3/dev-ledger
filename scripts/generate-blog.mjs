@@ -7,6 +7,7 @@ const CONTENT_DIR = path.join(ROOT, 'content', 'blog')
 const BLOG_DIR = path.join(ROOT, 'blog')
 const PUBLIC_DIR = path.join(ROOT, 'public')
 const SITE = 'https://devledger.site'
+const DEFAULT_OG_IMAGE = '/og/dev-ledger.png'
 
 const escapeHtml = (value = '') =>
   String(value)
@@ -17,6 +18,18 @@ const escapeHtml = (value = '') =>
     .replaceAll("'", '&#39;')
 
 const escapeXml = escapeHtml
+
+function pngSize(rel) {
+  try {
+    const buf = fs.readFileSync(path.join(PUBLIC_DIR, rel.replace(/^\/+/, '')))
+    if (buf.length > 24 && buf.readUInt32BE(0) === 0x89504e47 && buf.readUInt32BE(12) === 0x49484452) {
+      return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) }
+    }
+  } catch {}
+  return null
+}
+
+const DEFAULT_OG_SIZE = pngSize(DEFAULT_OG_IMAGE)
 
 function parseFrontmatter(source, file) {
   if (!source.startsWith('---\n')) throw new Error(file + ': missing frontmatter')
@@ -136,10 +149,14 @@ function readPosts() {
       const file = path.join(CONTENT_DIR, name)
       const post = parseFrontmatter(fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n'), name)
       const words = post.body.trim().split(/\s+/).filter(Boolean).length
+      const ogPath = post.ogImage || DEFAULT_OG_IMAGE
+      const ogExternal = ogPath.startsWith('http')
       return {
         ...post,
         url: SITE + '/blog/' + post.slug,
-        ogImageUrl: post.ogImage?.startsWith('http') ? post.ogImage : SITE + (post.ogImage || '/og/dev-ledger.png'),
+        ogImageUrl: ogExternal ? ogPath : SITE + ogPath,
+        ogImageSize: ogExternal ? null : pngSize(ogPath),
+        banner: !ogExternal && ogPath !== DEFAULT_OG_IMAGE ? ogPath : null,
         readMinutes: Math.max(1, Math.ceil(words / 220)),
         html: markdownToHtml(post.body),
       }
@@ -147,7 +164,16 @@ function readPosts() {
     .sort((a, b) => b.date.localeCompare(a.date))
 }
 
-function head({ title, description, canonical, ogImage, type = 'website', post = null }) {
+function head({ title, description, canonical, ogImage, ogImageAlt = '', ogImageSize = null, type = 'website', post = null }) {
+  const imageMeta = [
+    ogImageSize ? '<meta property="og:image:type" content="image/png" />' : null,
+    ogImageSize ? '<meta property="og:image:width" content="' + ogImageSize.width + '" />' : null,
+    ogImageSize ? '<meta property="og:image:height" content="' + ogImageSize.height + '" />' : null,
+    ogImageAlt ? '<meta property="og:image:alt" content="' + escapeHtml(ogImageAlt) + '" />' : null,
+  ].filter(Boolean).join('\n    ')
+  const twitterImageAlt = ogImageAlt
+    ? '<meta name="twitter:image:alt" content="' + escapeHtml(ogImageAlt) + '" />'
+    : ''
   const articleMeta = post ? [
     '<meta property="article:published_time" content="' + escapeHtml(post.date) + '" />',
     '<meta property="article:modified_time" content="' + escapeHtml(post.updated || post.date) + '" />',
@@ -169,10 +195,12 @@ function head({ title, description, canonical, ogImage, type = 'website', post =
     <meta property="og:description" content="${escapeHtml(description)}" />
     <meta property="og:url" content="${escapeHtml(canonical)}" />
     <meta property="og:image" content="${escapeHtml(ogImage)}" />
+    ${imageMeta}
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtml(title)}" />
     <meta name="twitter:description" content="${escapeHtml(description)}" />
     <meta name="twitter:image" content="${escapeHtml(ogImage)}" />
+    ${twitterImageAlt}
     ${articleMeta}
     <link rel="stylesheet" href="/src/blog/blog.css" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230a0a0a'/%3E%3Crect x='5' y='5' width='6' height='6' fill='%23d6ff3e'/%3E%3C/svg%3E" />`
@@ -241,7 +269,9 @@ function renderIndex(posts) {
     title: 'Dev Ledger Blog — GitHub History & Developer Analytics',
     description: 'Practical writing about GitHub history, code metrics, developer analytics, privacy, and the systems behind Dev Ledger.',
     canonical: SITE + '/blog',
-    ogImage: SITE + '/og/dev-ledger.png',
+    ogImage: SITE + DEFAULT_OG_IMAGE,
+    ogImageAlt: 'Dev Ledger Blog — GitHub History & Developer Analytics',
+    ogImageSize: DEFAULT_OG_SIZE,
   })
 }
 
@@ -256,6 +286,7 @@ function renderArticle(post) {
         <meta itemprop="author" content="${escapeHtml(post.author)}" />
         <meta itemprop="publisher" content="Dev Ledger" />
         <meta itemprop="image" content="${escapeHtml(post.ogImageUrl)}" />
+        ${post.banner ? '<img class="article-banner" src="' + escapeHtml(post.banner) + '" alt="' + escapeHtml(post.title) + '"' + (post.ogImageSize ? ' width="' + post.ogImageSize.width + '" height="' + post.ogImageSize.height + '"' : '') + ' fetchpriority="high" />' : ''}
         <header class="article-header">
           <div class="eyebrow">JOURNAL / ${escapeHtml(post.tags[0] || 'DEV LEDGER')}</div>
           <h1 itemprop="headline">${escapeHtml(post.title)}</h1>
@@ -280,6 +311,8 @@ function renderArticle(post) {
     description: post.description,
     canonical: post.url,
     ogImage: post.ogImageUrl,
+    ogImageAlt: post.title,
+    ogImageSize: post.ogImageSize,
     type: 'article',
     post,
   })

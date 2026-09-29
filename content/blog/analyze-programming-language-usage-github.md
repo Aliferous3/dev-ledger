@@ -6,7 +6,7 @@ date: 2026-09-29
 updated: 2026-09-29
 author: Noaman Ali
 tags: GitHub languages, GitHub analytics, developer analytics, programming languages
-ogImage: /og/dev-ledger.png
+ogImage: /blog/analyze-programming-language-usage-github.png
 ---
 
 A programming-language breakdown looks simple: one repository is mostly TypeScript, another is mostly Python, another has a mixture of CSS, HTML, and JavaScript.

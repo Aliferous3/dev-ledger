@@ -85,6 +85,10 @@ a { color: inherit; }
   letter-spacing: .18em; margin-bottom: 54px;
 }
 .back-link:hover { color: var(--accent); }
+.article-banner {
+  display: block; width: 100%; height: auto; margin: 0 0 44px;
+  border: 1px solid var(--line);
+}
 .article-header { border-bottom: 1px solid var(--line); padding-bottom: 38px; }
 .article-header h1 { font-size: clamp(44px, 7vw, 78px); line-height: .98; }
 .dek {
