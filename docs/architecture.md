@@ -65,7 +65,7 @@ Webhook requests require a valid HMAC signature and use delivery IDs to prevent 
 
 Supabase Postgres stores normalized records for users, installations, repositories, languages, commits, pull requests, coverage, sync state, sessions, and limited operational telemetry.
 
-The application intentionally does not persist repository source code, commit messages, pull-request titles, GitHub email addresses, OAuth tokens, installation tokens, or raw webhook payload bodies.
+The application intentionally does not persist repository source code, commit messages, pull-request titles, commit or pull-request author identifiers (every stored row is already scoped to the signed-in user), raw provider exception text (sync errors persist closed taxonomy codes only), GitHub email addresses, OAuth tokens, installation tokens, or raw webhook payload bodies.
 
 Application tables use row-level security and browser database roles have no direct table access. Server-side application queries use the backend credential and scope records to the authenticated internal user.
 

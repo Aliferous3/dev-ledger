@@ -85,10 +85,12 @@ test('delete my data cascades every user-derived table', async (t) => {
   await db.from('github_installations').insert({ user_id: userId, installation_id: Math.floor(Math.random() * 9e8) })
   await db.from('repository_languages').insert({ repository_id: repo.id, language: 'TS', bytes: 10 })
   await db.from('commits').insert({ user_id: userId, repository_id: repo.id, github_sha: randomUUID().replaceAll('-', '').slice(0, 40), committed_at: new Date().toISOString() })
-  await db.from('pull_requests').insert({ user_id: userId, repository_id: repo.id, github_pr_id: Math.floor(Math.random() * 9e8), number: 1, created_at: new Date().toISOString() })
+  await db.from('pull_requests').insert({ user_id: userId, repository_id: repo.id, github_pr_id: Math.floor(Math.random() * 9e8), created_at: new Date().toISOString() })
   await db.from('repo_sync').insert({ user_id: userId, repository_id: repo.id })
   await db.from('user_sync').insert({ user_id: userId, status: 'complete' })
   await db.from('repo_coverage').insert({ user_id: userId, repository_id: repo.id, covered_from: '2020-01-01', covered_to: '2021-01-01', complete: true })
+  await db.from('auth_sessions').insert({ sid: `it-sid-${randomUUID()}`, user_id: userId, expires_at: new Date(Date.now() + 86400000).toISOString() })
+  await db.from('feedback').insert({ user_id: userId, type: 'FEEDBACK', title: 'cascade check' })
 
   // The same statement DELETE /api/user issues.
   await db.from('users').delete().eq('id', userId)
@@ -103,6 +105,8 @@ test('delete my data cascades every user-derived table', async (t) => {
     ['user_sync', 'user_id', userId],
     ['repo_coverage', 'user_id', userId],
     ['repository_languages', 'repository_id', repo.id],
+    ['auth_sessions', 'user_id', userId],
+    ['feedback', 'user_id', userId],
   ]) {
     const { count } = await db.from(table).select('*', { count: 'exact', head: true }).eq(col, val)
     leftovers[table] = count
@@ -110,5 +114,6 @@ test('delete my data cascades every user-derived table', async (t) => {
   assert.deepEqual(leftovers, {
     github_installations: 0, repositories: 0, commits: 0, pull_requests: 0,
     repo_sync: 0, user_sync: 0, repo_coverage: 0, repository_languages: 0,
+    auth_sessions: 0, feedback: 0,
   }, 'delete must leave no user-derived rows')
 })

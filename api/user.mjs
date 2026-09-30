@@ -2,6 +2,7 @@ import { getSession } from '../lib/auth.mjs'
 import { github } from '../lib/config.mjs'
 import { supabase } from '../lib/db.mjs'
 import { getUserSync } from '../lib/sync.mjs'
+import { syncErrorMessage } from '../lib/sync-errors.mjs'
 import { revokeAllSessions, isSessionLive } from '../lib/sessions.mjs'
 import { requestQuery } from '../lib/request-query.mjs'
 import { forbidCrossSite } from '../lib/same-origin.mjs'
@@ -175,7 +176,7 @@ export default async function handler(req, res) {
           progress: sync.progress,
           detail: sync.detail || null,
           lastSyncedAt: sync.last_synced_at,
-          error: sync.error,
+          error: syncErrorMessage(sync.error),
         }
       : null,
   })

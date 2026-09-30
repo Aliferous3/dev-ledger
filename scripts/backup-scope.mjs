@@ -16,7 +16,7 @@ export const CORE_TABLES = [
   'repositories',          // tracked repos incl. disconnect state
   'repository_languages',  // byte-share language stats
   'commits',               // ingested commit rows — the expensive history
-  'pull_requests',         // ingested PR rows (no titles — data minimization)
+  'pull_requests',         // ingested PR rows (no titles/numbers/authors — data minimization)
   'feedback',              // user-submitted transmissions — not re-ingestable
 ]
 

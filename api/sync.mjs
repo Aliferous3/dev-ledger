@@ -2,6 +2,7 @@ import { waitUntil } from '@vercel/functions'
 import { requireUser } from '../lib/require-user.mjs'
 import { forbidCrossSite } from '../lib/same-origin.mjs'
 import { runSync, getUserSync } from '../lib/sync.mjs'
+import { syncErrorMessage } from '../lib/sync-errors.mjs'
 import { requestQuery } from '../lib/request-query.mjs'
 
 const shape = (s) =>
@@ -16,7 +17,7 @@ const shape = (s) =>
         resumeAt: s.resume_at,
         lastSyncedAt: s.last_synced_at,
         updatedAt: s.updated_at,
-        error: s.error,
+        error: syncErrorMessage(s.error),
       }
     : { status: 'idle', progress: 0 }
 

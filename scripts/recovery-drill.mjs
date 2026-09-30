@@ -83,8 +83,8 @@ async function seed(sql) {
   await sql`insert into repository_languages (repository_id, language, bytes) values (${repoId}, 'TypeScript', 12345)`
   await sql`insert into commits (user_id, repository_id, github_sha, committed_at, additions, deletions)
             values (${uid}, ${repoId}, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', now(), 10, 2)`
-  await sql`insert into pull_requests (user_id, repository_id, github_pr_id, number, author_user_id, author_login, state, created_at)
-            values (${uid}, ${repoId}, 777, 3, 42424242, 'drill-user', 'merged', now())`
+  await sql`insert into pull_requests (user_id, repository_id, github_pr_id, state, created_at)
+            values (${uid}, ${repoId}, 777, 'merged', now())`
   await sql`insert into repo_sync (user_id, repository_id, phase) values (${uid}, ${repoId}, 'done')`
   await sql`insert into user_sync (user_id, status, phase, progress) values (${uid}, 'complete', 'done', 1)`
   await sql`insert into repo_coverage (user_id, repository_id, covered_from, covered_to, complete)
@@ -221,9 +221,16 @@ async function verify(src, dst, ids, extraProblems = []) {
     select relname, reloptions from pg_class where relkind = 'v' and relname in ('dash_repo_monthly', 'dash_span')`
   for (const v of views) check((v.reloptions || []).join(',').includes('security_invoker'), `${v.relname} missing security_invoker`)
 
-  // privacy-removed column stays removed; identity sequence live post-restore
-  const [col] = await dst`select count(*)::int c from information_schema.columns where table_name = 'pull_requests' and column_name = 'title'`
-  check(col.c === 0, 'pull_requests.title exists — privacy removal lost')
+  // privacy-removed columns stay removed; identity sequence live post-restore
+  for (const [tbl, col] of [
+    ['pull_requests', 'title'], ['pull_requests', 'number'], ['pull_requests', 'author_user_id'],
+    ['pull_requests', 'author_login'], ['pull_requests', 'closed_at'],
+    ['commits', 'message'], ['commits', 'author_user_id'], ['commits', 'author_login'],
+    ['commits', 'authored_at'], ['commits', 'files_changed'], ['commits', 'is_merge'],
+  ]) {
+    const [c] = await dst`select count(*)::int c from information_schema.columns where table_name = ${tbl} and column_name = ${col}`
+    check(c.c === 0, `${tbl}.${col} exists — privacy removal lost`)
+  }
   await dst`insert into security_events (event, severity) values ('security_internal_error', 'warning')`
   const [se] = await dst`select count(*)::int c from security_events`
   check(se.c === 1, 'security_events insert failed — identity sequence broken?')

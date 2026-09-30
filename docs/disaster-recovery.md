@@ -72,7 +72,7 @@ schema/table is *not* backed up until explicitly classified in
 | `repositories` | core | yes | tracked repos + disconnect state |
 | `repository_languages` | core | yes | language byte-share stats |
 | `commits` | core | yes | ingested history — expensive to rebuild |
-| `pull_requests` | core | yes | ingested PR rows (no titles by design) |
+| `pull_requests` | core | yes | ingested PR rows (no titles/numbers/authors by design) |
 | `repo_coverage` | operational | yes | derived but needs full re-ingest to rebuild — cheap to keep |
 | `repo_sync` | operational | yes | phase markers; self-healing hints |
 | `user_sync` | operational | yes | stale `syncing`/`locked` rows are taken over by cron's stale-lock logic |
@@ -257,7 +257,14 @@ it — zero production impact.
       select/insert/delete + sequence usage)
 - [ ] `dash_*` functions are SECURITY INVOKER; dashboard views
       `security_invoker`
-- [ ] `pull_requests.title` absent (privacy removal intact)
+- [ ] minimized columns absent: `pull_requests.title`, `pull_requests.number`,
+      `pull_requests.author_user_id`, `pull_requests.author_login`,
+      `pull_requests.closed_at`, `commits.message`, `commits.author_user_id`,
+      `commits.author_login`, `commits.authored_at`, `commits.files_changed`,
+      `commits.is_merge`
+- [ ] `user_sync.error` / `repo_sync.error` contain only closed taxonomy
+      codes (`GITHUB_RATE_LIMIT`, `GITHUB_ACCESS_REVOKED`,
+      `SYNC_HISTORY_FAILED`, `SYNC_PULLS_FAILED`, `SYNC_INTERNAL_ERROR`)
 - [ ] `auth_sessions` empty (re-auth forced), `webhook_deliveries` empty,
       `security_events` fresh
 - [ ] a post-restore insert into `security_events` works (identity live)

@@ -56,7 +56,6 @@ test('user isolation + old historical commit visibility', async (t) => {
       repository_id: repo.id,
       github_sha: `it-${randomUUID()}`,
       committed_at: '2025-07-20T14:30:00Z',
-      authored_at: '2025-07-20T14:30:00Z',
       additions: 10,
       deletions: 2,
     })
