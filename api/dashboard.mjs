@@ -3,6 +3,7 @@ import { supabase } from '../lib/db.mjs'
 import { parseRange } from '../lib/range.mjs'
 import { summarizeDaily, dayKey } from '../lib/analytics.mjs'
 import { getUserSync, getCoverage } from '../lib/sync.mjs'
+import { syncErrorMessage } from '../lib/sync-errors.mjs'
 import { rangeCoverageStatus } from '../lib/coverage.mjs'
 import { requestQuery } from '../lib/request-query.mjs'
 
@@ -144,7 +145,7 @@ export default async function handler(req, res) {
           lastSyncedAt: sync.last_synced_at,
           resumeAt: sync.resume_at || null,
           updatedAt: sync.updated_at,
-          error: sync.error,
+          error: syncErrorMessage(sync.error),
         }
       : { status: 'idle', progress: 0 },
     rangeCoverage,

@@ -135,7 +135,7 @@ async function onInstallation(payload) {
       .eq('installation_id', inst.id)
     await supabase.from('github_installations').delete().eq('installation_id', inst.id)
     for (const r of rows || []) {
-      await setUserSync(r.user_id, { status: 'revoked', error: 'GitHub access was revoked' })
+      await setUserSync(r.user_id, { status: 'revoked', error: 'GITHUB_ACCESS_REVOKED' })
     }
     return
   }
@@ -221,12 +221,8 @@ async function onPullRequest(payload) {
     user_id: repo.user_id,
     repository_id: repo.id,
     github_pr_id: pr.id,
-    number: pr.number,
-    author_user_id: pr.user.id,
-    author_login: pr.user.login,
     state: pr.merged_at ? 'merged' : pr.state,
     created_at: pr.created_at,
-    closed_at: pr.closed_at,
     merged_at: pr.merged_at,
     // No pr.title — 008_data_minimization dropped the column; PR titles are
     // user-authored text Dev Ledger deliberately does not persist.

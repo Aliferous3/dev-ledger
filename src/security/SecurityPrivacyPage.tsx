@@ -150,8 +150,8 @@ export function SecurityPrivacyPage() {
               ['ACCOUNT', 'GitHub user id, login, display name, avatar URL, and your installation relationship with the Dev Ledger app.'],
               ['REPOSITORIES', 'Repository id, owner/name, private or public status, default branch, primary language, archived and fork status, and sync state.'],
               ['LANGUAGES', 'Language names and byte counts per repository, as reported by GitHub.'],
-              ['COMMITS', 'Commit SHA, author GitHub id and login, authored and committed timestamps, additions, deletions, and files changed.'],
-              ['PULL REQUESTS', 'Pull request id, number, author identifiers, state, and created, closed, and merged timestamps.'],
+              ['COMMITS', 'Commit SHA, committed timestamp, additions, and deletions — only for commits GitHub attributes to your account. Author identifiers are checked transiently during sync and never persisted.'],
+              ['PULL REQUESTS', 'Pull request id, state, and created and merged timestamps — only for pull requests authored by you.'],
             ]} />
             <p className="mono-tag text-[8px] tracking-[0.14em] text-neutral-600 leading-relaxed mt-4">
               READS ARE LIMITED TO REPOSITORIES YOUR INSTALLATION HAS GRANTED THE APP ON GITHUB.
@@ -170,7 +170,7 @@ export function SecurityPrivacyPage() {
               ['INSTALLATIONS', 'Installation ids and the GitHub account they belong to — used to scope which repositories are yours.'],
               ['ANALYTICS', 'Repository metadata, language byte counts, per-commit statistics, and pull-request metadata described in section 01.'],
               ['SYNC BOOKKEEPING', 'Coverage windows, sync phase, and progress markers so ingestion can resume incrementally instead of re-reading history.'],
-              ['SESSION RECORDS', 'A server-side record per active session — the revocation mechanism described in section 05.'],
+              ['SESSION RECORDS', 'A server-side record per active session — deleted on sign-out or account deletion rather than retained (section 05).'],
               ['FEEDBACK', 'Bug reports and feature requests you submit through the diagnostic drawer — type, title, optional description, an optional verified screenshot, and automatic page/range/build context. No email address is collected.'],
               ['TELEMETRY', 'A privacy-safe subset of security events, described in section 09.'],
             ]} />
@@ -186,6 +186,8 @@ export function SecurityPrivacyPage() {
               ['SOURCE CODE', 'Dev Ledger does not clone or persist your repository source code. The app\u2019s read-only Contents permission is used by GitHub APIs that return commit statistics and language byte counts — the code itself is not stored.'],
               ['COMMIT MESSAGES', 'Commit messages are not stored. The message column was intentionally removed from the schema.'],
               ['PULL-REQUEST TITLES', 'Pull-request titles are not stored. The title column was intentionally removed from the schema.'],
+              ['AUTHOR IDENTIFIERS', 'Commit and pull-request author identifiers are not stored — every stored row belongs to your account by construction. Author identity is checked transiently during sync so other people\u2019s contributions are never persisted.'],
+              ['PROVIDER ERROR TEXT', 'Sync error records store a fixed error code only — raw exception messages, URLs, response bodies, and stack traces from GitHub or libraries are never persisted.'],
               ['EMAIL ADDRESS', 'Dev Ledger does not request or store your GitHub email address — sign-in requests no email scope and the user record has no email field.'],
               ['ACCESS TOKENS', 'Your GitHub OAuth access token is used transiently during sign-in and never persisted. GitHub App installation tokens are minted on demand, are short-lived, and are never persisted either.'],
               ['WEBHOOK PAYLOADS', 'Raw webhook payload bodies are not stored as payload records. Selected fields can update the installation, repository, or pull-request metadata described above; the replay-deduplication record stores only the delivery id and event type.'],
@@ -217,10 +219,10 @@ export function SecurityPrivacyPage() {
             <Rule {...SECTIONS[5]} />
             <ul className="space-y-2.5 text-sm text-neutral-400 leading-relaxed max-w-[62ch] list-none">
               <li className="flex gap-3"><span aria-hidden className="text-[#d6ff3e]">▸</span>Sign-in is GitHub OAuth. Your session is a sealed, tamper-evident cookie: HttpOnly, Secure over HTTPS, SameSite=Lax.</li>
-              <li className="flex gap-3"><span aria-hidden className="text-[#d6ff3e]">▸</span>Every session also has a server-side record. Signing out revokes it immediately — a copied cookie stops working at the same moment.</li>
+              <li className="flex gap-3"><span aria-hidden className="text-[#d6ff3e]">▸</span>Every session also has a server-side record. Signing out deletes it immediately — a copied cookie stops working at the same moment.</li>
               <li className="flex gap-3"><span aria-hidden className="text-[#d6ff3e]">▸</span>Default sessions are browser-scoped <em className="not-italic text-neutral-300">plus</em> a server-enforced inactivity lease: with no Dev Ledger contact for roughly five minutes, the session expires — renewed only while a Dev Ledger page is actually open.</li>
               <li className="flex gap-3"><span aria-hidden className="text-[#d6ff3e]">▸</span>&ldquo;Keep me signed in&rdquo; explicitly opts into a persistent session of approximately 30 days with no inactivity lease.</li>
-              <li className="flex gap-3"><span aria-hidden className="text-[#d6ff3e]">▸</span>Deleting your data revokes every session at once. Sessions predating server-side records fail closed and must sign in again.</li>
+              <li className="flex gap-3"><span aria-hidden className="text-[#d6ff3e]">▸</span>Deleting your data deletes every session record at once. Sessions predating server-side records fail closed and must sign in again.</li>
               <li className="flex gap-3"><span aria-hidden className="text-[#d6ff3e]">▸</span>Sign-out is a POST-only, same-origin endpoint — a third-party site cannot log you out.</li>
             </ul>
           </section>
