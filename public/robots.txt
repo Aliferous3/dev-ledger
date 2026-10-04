@@ -173,6 +173,24 @@ Disallow: /shipping
 
 
 # ==================================================
+# META — USER RETRIEVAL
+# Allow user-requested fetching while keeping Meta's
+# dedicated training/indexing agents blocked below.
+# ==================================================
+
+User-agent: meta-externalfetcher
+Allow: /
+
+Disallow: /api/
+Disallow: /rly/
+Disallow: /overview
+Disallow: /projects
+Disallow: /activity
+Disallow: /code
+Disallow: /shipping
+
+
+# ==================================================
 # MODEL TRAINING / DATA-CORPUS CRAWLERS
 # ==================================================
 
