@@ -76,6 +76,22 @@
       "destination": "https://dev-ledger-site.vercel.app/blog/:path*"
     },
     {
+      "source": "/tools",
+      "destination": "https://dev-ledger-site.vercel.app/tools"
+    },
+    {
+      "source": "/tools/",
+      "destination": "https://dev-ledger-site.vercel.app/tools/"
+    },
+    {
+      "source": "/tools/:path*/",
+      "destination": "https://dev-ledger-site.vercel.app/tools/:path*/"
+    },
+    {
+      "source": "/tools/:path*",
+      "destination": "https://dev-ledger-site.vercel.app/tools/:path*"
+    },
+    {
       "source": "/site-assets/:path*",
       "destination": "https://dev-ledger-site.vercel.app/site-assets/:path*"
     },

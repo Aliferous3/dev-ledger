@@ -14,6 +14,7 @@ const src = (p) => readFileSync(new URL('../' + p, import.meta.url), 'utf8')
 const SITE_ORIGIN = 'https://dev-ledger-site.vercel.app'
 const PROXIED_PATHS = [
   '/blog',
+  '/tools',
   '/rss.xml',
   '/sitemap.xml',
   '/sitemap.xsl',
@@ -49,12 +50,15 @@ test('publishing paths proxy to the private site project under unchanged URLs', 
   }
   const blogDeep = v.rewrites.find((r) => r.source === '/blog/:path*')
   assert.equal(blogDeep?.destination, SITE_ORIGIN + '/blog/:path*')
+  const toolsDeep = v.rewrites.find((r) => r.source === '/tools/:path*')
+  assert.equal(toolsDeep?.destination, SITE_ORIGIN + '/tools/:path*')
   // Proxied paths must not also exist as local files — the filesystem
   // wins over rewrites, so a stray file would silently shadow the site.
   for (const p of ['public/rss.xml', 'public/sitemap.xml', 'public/llms.txt', 'public/sitemap.xsl', 'public/sitemap.css']) {
     assert.ok(!existsSync(path.join(ROOT, p)), p + ' must not exist locally — it would shadow the site proxy')
   }
   assert.ok(!existsSync(path.join(ROOT, 'blog')), 'blog/ output dir must not exist locally')
+  assert.ok(!existsSync(path.join(ROOT, 'tools')), 'tools/ output dir must not exist locally')
   assert.ok(!existsSync(path.join(ROOT, 'content/blog')), 'content/blog must not exist locally')
 })
 
