@@ -51,9 +51,11 @@ async function main() {
     } catch {
       throw new Error('schema_migrations is missing — the target was never migrated; refusing to back up')
     }
+    // BASE TABLE only — a view must never satisfy a required backup table.
     existing = (await sql`
       select table_name from information_schema.tables
-      where table_schema = 'public'`).map((r) => r.table_name)
+      where table_schema = 'public'
+        and table_type = 'BASE TABLE'`).map((r) => r.table_name)
   } finally {
     await sql.end()
   }

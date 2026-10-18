@@ -98,6 +98,37 @@ export function migrationFiles() {
   return [...migrationTables().keys()]
 }
 
+// The applied set must be EXACTLY a prefix of this checkout's ordered
+// migration list:
+//   * an applied filename unknown to this checkout → the target schema is
+//     ahead of the code — an older backup tool cannot know whether its
+//     allowlist is still complete, so it must fail closed
+//   * a skipped known migration (a gap) → broken migration bookkeeping
+// Lagging repo main is legitimate and valid.
+export function validateAppliedMigrationPrefix(applied) {
+  const repoFiles = migrationFiles()
+  const repoSet = new Set(repoFiles)
+  const seen = new Set()
+  for (const f of applied) {
+    if (!repoSet.has(f)) {
+      throw new Error(
+        `target database schema is ahead of this repository checkout ` +
+        `(unknown applied migration ${f}); update the repository before creating a backup`
+      )
+    }
+    seen.add(f)
+  }
+  const prefix = repoFiles.slice(0, seen.size)
+  const missing = prefix.filter((f) => !seen.has(f))
+  if (missing.length) {
+    throw new Error(
+      `applied migrations are not a contiguous prefix of the repo list — ` +
+      `missing ${missing.join(', ')}; refusing to reason about a gapped schema`
+    )
+  }
+  return true
+}
+
 // Tables the applied migration set is expected to have created, replayed
 // in filename order so drops in later migrations (e.g. 002 dropping 001's
 // sync_state/daily_activity) actually remove them.
@@ -115,10 +146,14 @@ export function expectedTables(applied) {
 
 // Exact safe table list for the target DB.
 //   applied  — iterable of filenames recorded in public.schema_migrations
-//   existing — iterable of table names present in the public schema
+//   existing — iterable of BASE TABLE names present in the public schema
 // Returns BACKUP_TABLES filtered to the applied-schema table set, or throws.
 export function resolveBackupTables({ applied, existing }) {
-  const appliedSet = new Set(applied)
+  // The applied ledger must be a contiguous prefix of this checkout's
+  // migration list before any resolution happens.
+  const appliedList = [...applied]
+  validateAppliedMigrationPrefix(appliedList)
+  const appliedSet = new Set(appliedList)
   const existingSet = new Set(existing)
   const expected = expectedTables(appliedSet)
 

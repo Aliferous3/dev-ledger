@@ -20,6 +20,7 @@ import {
   migrationFiles,
   migrationTables,
   resolveBackupTables,
+  validateAppliedMigrationPrefix,
 } from '../scripts/backup-scope.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -127,6 +128,60 @@ test('allowlisted table present without recorded migration fails closed', () => 
   )
 })
 
+test('applied filename unknown to this checkout fails closed (ahead-of-checkout)', () => {
+  // a target one migration AHEAD of the checkout must never be backed up —
+  // the older tool cannot know whether its allowlist is still complete
+  assert.throws(
+    () => resolveBackupTables({ applied: [...files, '013_future.sql'], existing: allCreated }),
+    /ahead of this repository checkout/,
+  )
+  assert.throws(
+    () => resolveBackupTables({ applied: [...files, '999_anything.sql'], existing: allCreated }),
+    /ahead of this repository checkout/,
+  )
+})
+
+/* ── contiguous-prefix validation ────────────────────────────────────── */
+
+test('prefix validator: exact prefixes pass, gaps and unknowns fail', () => {
+  // A. exact 001..011 — legitimate lag
+  assert.equal(validateAppliedMigrationPrefix(pre012Files), true)
+  // B. exact 001..012 — fully migrated
+  assert.equal(validateAppliedMigrationPrefix(files), true)
+  // C. gap: 005 missing but later migrations applied
+  const gapped = files.filter((f) => !f.startsWith('005'))
+  assert.throws(() => validateAppliedMigrationPrefix(gapped), /contiguous prefix/)
+  // D. 012 recorded while 011 missing
+  const noEleven = files.filter((f) => !f.startsWith('011'))
+  assert.throws(() => validateAppliedMigrationPrefix(noEleven), /contiguous prefix/)
+  // E. unknown future migration
+  assert.throws(() => validateAppliedMigrationPrefix([...files, '013_future.sql']), /ahead of this repository checkout/)
+})
+
+test('resolver refuses a gapped ledger before resolving any tables', () => {
+  const gapped = files.filter((f) => !f.startsWith('005'))
+  assert.throws(
+    () => resolveBackupTables({ applied: gapped, existing: allCreated }),
+    /contiguous prefix/,
+  )
+})
+
+/* ── BASE TABLE requirement ──────────────────────────────────────────── */
+
+test('a required name present only as a view fails closed', () => {
+  // backup-db.mjs collects BASE TABLE rows only, so a view named like a
+  // required table cannot satisfy the schema check — simulate it by the
+  // name being absent from the base-table set.
+  const existing = new Set([...allCreated].filter((x) => x !== 'commits'))
+  assert.throws(
+    () => resolveBackupTables({ applied: files, existing }),
+    /commits/,
+    'view-only commits must not satisfy the check',
+  )
+  assert.match(src('scripts/backup-db.mjs'), /table_type = 'BASE TABLE'/,
+    'the live schema query must restrict to BASE TABLE')
+})
+
 test('unmigrated target (schema_migrations empty) resolves nothing and is refused', () => {
   // With no applied files, expected set is empty — an existing allowlisted
   // table would be "unrecorded" and throw, but a truly empty DB resolves
@@ -136,11 +191,17 @@ test('unmigrated target (schema_migrations empty) resolves nothing and is refuse
   assert.deepEqual(resolved, [])
 })
 
-test('applied filenames not present in repo migrations are tolerated', () => {
-  // a target one migration AHEAD of the checkout: unknown applied filename
-  // contributes no expected tables; everything still consistent.
-  const resolved = resolveBackupTables({ applied: [...files, '099_future.sql'], existing: allCreated })
-  assert.deepEqual(resolved, BACKUP_TABLES)
+test('the exact production transition: pre-012 then post-012', () => {
+  // checkout has 001..012; production applied exactly 001..011 with the
+  // ownership tables absent — the real mandatory pre-migration backup
+  assert.equal(validateAppliedMigrationPrefix(pre012Files), true)
+  const pre = resolveBackupTables({ applied: pre012Files, existing: pre012Created })
+  assert.deepEqual(pre, BACKUP_TABLES.filter((t) => !OWNERSHIP.includes(t)))
+  assert.equal(pre.length, 10)
+  // after 012 is applied, all 14 resolve
+  assert.equal(validateAppliedMigrationPrefix(files), true)
+  const post = resolveBackupTables({ applied: files, existing: allCreated })
+  assert.equal(post.length, 14)
 })
 
 /* ── integration surface ─────────────────────────────────────────────── */
