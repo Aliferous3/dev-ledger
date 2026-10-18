@@ -213,7 +213,7 @@ Fields that failed are listed at the end as **rejected**.
 | `id` | uuid pk | row identity |
 | `user_id` | uuid → users, cascade | tenant isolation (denormalized for direct scoping) |
 | `repository_id` | uuid → repositories, cascade | repo boundary + delete cascade |
-| `scope_path_hash` | text | stable index key immune to path renames of lookup |
+| `scope_path_hash` | text | deterministic lookup/index key for the current normalized path (§8 — not rename-stable) |
 | `display_path` | text, null for repo scope | UI label after disconnect — see §8 decision |
 | `scope_type` | text: `repo` \| `dir` | repo row carries no path |
 | `depth` | int | bounded enumeration (≤4 per RFC §18) |
@@ -232,20 +232,28 @@ in sync state §4.4 where it is a resume anchor).
 | `id` | uuid pk | row identity |
 | `user_id`, `repository_id` | uuid FKs, cascade | tenant + repo scope — **identity is repository-scoped by design (§6)** |
 | `contributor_key` | text | opaque per-repo stable key (§5); unique per repo |
-| `identity_kind` | text: `linked` \| `unlinked` | disjoint reliability classes |
-| `github_user_id` | bigint null | durable key for linked accounts only |
-| `display_login` | text null | current GitHub login for display — see §5 decision |
+| `identity_kind` | text: `linked` \| `unlinked` \| `aggregate` | disjoint classes — `aggregate` marks synthetic buckets such as `other` (§6.4) |
+| `github_node_id` | text null | durable key for linked accounts only — the GraphQL `User.id` already selected as `author.user.id` (the same value `isAttributedCommit` compares against `users.github_node_id`) |
+| `display_login` | text null | current GitHub login for display — see §6 decision |
 | `is_bot` | boolean | bots excludable in UI per RFC §10.3 |
 | `first_seen_at`, `last_seen_at` | timestamptz | powers "recent maintainer" without scanning snapshots |
 | `created_at`, `updated_at` | timestamptz | housekeeping |
 
-**Rejected:** global contributor table; `github_node_id` as separate column
-(`github_user_id` is the stable key the sync already uses — node id is only
-needed transiently during GraphQL reads); avatar URLs (not needed for the
+**Rejected:** global contributor table; numeric `databaseId` (no concrete
+product requirement — the GraphQL node id already returned by the
+attribution path is the durable key; the codebase already distinguishes
+`users.github_user_id bigint` from `users.github_node_id text` and
+`author.user.id` is the latter); avatar URLs (not needed for the
 metrics, one less PII field); name/email-derived keys for unlinked rows
-(§5.3 — prohibited); `login_history` (renames self-heal via refresh).
+(§6.3 — prohibited); `login_history` (renames self-heal via refresh).
 
 ### 4.3 Aggregates (`ownership_snapshots`)
+
+One table, two row shapes. **Monthly rows are immutable period facts**;
+current-state and mutable-window metrics live only on `head` rows so a
+historical row, once written, never changes meaning.
+
+**Common columns (all rows):**
 
 | Field | Type | Why required |
 |---|---|---|
@@ -253,22 +261,31 @@ metrics, one less PII field); name/email-derived keys for unlinked rows
 | `user_id`, `repository_id` | uuid FKs | direct tenant scoping |
 | `scope_id` | uuid → ownership_scopes, cascade | |
 | `contributor_id` | uuid → ownership_contributors, cascade, **null = scope-total row** | per-contributor vs scope summary |
-| `period_granularity` | text: `month` \| `head` | `head` = latest HEAD-blame snapshot |
-| `period_start` | timestamptz | month start; fixed sentinel `1970-01-01` for `head` rows (§11.5 decision) |
-| `touch_commits` | int | path-touching commits this period |
-| `touch_share` | numeric(5,4) | share of qualifying touches |
-| `recent_touch_commits` | int | touches in rolling recent window at calc time |
-| `first_meaningful_touch`, `last_meaningful_touch` | timestamptz null | staleness signal |
-| `surviving_lines` | bigint null | HEAD blame only; null on non-head rows |
-| `surviving_line_share` | numeric(5,4) null | HEAD blame only |
-| `contributor_count`, `recent_maintainer_count`, `top_contributor_share` | on scope-total rows (contributor_id null) | honest bus-factor inputs per RFC §17 |
-| `calculation_version` | int | §13 versioning |
+| `period_granularity` | text: `month` \| `head` | `head` = current-state snapshot (HEAD blame + recent-window signals) |
+| `period_start` | timestamptz | month start; fixed sentinel `1970-01-01` for `head` rows |
+| `calculation_version` | int | §13 versioning — **part of row identity** |
 | `created_at`, `updated_at` | timestamptz | |
 
-Unique: `(scope_id, contributor_id, period_granularity, period_start)` —
-with `contributor_id` nullable, the scope-total unique index needs
-`coalesce(contributor_id, '00000000-…')` or a separate partial unique index
-`where contributor_id is null`. Implementation detail for Phase 1B.
+**Contributor rows (`contributor_id` not null) by granularity:**
+
+| Granularity | Fields carried | Semantics |
+|---|---|---|
+| `month` | `touch_commits` int, `touch_share` numeric(5,4) | immutable: contributor's path touches and share that month |
+| `head` | `surviving_lines` bigint, `surviving_line_share` numeric(5,4), `recent_touch_commits` int, `first_meaningful_touch` timestamptz null, `last_meaningful_touch` timestamptz null | current-state: rewritten wholesale each HEAD pass |
+
+**Scope-total rows (`contributor_id` null) by granularity:**
+
+| Granularity | Fields carried | Semantics |
+|---|---|---|
+| `month` | `total_touch_commits` int, `attributable_contributor_count` int, `unlinked_touch_share` numeric(5,4) | immutable period denominators |
+| `head` | `attributable_contributor_count` int, `recent_maintainer_count` int, `top_contributor_share` numeric(5,4), `total_surviving_lines` bigint, `unlinked_surviving_line_share` numeric(5,4) | current-state concentration inputs — §6.3 defines the attributable-only basis |
+
+Unique: `(scope_id, contributor_id, period_granularity, period_start,
+calculation_version)` — **`calculation_version` is part of row identity** so
+version N and N+1 rows coexist during rebuilds (§13). With `contributor_id`
+nullable, scope-total uniqueness needs a separate partial unique index
+`where contributor_id is null` over `(scope_id, period_granularity,
+period_start, calculation_version)`. Implementation detail for Phase 1B.
 
 **Rejected:** `commit_shas` arrays (raw commit linkage — prohibited category);
 `lines_added`/`lines_deleted` per scope (whole-commit stats are *not*
@@ -286,8 +303,8 @@ path-scoped — measured spike finding; would be a false metric);
 | `history_cursor` | jsonb: `{ scope_id: endCursor }` | per-dir `history(path:)` page cursors |
 | `blame_cursor` | jsonb: `{ next_scope, next_file_index, tree_sha }` | resume mid-blame pass; `tree_sha` detects tree drift between slices |
 | `pending_scopes` | uuid[] or jsonb | scopes whose aggregates are incomplete |
-| `calculation_version` | int | version being written |
-| `version_complete` | boolean | serve-gate for §13 mixed-version prevention |
+| `active_version` | int | the `calculation_version` the dashboard currently serves |
+| `building_version` | int null | the version under construction; null when no rebuild is in progress (§13) |
 | `last_processed_sha` | text null | HEAD boundary anchor for incremental runs — the *only* sha allowed |
 | `last_processed_at` | timestamptz | `pushed_at ≤ last_processed_at` incremental skip |
 | `error` | text — **closed taxonomy only** | same `lib/sync-errors.mjs` discipline; new codes added to the enum, never provider text |
@@ -312,7 +329,7 @@ error field:
 7. Author or committer **email addresses** — the `email` field is never
    *selected*, which is stronger than select-and-discard (RFC §10.2).
 8. Raw git author names for unlinked identities **as stored identity** —
-   see §5.3; a name is usable transiently only as a grouping hint inside a
+   see §6.3; a name is usable transiently only as a grouping hint inside a
    slice if ever needed, and V1 does not need it at all.
 9. OAuth tokens, installation tokens, GitHub App private keys.
 10. Raw webhook payload bodies.
@@ -333,12 +350,16 @@ debugging" — violates this contract and the §23 tests must catch it.
 
 ## 6. Contributor identity contract
 
-### 6.1 Linked contributors — **decision: store `github_user_id` + current `display_login`**
+### 6.1 Linked contributors — **decision: store `github_node_id` + current `display_login`**
 
-- `github_user_id` (GitHub's numeric account id) is the durable key — logins
-  are mutable and must never be the join key.
+- `github_node_id` — the GraphQL `User.id` value already selected as
+  `author.user.id` and compared by `isAttributedCommit` against
+  `users.github_node_id` — is the durable key. Logins are mutable and must
+  never be the join key. The numeric `databaseId` is deliberately **not**
+  requested: no product requirement exists for it, and the node id already
+  serves the identity role.
 - `display_login` is persisted because the UI must render a name after
-  disconnect (retain-history is a real product mode — §2.5); node-id-only
+  disconnect (retain-history is a real product mode — §2.5); id-only rows
   would make every retained repo's ownership view unreadable. Login is
   refreshed on every recalculation, self-healing renames.
 - This is the same PII class already stored for `owner_login`/`full_name` on
@@ -353,25 +374,45 @@ debugging" — violates this contract and the §23 tests must catch it.
 - Could node ids alone suffice? No — unreadable UI after disconnect.
 - Searchable across users? **No.** No global index, no cross-tenant lookup
   function, no "find user X's other repos" capability is to exist.
-- Can two tenants' rows about the same GitHub contributor be joined?
-  **Physically yes** (same `github_user_id`), **architecturally no**: every
-  read path is `user_id`-scoped RPCs; no query, function, or API may join
-  across `user_id`. This is a hard rule for §23 tests.
+- Can two tenants' rows about the same GitHub contributor be joined? The
+  data carries the same `github_node_id` value, but **no read or write path
+  may join or enumerate across `user_id`** — prevention rests on
+  authenticated API scoping plus explicit `user_id` constraints on every
+  path, verified by the behavioral tests in §23. This is a hard rule, not a
+  convenience.
 - Global contributor profiles? **Explicitly never.** There is no
   contributor-keyed table above the repository row.
 
-### 6.3 Unlinked contributors — **decision: ONE "Unlinked contributor" bucket per scope-period**
+### 6.3 Unlinked contributors — **decision: ONE "Unlinked contributor" bucket per repository**
 
-All `author.user == null` attribution in a scope-period aggregates into a
-single `identity_kind='unlinked'` row per repository (`contributor_key`
-fixed, e.g. `'unlinked'`, `github_user_id`/`display_login` null → UI label
-"Unlinked contributor").
+All `author.user == null` attribution aggregates into a single
+`identity_kind='unlinked'` contributor row per repository
+(`contributor_key='unlinked'`, `github_node_id`/`display_login` null → UI
+label "Unlinked contributor").
 
-Justification:
+**This bucket is unresolved attribution, not a person.** It may represent
+many real individuals and is explicitly not one contributor. Therefore:
+
+- it must **not** count as exactly one known contributor;
+- it must **not** be eligible for top-contributor/concentration position;
+- it must **not** count as one recent maintainer;
+- it must **not** lower `attributable_contributor_count` by folding real
+  people into a single name;
+- its touch share and surviving-line share are stored/displayed **as their
+  own unresolved-attribution figures** (`unlinked_touch_share`,
+  `unlinked_surviving_line_share` on scope-total rows), separate from the
+  per-attributable-contributor metrics;
+- concentration metrics (`attributable_contributor_count`,
+  `recent_maintainer_count`, `top_contributor_share`) operate **only over
+  `linked` contributors** and must be qualified in UI/methodology as
+  covering attributable attribution only, whenever the unresolved share is
+  material.
+
+Justification for the single bucket (over pseudonymous subdivision):
 
 - The spike measured unlinked as **common, not rare** — 28.4% of blame
-  ranges / 18.6% of surviving lines on a mature repo. This is a first-class
-  honesty display, not an edge case.
+  ranges / 18.6% of surviving lines on one mature public-repo sample. A
+  first-class honesty display, not an edge case.
 - Pseudonymous name-bucketing implies identity resolution Dev Ledger cannot
   honestly provide (two people share names; one person uses several) — it
   would *manufacture* false precision.
@@ -380,7 +421,23 @@ Justification:
   amendment and methodology copy that calls it approximate. V1 does not
   subdivide.
 
-### 6.4 Bots
+### 6.4 Synthetic `aggregate` buckets ("other")
+
+The top-25-per-scope-period cap (§11) folds surplus contributors into an
+`other` row: `identity_kind='aggregate'`, `contributor_key='other'`,
+`github_node_id`/`display_login` always null.
+
+Rules:
+
+- `aggregate` rows are **never treated as people** — excluded from
+  `attributable_contributor_count`, `recent_maintainer_count`, and
+  top-contributor position exactly like `unlinked`.
+- `unlinked` is **never folded into `other`** — unresolved attribution stays
+  visibly unresolved; `other` only ever contains excess *linked*
+  contributors.
+- No GitHub identity fields may ever appear on `aggregate` rows (§23 test).
+
+### 6.5 Bots
 
 `is_bot` heuristic (`[bot]` suffix, `bot` account type where exposed).
 Bots are rows like any linked contributor — the UI may filter them but the
@@ -418,7 +475,14 @@ data is identical in kind.
 | Repository scope | no path column value (null) | repo identity already persisted |
 | Directory scope | `display_path` persisted | UI must label scopes after disconnect; directory names are the feature's organizing unit |
 | File paths | **never persisted** | no file-level UI in V1; file names are the most revealing path component and provide zero product value stored |
-| `scope_path_hash` | persisted | stable lookup/survives display-path edits; hash (e.g. sha256 of normalized path) avoids making path the join key |
+| `scope_path_hash` | persisted | deterministic lookup/index key (e.g. sha256) for the **current** normalized path — used for joins/indexes instead of raw path text |
+
+**Rename semantics — explicit:** a path hash changes when the path changes.
+`scope_path_hash` claims **no** persistent scope lineage. In V1 a directory
+rename or move produces a new path, a new hash, and therefore a **new scope
+identity**; the old scope's history remains attached to the old path. The
+resulting historical-path discontinuity is disclosed in the methodology
+(§18). Rename lineage is **not** implemented in V1.
 
 Why store display paths at all rather than hashes-only:
 
@@ -475,7 +539,7 @@ Cardinality: ≤500/repo; ~50–200 typical.
 ### `ownership_contributors`
 PK `id`. FKs: `user_id → users cascade`, `repository_id → repositories
 cascade`. Unique `(repository_id, contributor_key)`. Index
-`(repository_id)` only — **deliberately no index on `github_user_id`**
+`(repository_id)` only — **deliberately no index on `github_node_id`**
 (cross-tenant enumeration must not even be convenient). Columns per §4.2.
 Cardinality: ≤~200/repo; top-25-per-scope cap applies to *snapshot writes*,
 not this table.
@@ -484,9 +548,10 @@ not this table.
 PK `id`. FKs: `user_id`, `repository_id`, `scope_id → ownership_scopes
 cascade`, `contributor_id → ownership_contributors cascade` (null =
 scope-total row). Unique `(scope_id, contributor_id, period_granularity,
-period_start)` + partial unique for null-contributor rows. Index
-`(repository_id, period_start)` for timeline queries. Columns per §4.3.
-Cardinality: §11.
+period_start, calculation_version)` — version is part of row identity so
+served and building versions coexist — plus a partial unique index for
+null-contributor scope-total rows. Index `(repository_id, period_start)`
+for timeline queries. Columns per §4.3. Cardinality: §11.
 
 ### `ownership_sync_state`
 PK `(user_id, repository_id)`. FKs cascade both. Columns per §4.4.
@@ -522,14 +587,18 @@ aren't active every month. But honesty requires bounding the worst case
 anyway. Guardrails, all enforced at write time:
 
 1. **Sparse writes only** — zero-activity scope-periods produce no rows.
-2. **Top-25 + "other"** per scope-period: contributors below rank 25 (by
-   period touches) fold into an `other` aggregate row
-   (`contributor_key='other'`) — caps fan-out at 26 rows/scope/period.
+2. **Top-25 + "other"** per scope-period: the `unlinked` bucket always gets
+   its own row and is never folded into `other`; linked contributors below
+   rank 25 (by period touches) fold into an `identity_kind='aggregate'` row
+   (`contributor_key='other'`, §6.4) — caps fan-out at ≤27 contributor rows
+   per scope/period (25 linked + unlinked + other) plus one scope-total row.
 3. **Per-repo snapshot cap** — e.g. 300k rows/repo: on breach, deepest
    scopes are pruned first and marked `excluded='cardinality_cap'` in
    `ownership_scopes`. This converts unbounded worst cases into bounded
    degradation of granularity, never unbounded storage.
-4. **HEAD rows are 1/scope** — negligible.
+4. **HEAD rows are ≤ ~28/scope** — up to 25 linked + 1 unlinked + 1
+   `aggregate` + 1 scope-total row per scope, one `head` snapshot each —
+   small relative to monthly history, but not one row per scope.
 
 Worked result: medium repo at 20% sparsity ≈ 48k rows; large repo hits the
 cap and degrades to shallower scope coverage instead of 1.5M rows. Postgres
@@ -555,25 +624,41 @@ per-tenant fairness, not database survival.
 
 ## 13. Recalculation + algorithm versioning
 
-- `calculation_version` on every snapshot row and on `ownership_sync_state`
-  (the version currently being written).
+- `calculation_version` is **part of snapshot row identity** (§4.3
+  uniqueness) — version N and N+1 rows coexist in the table simultaneously.
+- `ownership_sync_state` carries two explicit versions:
+  - `active_version` — the version dashboard reads serve;
+  - `building_version` — the version currently being written, or null.
 - **Serve gate:** dashboard functions return only rows where
-  `calculation_version =` the repo's `version_complete`-ed version. During a
-  recompute, old-version rows keep serving until the rebuild finishes —
-  **results from two versions are never mixed in a response.**
-- Version bump flow: `ownership_sync_state.calculation_version=N+1,
-  version_complete=false` → scopes re-marked pending → per-scope rebuild
-  deletes that scope's old-version rows then inserts new →
-  `version_complete=true` when all scopes done → old-version stragglers
-  swept.
-- Interrupted recalculation: same resume model as normal sync (§4.4); the
-  serve gate means a half-rebuilt repo still serves its last complete
-  version.
+  `calculation_version = active_version`. A partially built N+1 is never
+  exposed; results from two versions are never mixed in a response.
+
+Version bump flow:
+
+1. `active_version=N`, `building_version` set to N+1; scopes re-marked
+   pending.
+2. All N+1 rows are written **alongside** N rows — nothing is deleted.
+3. Version N remains fully queryable for the entire rebuild.
+4. When every scope validates complete, `active_version` flips to N+1 and
+   `building_version` clears — a single-row update, so the flip is atomic.
+5. **Only after the flip** are old N rows garbage-collected. The active
+   version is never deleted during an unfinished rebuild.
+
+Failure/rollback semantics:
+
+- An interrupted rebuild resumes via §4.4 cursors; the serve gate keeps N
+  live throughout.
+- Abandoning a rebuild (rollback **before** the flip): clear
+  `building_version`, delete N+1 rows — N is untouched.
+- There is no post-flip rollback to old rows (they may be collected);
+  rolling back means rebuilding N as the next `building_version` — same
+  machinery, no special case.
 - Identity-normalization or exclusion-rule changes are exactly what a
   version bump is for.
-- Rollback: ingestion flag off → ownership reads serve the last complete
-  version (or nothing if none); additive tables stay inert; `drop table` is
-  a separate later cleanup migration if ever wanted (§21).
+- Feature-level rollback (ingestion flag off): ownership reads keep serving
+  `active_version` (or nothing if none was ever completed); additive tables
+  stay inert; `drop table` is a separate later cleanup migration if ever
+  wanted (§21).
 
 ---
 
@@ -607,9 +692,15 @@ Mirroring the audited production convention (§2.4):
 - Dashboard access only through `dash_ownership_*` SECURITY INVOKER
   functions taking `p_user` and scoped `where user_id = p_user`,
   `EXECUTE → service_role` — same shape as `dash_daily` (`migrations/007:62`).
-- **Cross-tenant reads are impossible by construction**: every read path
-  carries `user_id`; no function accepts a contributor key alone; no global
-  contributor lookup exists.
+- **Honest isolation claim:** cross-tenant ownership access is prevented by
+  authenticated API scoping (`requireUser` → internal `user_id`) plus
+  explicit `user_id` constraints on every read/write path — the server-side
+  `service_role` data path bypasses RLS by design, so isolation *depends on*
+  those constraints being correct everywhere, which is why the §23
+  foreign-user behavioral tests are mandatory. RLS with zero browser
+  policies and revoked browser grants provides an independent barrier
+  against direct client access only — it is not the tenant-isolation
+  mechanism for server queries.
 
 ---
 
@@ -626,14 +717,19 @@ useful payload shape per repository:
       "path": "src/api",            // null → repository scope
       "depth": 2,
       "excluded": false,
-      "contributorCount": 7,
-      "recentMaintainerCount": 3,
-      "topContributorShare": 0.42,
+      "attributableContributorCount": 6,   // linked only — unlinked/other are not people
+      "recentMaintainerCount": 3,          // linked only
+      "topContributorShare": 0.42,         // among attributable contributors only
+      "unlinkedTouchShare": 0.19,          // unresolved attribution — reported separately
+      "unlinkedSurvivingLineShare": 0.15,
+      "attributionQualified": true,        // unresolved share is material → UI must qualify concentration figures
       "head": [
         { "contributor": "someone", "kind": "linked", "bot": false,
           "survivingLineShare": 0.31, "lastMeaningfulTouch": "2026-09-14" },
         { "contributor": null, "kind": "unlinked",
-          "survivingLineShare": 0.19, "lastMeaningfulTouch": "2024-11-02" }
+          "survivingLineShare": 0.15, "lastMeaningfulTouch": "2024-11-02" },
+        { "contributor": null, "kind": "aggregate",
+          "survivingLineShare": 0.08, "lastMeaningfulTouch": "2025-03-01" }
       ],
       "timeline": [
         { "period": "2026-08", "contributor": "someone",
@@ -646,10 +742,14 @@ useful payload shape per repository:
 ```
 
 **Never exposed:** internal uuids beyond repo/scope identity already sent
-today, GitHub `github_user_id`/node ids, `contributor_key`, commit SHAs,
-emails, raw blame ranges, raw history nodes, sync cursors. Linked
-contributors appear as **current login only**; unlinked as `kind:
-"unlinked"` with `contributor: null` → UI renders "Unlinked contributor".
+today, `github_node_id`/any GitHub account ids, `contributor_key`, commit
+SHAs, emails, raw blame ranges, raw history nodes, sync cursors. Linked
+contributors appear as **current login only**; `kind: "unlinked"` renders
+"Unlinked contributor" (unresolved attribution, not a person);
+`kind: "aggregate"` renders "Other contributors" (excess linked
+contributors under the top-25 cap — likewise not a person). Neither is ever
+counted in `attributableContributorCount`, `recentMaintainerCount`, or
+`topContributorShare`.
 
 ---
 
@@ -675,10 +775,12 @@ never before it is true.
 
 > ['OWNERSHIP', 'Derived ownership aggregates: for each repository and
 > directory scope, per-contributor monthly touch counts and shares, HEAD
-> surviving-line shares, contributor counts, and first/last activity dates.
+> surviving-line shares, attributable-contributor counts and
+> unresolved-attribution shares, and first/last activity dates.
 > Linked contributors are identified by GitHub account id and current
 > username; contributions GitHub cannot link to an account are grouped under
-> a single "Unlinked contributor" label.'],
+> a single "Unlinked contributor" label and reported separately from named
+> contributors.'],
 
 **§03 WHAT DEV LEDGER DOES NOT STORE — amend AUTHOR IDENTIFIERS:**
 
@@ -731,17 +833,27 @@ Signal definitions:
   the code or of its value.
 - **Recent maintainer activity** — contributors with path touches in the
   recent window.
-- **Unlinked contributor** — Git history GitHub cannot associate with a
-  current GitHub account (old emails, ex-members, bots). On mature
-  repositories this bucket can be substantial — measured 18.6% of surviving
-  lines on a large public repo — and it is shown honestly rather than
-  distributed by guessing.
+- **Unlinked contributor** — Git history that GitHub cannot associate with
+  a GitHub account, for example historical commit identities that are not
+  linked to an account. Dev Ledger does not use email or author-name
+  reconstruction to guess who those commits belong to. This bucket can be
+  material — it measured 18.6% of surviving lines on one sampled large
+  public repository — and it is reported as unresolved attribution, never
+  as a single contributor.
+- **Concentration metrics** — contributor counts, recent-maintainer counts,
+  and top-contributor share are computed over attributable (linked)
+  contributors only. "Unlinked contributor" and "Other contributors" are
+  unresolved/synthetic groupings, not people, and are never counted as
+  individuals. Where unresolved attribution is material, concentration
+  figures are qualified as covering attributable attribution only.
 
 Limitations, stated plainly: squash merges attribute the squashed commit to
 its author, not its original writers; renames and cross-directory moves can
 split history at the move boundary (observed behavior — not a universal
-guarantee); whole-file rewrites distort surviving-line share; authorship is
-not review, design, or operational responsibility.
+guarantee), and a renamed or moved directory is treated as a new scope —
+its ownership history does not carry across the move in V1; whole-file
+rewrites distort surviving-line share; authorship is not review, design,
+or operational responsibility.
 
 No productivity, ranking, or "top developer" language anywhere.
 
@@ -809,8 +921,14 @@ stages use spike-measured thresholds:
 |---|---|---|
 | 1 | owner account, ≤3 small repos (<500 files) | error-free full cycle; row counts within §11 model |
 | 2 | a few private repos ≤2k files | no permission errors; private-path leak check on logs |
-| 3 | medium repos (~5k files) | multi-slice resumption verified; GraphQL spend within 2% of hourly floor |
-| 4 | general availability + large repos | 50-alias ceiling holding; response-size guards never tripped spuriously |
+| 3 | medium repos (~5k files) | multi-slice resumption verified; **HEAD-blame** GraphQL spend consistent with the measured ~2%-of-hourly-floor figure from the spike |
+| 4 | general availability + large repos | 50-alias ceiling holding; response-size guards never tripped spuriously; **total ownership-cycle budget (history walks + blame) measured during stages 1–3 and a production total-cycle budget established from those measurements before GA** |
+
+The spike measured ~100 GraphQL points for a 5k-file **HEAD blame pass**
+under 50-alias batching — it did **not** measure the full ownership cycle
+including `history(path:)` walks. The 2% figure applies to the blame phase
+only; the total-cycle budget must come from staged-rollout measurement, not
+extrapolation.
 
 Large-repo analysis stays resumable multi-slice (a ~5k-file repo spans
 multiple 45s slices — measured in the spike report §alias/latency data).
@@ -828,8 +946,10 @@ GraphQL points as the secondary guard.
 - `error` fields accept only closed taxonomy codes (extend WS1).
 
 **Isolation**
-- Cross-`user_id` reads impossible: RPCs with a foreign `p_user` return
-  nothing; no unscoped query exists in source (source-scan + behavioral).
+- Foreign-user behavioral tests are mandatory: RPCs invoked with another
+  tenant's `p_user` return nothing; the API never serves ownership rows
+  outside the session's `user_id`; no unscoped query exists in source
+  (source-scan + behavioral).
 - Private-repo ownership never crosses tenant; never appears in share/public
   payloads.
 
@@ -841,18 +961,34 @@ GraphQL points as the secondary guard.
 - `resume` continues from cursors.
 
 **Identity**
-- Linked contributor keyed by `github_user_id`, login refreshable.
-- All unlinked attribution lands in exactly one row per repo; no email or
-  name-derived keys.
+- Linked contributor durable key is `github_node_id` (GraphQL
+  `author.user.id`); login refreshable; `databaseId` never requested.
+- All unlinked attribution lands in exactly one `identity_kind='unlinked'`
+  row per repo; no email or name-derived keys; `github_node_id`/
+  `display_login` always null.
+- `identity_kind='aggregate'` rows carry no GitHub identity fields and are
+  never treated as people; `unlinked` is never folded into `other`.
+- `attributable_contributor_count`, `recent_maintainer_count`, and
+  `top_contributor_share` exclude `unlinked` and `aggregate` rows.
 - `is_bot` set correctly.
 
 **Versioning**
-- Two versions never mix in a response; `version_complete` gate works;
-  interrupted recalc resumes.
+- `calculation_version` is part of snapshot uniqueness — V1 and V2 rows
+  coexist safely.
+- V1 remains fully readable for the entire V2 rebuild.
+- Dashboard serves `active_version` rows only.
+- An incomplete `building_version` is never exposed.
+- The atomic `active_version` flip changes served results in a single
+  update.
+- Old-version rows are garbage-collected only after the flip — the active
+  version is never deleted mid-rebuild.
+- Rollback before the flip leaves `active_version` data untouched.
+- Two versions never mix within a single response.
 
 **API**
 - Response contains no internal ids/node ids/SHAs/emails; `contributor:
-  null` for unlinked.
+  null` for `unlinked` and `aggregate` rows; concentration fields carry the
+  attributable-only basis and `attributionQualified` flag.
 
 **Telemetry**
 - No ownership event carries repo names, paths, or logins (allowlist test).
@@ -870,7 +1006,7 @@ GraphQL points as the secondary guard.
 | Third-party contributor identity stored | §5 identity contract; repo-scoped only; no global table; deletes cascade |
 | Private directory-path leakage | §8: dirs only, depth/length caps, vendor exclusion pre-persist; §7 log/telemetry ban |
 | Contributor profiling misuse | §25 product guardrails; repo→contributor organizing unit; no cross-repo person views |
-| Cross-tenant joins | no `github_user_id` index; every read `user_id`-scoped; §23 isolation tests |
+| Cross-tenant joins | no `github_node_id` index; every read path carries an explicit `user_id` constraint under authenticated API scoping; mandatory foreign-user behavioral tests (§23) |
 | Cardinality/storage abuse via hostile repos | §11 top-25+other, per-repo cap, depth/scope caps, exclusion rules |
 | Malicious/weird path names | normalization + length cap + exclusion rules; paths never hit logs/telemetry |
 | Dashboard enumeration of others' repos | RLS zero-policy + service_role-only + `p_user`-scoped invoker RPCs (§15) |
@@ -908,16 +1044,19 @@ Enforcing constraints, not just words:
       never, caps + exclusions)
 - [x] deletion semantics approved (§14: cascade, no orphans)
 - [x] RLS model approved (§15: zero-policy + service_role + invoker RPCs)
-- [ ] public privacy-copy draft approved (§17 — lands only in release train)
-- [ ] methodology language approved (§18)
+- [x] public privacy-copy draft approved (§17 — lands only in release train)
+- [x] methodology language approved (§18)
 - [x] telemetry restrictions approved (§19)
 - [x] migration/rollback plan approved (§21)
 - [x] feature-flag rollout approved (§22)
-- [ ] implementation test contract approved (§23)
+- [x] implementation test contract approved (§23 — includes
+      version-coexistence, foreign-user isolation, and unlinked/aggregate
+      semantics tests)
 
-**Escalations needing explicit sign-off before merge of Phase 1B:**
-privacy-copy wording (§17) and methodology disclosure (§18) — they are
-public statements. Everything else is decided in this contract.
+**All contract gates are decided.** Remaining operational notes: §17 copy
+lands only in the release train where the feature becomes true; the total
+ownership-cycle budget must be measured during staged rollout before GA
+(§22).
 
 ---
 
@@ -926,8 +1065,8 @@ public statements. Everything else is decided in this contract.
 | # | Question | Decision |
 |---|---|---|
 | 1 | Directory display paths or hashes only? | **Store `display_path` for directory scopes** (bounded: depth ≤4, ~200 chars, vendor/generated excluded); repo scope stores none; **file paths never**; `scope_path_hash` for lookup |
-| 2 | Linked login persisted or node ID only? | **Both**: `github_user_id` durable key + `display_login` for display; refreshed each recalc |
-| 3 | One unlinked bucket vs pseudonymous? | **One "Unlinked contributor" bucket per repo** — pseudonymous subdivision rejected as manufactured precision |
+| 2 | Linked login persisted or node ID only? | **Both**: `github_node_id` (GraphQL `User.id`) durable key + `display_login` for display; refreshed each recalc; numeric `databaseId` not requested |
+| 3 | One unlinked bucket vs pseudonymous? | **One "Unlinked contributor" bucket per repo** — unresolved attribution, not a person; excluded from contributor-count/concentration metrics and never folded into `other` |
 | 4 | Monthly indefinitely vs compaction? | **Full monthly, no compaction in V1** — sparse writes + top-25/other + 300k/repo cap bound volume; compaction stays a version-gated option |
 | 5 | Separate HEAD table vs mixed? | **One `ownership_snapshots` table**; `period_granularity='head'` + sentinel `period_start` distinguishes HEAD rows |
 | 6 | Global vs repo-scoped contributor identity? | **Repository-scoped** — no global contributor table, no cross-tenant index or join, ever |
