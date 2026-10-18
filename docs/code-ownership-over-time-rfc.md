@@ -2,6 +2,13 @@
 
 Status: draft — reconnaissance and design only. No production behavior changes in this document.
 
+> **Successor documents:** the Phase-0.5 feasibility measurements are in
+> [ownership-graphql-spike-results.md](ownership-graphql-spike-results.md);
+> the authoritative production data/privacy contract superseding the
+> RFC-level sketches in §9–§11 is
+> [ownership-data-privacy-spec.md](ownership-data-privacy-spec.md). Where this
+> RFC and that spec disagree on data-model detail, the spec governs.
+
 ## 1. Executive recommendation
 
 Dev Ledger can legitimately answer *"who appears to own or know which parts of this repository, and how has that changed over time?"* using **GitHub GraphQL metadata alone — no clone, no source blobs, no patches**.
