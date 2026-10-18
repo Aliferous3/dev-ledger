@@ -1227,8 +1227,9 @@ Terminology for this amendment is exact: **EPHEMERAL** means short-lived
 never browser/API-exposed, never logged or telemetered, deleted at scope
 finalization or on build-abort cleanup, and fully reconstructable by
 restarting the build. **RETAINED** means durable, backed-up, user-visible
-ownership data (`ownership_scopes`, `ownership_contributors`,
-`ownership_snapshots` at `active_version`). Persisted ≠ retained.
+ownership data (`ownership_scopes`, `ownership_scope_versions`,
+`ownership_contributors`, `ownership_snapshots` at `active_version`).
+Persisted ≠ retained.
 
 The proposed amendment is deliberately narrow:
 
@@ -1247,12 +1248,18 @@ The proposed amendment is deliberately narrow:
    not anonymous. It may appear in persisted build state only under the
    EPHEMERAL conditions above — service-role-only, backup-excluded, never
    logged, cascade-deleted, swept on abandoned builds.
-2. **The §6.4 guarantee is preserved verbatim** — overflow-only
-   contributors still get **no retained identity row** and their GitHub
-   identity fields (`github_node_id`, `display_login`) are **never
-   persisted in any table**. Two further guarantees are required because
-   `ownership_contributors` is shared across calculation versions while
-   the dashboard RPCs filter only snapshots by `active_version`:
+2. **The §6.4 guarantee is preserved in substance** — the live §6.4 text
+   remains unchanged until this amendment is adopted; it is not "verbatim"
+   because the amendment deliberately persists the pseudonymous
+   `work_key` in EPHEMERAL build state. What is guaranteed exactly as
+   before: overflow-only contributors still get **no retained identity
+   row** and their GitHub identity fields (`github_node_id`,
+   `display_login`) are **never persisted in any table** — only their
+   pseudonymous `work_key` may exist, and only in short-lived EPHEMERAL
+   relations under this amendment's conditions. Two further guarantees
+   are required because `ownership_contributors` is shared across
+   calculation versions while the dashboard RPCs filter only snapshots by
+   `active_version`:
    **(a) shared contributor rows are never mutated while a
    `building_version` is incomplete** — mid-build metadata writes would
    leak into active-version responses; intended building-version metadata
@@ -1267,6 +1274,24 @@ The proposed amendment is deliberately narrow:
    referenced contributors always survive (and were never mutated, so
    nothing needs restoring); this pruning is part of identity
    minimization, not housekeeping.
+   **(c) scope version isolation** — `ownership_scopes` is shared/
+   unversioned the same way, and the deployed `dash_ownership_scopes`
+   enumerates base scope rows regardless of version. The amendment splits
+   immutable scope identity (`id`, path hash, display path, type, depth)
+   from **versioned membership**: a retained CORE relation
+   `ownership_scope_versions` at grain `(scope_id, calculation_version)`
+   carrying the per-version `excluded`/`exclusion_reason` cardinality
+   state (a directory may be inside the ≤500 set in N and outside in N+1
+   as the tree changes; `excluded=true` remains permitted only with
+   `'cardinality_cap'`). Building versions may insert new base scope
+   identities and their own membership rows, but the scopes RPC joins
+   membership at `active_version` — a new N+1 scope is invisible in N
+   output and N exclusion state cannot move. The base row's exclusion
+   columns become non-authoritative legacy; a base scope referenced by
+   any snapshot or membership row is never deleted (the snapshot FK is
+   `ON DELETE CASCADE` — deletion would destroy active data). Abandoned
+   and garbage-collected versions delete their membership rows and then
+   prune base scopes referenced by nothing.
 3. **Two-pass identity resolution, attribution-frozen.** The accumulate
    pass fixes every metric — work keys, counts, Top-25, unlinked share,
    human counts, **and `is_bot` classification** (`human_contributor_count`
@@ -1302,10 +1327,11 @@ The proposed amendment is deliberately narrow:
    across already-finalized scopes, an incomplete build whose ephemeral
    state is lost, stale, corrupt, or absent after restore is **wholly
    discarded** through one canonical abandon operation (delete its
-   versioned snapshots and ephemeral rows, prune its unreferenced
-   contributors, preserve `active_version`) — piecemeal resumption,
-   including restarting only the current scope, is prohibited because the
-   discarded metadata is not reconstructable from snapshots.
+   versioned snapshots **and scope membership** and ephemeral rows, prune
+   its unreferenced contributors **and unreferenced base scopes**,
+   preserve `active_version`) — piecemeal resumption, including
+   restarting only the current scope, is prohibited because the discarded
+   metadata is not reconstructable from snapshots.
 
 If this amendment is rejected, the honest alternatives are: (a) accept
 per-scope restart-in-single-invocation with no completion guarantee on

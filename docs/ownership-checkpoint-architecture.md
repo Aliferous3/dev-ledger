@@ -1,15 +1,18 @@
 # Ownership Checkpoint Architecture — Phase 1C-B0 Design
 
-> **Status: design only, revision 4. Nothing in this document is implemented
-> or live.** Revision 3→4 correction — **ephemeral-loss semantics**: because
-> `ownership_contributor_build_work` accumulates across already-finalized
-> scopes, losing any required ephemeral state invalidates the ENTIRE
-> building version — there is one canonical `own_abandon_build` operation
-> reused by the stale sweep, restore reconciliation, operator abort, and
-> invalid-state recovery; a build never resumes piecemeal. Revision 2→3 —
-> **version isolation**: shared `ownership_contributors` rows are never
-> mutated during a build (RPCs version-filter snapshots only); metadata is
-> staged build-level and applied atomically at promotion. Earlier:
+> **Status: design only, revision 5. Nothing in this document is implemented
+> or live.** Revision 4→5 correction — **scope version isolation**:
+> `ownership_scopes` is shared/unversioned exactly like
+> `ownership_contributors` — `dash_ownership_scopes` enumerates base scope
+> rows regardless of version, so a building version's new scopes or
+> exclusion-state mutations would leak into active-N responses. The design
+> now splits immutable scope identity from versioned membership
+> (`ownership_scope_versions`, CORE). Revision 3→4 — **ephemeral-loss
+> semantics**: losing any required ephemeral state invalidates the ENTIRE
+> building version; one canonical `own_abandon_build` reused by sweep,
+> restore, abort, and invalid-state recovery. Revision 2→3 — **version
+> isolation**: shared contributor rows never mutated during a build;
+> metadata staged build-level, applied atomically at promotion. Earlier:
 > durable contributor writes inside the atomic scope-COMMIT only; the
 > unimplementable resolve-drift fold removed; `work_key` classified as a
 > linkable pseudonymous identifier; concrete TTL/cleanup; slim cursor
@@ -62,9 +65,12 @@ Checked against `012_ownership.sql` as deployed:
 | `ownership_sync_state` (`history_cursor`/other jsonb) | Technically possible, rejected in §3.2: it is OPERATIONAL (dumped into backups — provisional pseudonyms would leak into every dump), a single JSONB row is a read-modify-write hotspot with unbounded growth, and it cannot be CHECK-constrained per element. |
 | `ownership_scopes` | Scope definition only; nothing accumulates there. |
 
-Conclusion: **migration 013 is required.** The delta is minimal (§11): two
-ephemeral work relations + one checkpoint function. No existing column or
-constraint changes.
+Conclusion: **migration 013 is required.** The delta (§11): one retained
+versioned scope-membership table (`ownership_scope_versions`, CORE), two
+ephemeral work relations, the checkpoint/abandon/sweep primitives, and an
+amended `dash_ownership_scopes`. No changes to migration 012 itself — the
+base scope/contributor columns become non-authoritative or versioned
+rather than retroactively edited.
 
 ---
 
@@ -80,7 +86,8 @@ Postgres while a build runs:
   telemetered, fully reconstructable by restarting the build. Persistence
   ≠ retention.
 - **RETAINED ownership data** — `ownership_scopes`,
-  `ownership_contributors`, `ownership_snapshots` at `active_version`:
+  `ownership_scope_versions` (§5.9), `ownership_contributors`,
+  `ownership_snapshots` at `active_version`:
   durable, backed-up, user-visible, deleted only by disconnect/account
   deletion.
 
@@ -237,20 +244,6 @@ exists** — promotion applies it atomically (§5.7).
 Hard rules for the staging relation:
 
 - **only represented keys may ever appear** — the resolve page tx writes a
-  staged row only when `work_key ∈ represented`(recomputed from the
-  completed accumulation counters); overflow keys observed during pass 2
-  are classified transiently and discarded in memory;
-- no email, no name, no `databaseId`, no path, no raw nodes;
-- EPHEMERAL: backup-excluded, RLS zero-policy, `service_role` only, cascade
-  on repo/user delete;
-- deleted on promotion (consumed), on abort, and by the abandoned-build
-  sweep;
-- **it is the only place GitHub identity fields may exist outside retained
-  tables — and only for already-represented contributors.**
-
-Hard rules for the staging relation:
-
-- **only represented keys may ever appear** — the resolve page tx writes a
   staged row only when `work_key ∈ represented(set recomputed from
   accumulation counters)`; overflow keys observed during pass 2 are
   classified transiently and discarded in memory;
@@ -320,7 +313,8 @@ pending → history → done | error        (phase enum — unchanged)
 
 Scope order is **not** stored here: `pending_scopes` (existing jsonb
 column) holds remaining scope ids, and deterministic order is re-derivable
-from `ownership_scopes` (`order by depth, scope_path_hash`) at any resume
+from the build's `ownership_scope_versions` membership
+(`order by depth, scope_path_hash` over V members) at any resume
 point — no duplicated full-scope list in the cursor. Worst-case
 `history_cursor` stays ~1 KB; `pending_scopes` carries the ≤500 uuid list
 (~20 KB) honestly, once, where the column was designed for it.
@@ -478,20 +472,29 @@ there is no second cleanup semantics anywhere):
 2. Verify `building_version = V` (the expected version is supplied).
 3. Delete `ownership_snapshots` where `repository_id` and
    `calculation_version = V`.
-4. Delete `ownership_history_work` and `ownership_contributor_build_work`
+4. Delete `ownership_scope_versions` where `repository_id` and
+   `calculation_version = V` — V's scope membership is version state of
+   the abandoned build (§5.9).
+5. Delete `ownership_history_work` and `ownership_contributor_build_work`
    for that repo/version.
-5. Clear `building_version`, `history_cursor` build state, and
+6. Clear `building_version`, `history_cursor` build state, and
    `pending_scopes` for the build.
-6. **Prune** `ownership_contributors` rows for the repository referenced
+7. **Prune** `ownership_contributors` rows for the repository referenced
    by *zero* `ownership_snapshots` rows across *all* versions — the
    anti-join is what makes it safe: N-referenced contributors survive;
    V-only rows created solely to satisfy building-snapshot FKs are
    removed. Synthetic `unlinked`/`other` rows prune the same way — they
    are reconstructable.
-7. `active_version` is never touched; phase/error fall back to the state
+8. **Prune** `ownership_scopes` base rows now referenced by NO
+   `ownership_scope_versions` row AND NO `ownership_snapshots` row —
+   V-only base identities are removed; N-referenced scopes always
+   survive. The snapshot FK is `ON DELETE CASCADE`, so this explicit
+   check is what makes the prune safe rather than destructive; a base
+   scope still referenced by active/retained data is never deleted.
+9. `active_version` is never touched; phase/error fall back to the state
    implied by whether an active version exists (closed taxonomy only).
-   Existing contributor metadata needs no restoration — it was never
-   mutated.
+   Existing contributor metadata and N scope membership need no
+   restoration — they were never mutated.
 
 ### 5.6a The ephemeral-loss invariant (CANONICAL)
 
@@ -528,9 +531,13 @@ the mere presence/absence of counter rows:
 Zero `history_work` rows is **not** evidence of loss — it is the legal
 state after each scope COMMIT and before promotion. Validation checks:
 `building_version` non-null, phase/pass/current-scope consistent with
-`history_cursor`, `pending_scopes` well-formed, every represented key of
-every already-committed scope having a `contributor_build_work` row, and
-no orphaned V snapshots without their staging. If any check fails — never
+`history_cursor`, `pending_scopes` well-formed, **V's
+`ownership_scope_versions` membership coherent** — every `pending_scopes`
+entry and every V snapshot's `scope_id` has a V membership row
+(`excluded=false` for pending entries); every represented key of every
+already-committed scope having a `contributor_build_work` row; and no
+orphaned V snapshots without their staging. Missing or corrupt V
+membership is itself a fail-closed reason. If any check fails — never
 reconstruct heuristically → `own_abandon_build`.
 
 ### 5.7 Promotion — atomic metadata application + version flip
@@ -560,8 +567,11 @@ the new metadata. No intermediate mixed state is observable — readers
 under read-committed see either fully-pre or fully-post commit. A failed
 promotion leaves active N and all shared contributor metadata unchanged
 and building V retryable. Post-flip garbage collection of old-version
-snapshots is a separate later transaction (spec §13) and can prune
-contributors left unreferenced by that GC the same way §5.6 does.
+snapshots is a separate later transaction (spec §13): it deletes the old
+version's `ownership_scope_versions` membership, then prunes
+contributors and base scopes left unreferenced by that GC the same way
+§5.6 does — membership first, identity prune second, never cascading
+away referenced/active rows.
 
 ### 5.8 Why this is required — the shared-metadata leak
 
@@ -586,6 +596,76 @@ Required implementation-time tests:
   rows untouched (snapshots *and* contributor metadata byte-identical);
   contributors referenced by N survive; contributors introduced only by
   N+1 pruned; no N+1 snapshots or work rows remain.
+
+### 5.9 Scope identity vs version membership — the same leak class
+
+`ownership_scopes` is shared/unversioned exactly like
+`ownership_contributors`, and the deployed `dash_ownership_scopes`
+enumerates **base scope rows** filtered only by `active_version is not
+null` — it does not require the scope to belong to the active version.
+Three distinct leaks follow:
+
+- **new-scope leak:** an N+1 scope row inserted during a build would
+  appear in active-N `dash_ownership_scopes` output (with null N
+  metrics);
+- **metadata leak:** mutating `excluded`/`exclusion_reason`/
+  `display_path`/`depth` on a shared scope alters active-N output;
+- **deletion hazard:** `ownership_snapshots` FK-references scopes
+  `ON DELETE CASCADE` — deleting a base scope during a build could
+  cascade-destroy **active-N snapshots**.
+
+Resolution — split immutable identity from versioned membership:
+
+**`ownership_scopes` stays the immutable repository/path identity
+relation** (`id, user_id, repository_id, scope_path_hash, display_path,
+scope_type, depth, created_at, updated_at`): never mutated merely because
+another version is building; never deleted while any snapshot or
+membership row references it (the FK cascade makes "delete a referenced
+scope" a correctness violation, not a cleanup path). Vendor/generated/
+binary/submodule paths still never get a base row; file scopes remain
+impossible.
+
+**`ownership_scope_versions`** — RETAINED, CORE-classified, grain
+`(scope_id, calculation_version)` plus `user_id`/`repository_id` for
+DB-enforced tenant scoping:
+
+| Field | Semantics |
+|---|---|
+| `scope_id`, `calculation_version` | the scope belongs to that version |
+| `excluded`, `exclusion_reason` | **version-sensitive** cardinality state — a dir can be inside the ≤500 set in N and outside in N+1 as the tree changes; `excluded=true` permitted only with `'cardinality_cap'` (existing contract preserved); lives here, not on the shared base row |
+| `created_at`, `updated_at` | housekeeping |
+
+Rules: one membership row ⇒ the scope belongs to that version;
+`excluded=false` ⇒ analyzed/included; `excluded=true` ⇒ cardinality-cap
+marker for that version only. The base row's `excluded`/
+`exclusion_reason` columns become **non-authoritative legacy** after 013
+(new base rows always `excluded=false`; the columns may be dropped only
+if a later migration explicitly justifies it — 012 is never edited
+retroactively).
+
+**Build flow:** at N+1 init — pin revision → enumerate eligible
+scopes → insert missing base identity rows → insert N+1 membership rows
+→ derive `pending_scopes` from N+1 membership where `excluded=false` →
+walk. New base rows may exist pre-promotion **only because dashboard
+reads will join membership** — without membership for `active_version`
+they are invisible. Existing N membership is never touched.
+
+**RPC:** `dash_ownership_scopes` must be amended to join
+`ownership_scope_versions` on `calculation_version = st.active_version`
+and take `excluded`/`exclusion_reason` from membership — N+1-only scopes
+cannot appear, and N exclusion state cannot move. `dash_ownership_head`/
+`dash_ownership_timeline` reach scopes only through version-filtered
+snapshot rows, so they are already correct — but all three RPCs get an
+explicit version-consistency audit at implementation.
+
+**Promotion:** membership needs no rewrite — the flip swaps which
+version's membership the RPC joins, atomically with the contributor
+metadata application (§5.7). **GC:** when old version N is collected:
+delete N's membership rows → then prune base scopes referenced by no
+membership row *and* no snapshot — in that order, never cascading away
+referenced/active data. **Abandon** (§5.6) additionally deletes V's
+membership rows and prunes V-only base scopes that are then referenced
+by nothing.
 
 ---
 
@@ -720,10 +800,25 @@ implementation tranche is approved:
    calculation_version, work_key)` — existing only while a building
    version exists. `work_key` is a repo-scoped pseudonymous identifier —
    permitted persisted only under the §3 conditions.
-2. **§6.4 preserved verbatim** — overflow contributors get no retained
-   identity row and their GitHub identity fields never reach any
-   persisted state; staged build-work rows exist only for contributor
-   keys pass 1 already proved individually represented.
+2. **§6.4's substantive guarantee preserved** — the live §6.4 text stays
+   unchanged until this amendment is adopted (it is not claimed verbatim —
+   the amendment deliberately persists the pseudonymous `work_key` in
+   EPHEMERAL build state). What is guaranteed exactly as before: overflow
+   contributors receive **no retained `ownership_contributors` row** and
+   their `github_node_id`/`display_login` never reach *any* persisted
+   state — only the pseudonymous `work_key` may exist, and only in the
+   short-lived EPHEMERAL relations under the §3 conditions. Staged
+   build-work rows exist only for contributor keys pass 1 already proved
+   individually represented.
+   **Scope version isolation (§5.9):** `ownership_scopes` base rows are
+   immutable identity only; per-version `excluded`/`exclusion_reason`
+   state moves to retained `ownership_scope_versions` (CORE, grain
+   `scope_id × calculation_version`). Building versions may add base
+   scope identities and N+1 membership, but dashboard reads enumerate
+   only `active_version` membership — a new N+1 scope is invisible and N
+   exclusion state cannot move. The base row's exclusion columns become
+   non-authoritative after 013; base scopes referenced by any snapshot or
+   membership row are never deleted.
    **Version isolation:** shared `ownership_contributors` rows are never
    mutated while a `building_version` is incomplete — the dashboard RPCs
    join contributor metadata unversioned, so any mid-build metadata write
@@ -760,17 +855,24 @@ relaxation of §5's prohibited list.
 
 - Both work relations → **EPHEMERAL** in `backup-scope.mjs`
   (classification is mandatory — an unclassified table fails CI).
-  Verified against the revision-3 state model: losing them never loses
-  active user data — the recovery cost is **"discard the incomplete
-  building version and rebuild it,"** not "resume the current scope."
-  Dumping them would persist pseudonymous state for zero benefit; the
-  EPHEMERAL classification stands.
+  `ownership_scope_versions` → **CORE** — it is required to interpret
+  active ownership state (it carries which scopes belong to
+  `active_version` and their authoritative exclusion state), so it must
+  be dumped and restored exactly like `ownership_snapshots`. Verified
+  against the revision-5 state model: losing the EPHEMERAL relations
+  never loses active user data — the recovery cost is **"discard the
+  incomplete building version and rebuild it,"** not "resume the current
+  scope." Dumping them would persist pseudonymous state for zero benefit;
+  the EPHEMERAL classification stands.
 - **Restore semantics — abandon, never piecemeal-resume:** restore
-  returns `ownership_sync_state` (OPERATIONAL) but no work rows. If the
+  returns `ownership_sync_state` (OPERATIONAL) plus all CORE ownership
+  rows — including V's `ownership_scope_versions` membership and V's
+  snapshots — but no work rows. If the
   restored row has `building_version = V`, the required build state for V
   is by definition absent/incomplete → V is unrecoverable → run
-  `own_abandon_build`: delete V snapshots, delete any surviving V work
-  rows, prune unreferenced V-only contributors, clear V build state. Then
+  `own_abandon_build`: delete V snapshots **and V scope membership**,
+  delete any surviving V work rows, prune unreferenced V-only
+  contributors and V-only base scopes, clear V build state. Then
   a later ownership run begins a NEW complete build — re-enumerate
   scopes, obtain a fresh pinned revision, accumulate from the start; **no
   previously committed V scope is trusted.**
@@ -834,6 +936,27 @@ endpoint form, now sha-pinned.
 
 `013_ownership_checkpointing.sql` — additive only:
 
+**RETAINED (CORE):**
+
+- `create table public.ownership_scope_versions` — §5.9: composite
+  tenant/scope FKs `(scope_id, repository_id) → ownership_scopes` and
+  `(repository_id, user_id) → repositories`, all `on delete cascade`;
+  unique `(scope_id, calculation_version)`; `excluded boolean not null
+  default false`; CHECK `excluded → exclusion_reason = 'cardinality_cap'`
+  and `not excluded → exclusion_reason is null` (the spec's
+  `ownership_scopes_exclusion` contract, versioned); CHECK
+  `calculation_version > 0`. RLS enabled, zero
+  policies, `service_role` DML only — the retained-table security model,
+  **not** the ephemeral one: it is CORE backup state.
+- `ownership_scopes.excluded`/`exclusion_reason` become
+  **non-authoritative legacy**: new base rows always write
+  `excluded=false, exclusion_reason=null`; authoritative per-version
+  state lives in `ownership_scope_versions`. The columns may be dropped
+  only by a later explicitly justified migration — 012 is never edited
+  retroactively.
+
+**EPHEMERAL:**
+
 - `create table public.ownership_history_work` — §4.4 columns; composite
   FKs `(repository_id, user_id) → repositories` and
   `(scope_id, repository_id) → ownership_scopes(id, repository_id)`, all
@@ -857,21 +980,36 @@ endpoint form, now sha-pinned.
 - `own_abandon_build(p_user, p_repository, p_version)` — **the canonical
   build-abandonment primitive** (§5.6): locks the sync-state row,
   validates the expected `building_version`, deletes the version's
-  snapshots and both ephemeral relations, anti-join prunes unreferenced
-  contributors, clears build state, preserves `active_version`. There is
-  ONE semantic abandon operation — the stale sweep, restore
-  reconciliation, operator abort, and invalid-state recovery all call it.
+  snapshots **and `ownership_scope_versions` membership**, deletes both
+  ephemeral relations, anti-join prunes unreferenced contributors **and
+  unreferenced base scopes** (no membership row AND no snapshot), clears
+  build state, preserves `active_version`. There is ONE semantic abandon
+  operation — the stale sweep, restore reconciliation, operator abort,
+  and invalid-state recovery all call it.
 - `own_sweep_stale_work(...)` — repository-build-aware: bare-deletes
   orphan work rows only when `building_version` is null; for a genuinely
   stale live build (no lease, no activity in 14 days) it calls
   `own_abandon_build` — same security shape.
-- `backup-scope.mjs`: append both tables to `EPHEMERAL_TABLES` (same PR —
+- `create or replace function dash_ownership_scopes(uuid, uuid)` —
+  **amended for version isolation**: joins `ownership_scope_versions`
+  where `calculation_version = st.active_version` and takes
+  `excluded`/`exclusion_reason` from membership; returns only
+  active-version scopes. `dash_ownership_head`/`dash_ownership_timeline`
+  reach scopes only through version-filtered snapshot rows — audit all
+  three at implementation; signature stays `security invoker` with the
+  same tenant checks.
+- `backup-scope.mjs`: append `ownership_history_work` and
+  `ownership_contributor_build_work` to `EPHEMERAL_TABLES`;
+  `ownership_scope_versions` goes to the CORE ownership set (same PR —
   CI requires classification).
-- Recovery-drill addition: assert the tables exist post-migration and are
-  absent from dumps.
-- No changes to the four existing tables: `phase` enum already contains
-  `history`; resolve is cursor-jsonb state, not a new phase; the error
-  taxonomy already covers every failure mode in §13.
+- Recovery-drill addition: assert all three tables exist post-migration;
+  the two work relations are absent from dumps; `ownership_scope_versions`
+  **is present** in dumps and restores.
+- No schema changes to the four existing tables: `phase` enum already
+  contains `history`; resolve is cursor-jsonb state, not a new phase; the
+  error taxonomy already covers every failure mode in §13. The only
+  existing-object change is `create or replace` on `dash_ownership_scopes`
+  — same signature, same grants, version-correct semantics.
 
 ---
 
@@ -938,6 +1076,26 @@ endpoint form, now sha-pinned.
   - contributor represented across several N+1 scopes: build-level
     staged bounds aggregate all represented scopes correctly while the
     shared row stays unchanged until promotion.
+- **Scope version isolation (§5.9):**
+  - N active, N+1 enumerates a brand-new directory scope: base scope row
+    and N+1 membership may exist, but active-N `dash_ownership_scopes`
+    output is byte-identical — the new scope is invisible until
+    promotion;
+  - N+1 changes the cardinality-cap selection (a dir excluded in N is
+    included in N+1 or vice versa): active-N `excluded`/
+    `exclusion_reason` values unchanged, N+1 state isolated in its own
+    membership rows;
+  - N+1 abort: N membership and output byte-identical, N+1 membership
+    deleted, N+1-only unreferenced base scope identities pruned,
+    N-referenced scopes preserved;
+  - N+1 promotion: the active scope set switches atomically with the
+    `active_version` flip — no observable mixed N/N+1 scope set;
+  - post-promotion old-version GC: N membership deleted at the retention
+    point, then base scopes referenced by nothing pruned — active
+    scopes/snapshots never cascade away;
+  - a delete attempt on a base scope still referenced by active-version
+    membership or snapshots is rejected/blocked by the implementation
+    contract — never a cleanup path.
 
 ---
 
@@ -981,6 +1139,10 @@ endpoint form, now sha-pinned.
 | Promotion commits, response lost | V promoted atomically | caller reload sees active_version=V | flip+metadata in one tx | — | staging already deleted by that tx |
 | Cross-scope bot drift mid-build | staged frozen is_bot ≠ later scope's pass-1 value | fail closed → fresh build boundary | — | — | abort path cleans build state |
 | Shared contributor metadata mutate attempt during build | **none — design forbids it** | n/a | retained rows are read-only during build | — | nothing to roll back (§5.8) |
+| N+1 inserts new base scope + membership | N+1-only membership + base identity | n/a | dashboard joins only active-version membership — new scope invisible in N output | — | abort/GC prunes unreferenced base scope (§5.9) |
+| N+1 changes cardinality-cap selection | per-version exclusion state on N+1 membership | n/a | N's `excluded`/`exclusion_reason` on its membership rows unchanged | — | shared base row never mutated; abort removes N+1 membership |
+| Delete of base scope referenced by active data | forbidden by contract — snapshot FK cascade would destroy active rows | n/a | — | — | prune only deletes scopes referenced by NO membership AND NO snapshot (§5.6) |
+| Restore: V membership + V snapshots restored, work absent | sync claims building V; CORE rows present, EPHEMERAL absent | never piecemeal-resume | — | — | `own_abandon_build` deletes restored V membership + snapshots too |
 
 ---
 
