@@ -1296,6 +1296,16 @@ The proposed amendment is deliberately narrow:
    when they unlink during pass 2 (unimplementable — a null `author.user`
    carries no node id mapping back to the work key; pass-2 non-resolution
    instead fails the scope closed).
+6. **Ephemeral loss invalidates the building version only.** The EPHEMERAL
+   relations are intentionally not backed up; their loss never loses
+   `active_version` data. But because build-level staging accumulates
+   across already-finalized scopes, an incomplete build whose ephemeral
+   state is lost, stale, corrupt, or absent after restore is **wholly
+   discarded** through one canonical abandon operation (delete its
+   versioned snapshots and ephemeral rows, prune its unreferenced
+   contributors, preserve `active_version`) — piecemeal resumption,
+   including restarting only the current scope, is prohibited because the
+   discarded metadata is not reconstructable from snapshots.
 
 If this amendment is rejected, the honest alternatives are: (a) accept
 per-scope restart-in-single-invocation with no completion guarantee on

@@ -1,16 +1,19 @@
 # Ownership Checkpoint Architecture — Phase 1C-B0 Design
 
-> **Status: design only, revision 3. Nothing in this document is implemented
-> or live.** Revision 2→3 correction — **version isolation**: retained
-> `ownership_contributors` rows are shared across calculation versions while
-> the dashboard RPCs filter only snapshots by `active_version`; a building
-> version mutating shared contributor metadata would leak into active-N
-> responses and could not be restored on abort. Contributor identity/metadata
-> is therefore staged **build-level** and applied atomically at promotion.
-> Earlier corrections: durable contributor writes inside the atomic
-> scope-COMMIT only; the unimplementable resolve-drift fold removed;
-> `work_key` classified as a linkable pseudonymous identifier; concrete
-> TTL/cleanup; slim cursor jsonb.
+> **Status: design only, revision 4. Nothing in this document is implemented
+> or live.** Revision 3→4 correction — **ephemeral-loss semantics**: because
+> `ownership_contributor_build_work` accumulates across already-finalized
+> scopes, losing any required ephemeral state invalidates the ENTIRE
+> building version — there is one canonical `own_abandon_build` operation
+> reused by the stale sweep, restore reconciliation, operator abort, and
+> invalid-state recovery; a build never resumes piecemeal. Revision 2→3 —
+> **version isolation**: shared `ownership_contributors` rows are never
+> mutated during a build (RPCs version-filter snapshots only); metadata is
+> staged build-level and applied atomically at promotion. Earlier:
+> durable contributor writes inside the atomic scope-COMMIT only; the
+> unimplementable resolve-drift fold removed; `work_key` classified as a
+> linkable pseudonymous identifier; concrete TTL/cleanup; slim cursor
+> jsonb.
 >
 > This document resolves the §9.1 hard blocker in
 > [ownership-data-privacy-spec.md](ownership-data-privacy-spec.md): how to run
@@ -452,7 +455,7 @@ reclassifying. `is_bot` travels on the work row as a bare boolean — the
 only way `human_contributor_count` can include/exclude overflow
 contributors exactly without their logins.
 
-### 5.6 Pre-flip build abort — explicit cleanup
+### 5.6 Build abandonment — THE canonical cleanup operation
 
 Scope COMMITs legitimately create `ownership_contributors` rows (for
 contributors new to the repository, §5.3) and `building_version`
@@ -466,26 +469,69 @@ build (§5.7), so there is nothing to roll back. This is a stronger
 invariant than save/restore: the shared row cannot drift in the first
 place.
 
-**Abandon transaction (one tx, under the same sync-row lock):**
+**The canonical abandon transaction** (`own_abandon_build`, prospective
+013 — the ONE semantic abandon operation; the stale-build sweep, restore
+reconciliation, operator abort, and invalid-state recovery all reuse it —
+there is no second cleanup semantics anywhere):
 
-1. Verify `(user_id, repository_id)` row, `building_version = V`,
-   `phase != 'done'`.
-2. Delete `ownership_snapshots` where `repository_id` and
+1. `SELECT FOR UPDATE` the `(user_id, repository_id)` sync-state row.
+2. Verify `building_version = V` (the expected version is supplied).
+3. Delete `ownership_snapshots` where `repository_id` and
    `calculation_version = V`.
-3. Delete `ownership_history_work` and `ownership_contributor_build_work`
+4. Delete `ownership_history_work` and `ownership_contributor_build_work`
    for that repo/version.
-4. Clear `building_version`, `history_cursor` build state, and
+5. Clear `building_version`, `history_cursor` build state, and
    `pending_scopes` for the build.
-5. **Prune** `ownership_contributors` rows for the repository referenced
+6. **Prune** `ownership_contributors` rows for the repository referenced
    by *zero* `ownership_snapshots` rows across *all* versions — the
    anti-join is what makes it safe: N-referenced contributors survive;
-   N+1-only rows created solely to satisfy building-snapshot FKs are
+   V-only rows created solely to satisfy building-snapshot FKs are
    removed. Synthetic `unlinked`/`other` rows prune the same way — they
    are reconstructable.
-6. `active_version` is never touched; phase falls back to the state
-   implied by whether an active version exists (`done`/`error` as
-   appropriate). Existing contributor metadata needs no restoration —
-   it was never mutated.
+7. `active_version` is never touched; phase/error fall back to the state
+   implied by whether an active version exists (closed taxonomy only).
+   Existing contributor metadata needs no restoration — it was never
+   mutated.
+
+### 5.6a The ephemeral-loss invariant (CANONICAL)
+
+`ownership_contributor_build_work` accumulates metadata across
+**already-finalized** scopes of the building version — staged
+`display_login`, the frozen build-level `is_bot`, and represented-scope
+seen bounds exist nowhere else (`ownership_snapshots` does not carry
+them). Therefore:
+
+> **If `building_version` is non-null and any required EPHEMERAL build
+> state is lost, stale, corrupt, or deliberately discarded, the ENTIRE
+> building version is invalid. It must never resume piecemeal — not even
+> "restart the current scope." The only safe operation is the canonical
+> abandon transaction, then a fresh build later from a fresh pinned
+> boundary. No previously committed V scope is trusted.**
+
+A new repository build may not start while `building_version` is set: it
+first **resumes** the existing build if §5.6b validity holds, else runs
+`own_abandon_build`. `building_version` must be null before a fresh build
+initializes — no overlapping building versions, ever.
+
+### 5.6b Required ephemeral-state validity
+
+Whether a build is resumable is decided by internal consistency, not by
+the mere presence/absence of counter rows:
+
+| State-machine position | Required present | Allowed absent |
+|---|---|---|
+| ACCUMULATE mid-scope | `history_work` prefix rows may exist (or be empty pre-first-page); `contributor_build_work` for previously finalized scopes' represented keys | next pages |
+| RESOLVE mid-scope | complete `history_work` counters for the scope; `contributor_build_work` for prior scopes | identity rows not yet observed in pass 2 |
+| Between scopes | `contributor_build_work` for all represented keys of committed scopes; `pending_scopes` non-empty | `history_work` for the just-committed scope (consumed) |
+| Ready to promote | `pending_scopes` empty; complete `contributor_build_work`; zero `history_work` | — |
+
+Zero `history_work` rows is **not** evidence of loss — it is the legal
+state after each scope COMMIT and before promotion. Validation checks:
+`building_version` non-null, phase/pass/current-scope consistent with
+`history_cursor`, `pending_scopes` well-formed, every represented key of
+every already-committed scope having a `contributor_build_work` row, and
+no orphaned V snapshots without their staging. If any check fails — never
+reconstruct heuristically → `own_abandon_build`.
 
 ### 5.7 Promotion — atomic metadata application + version flip
 
@@ -625,29 +671,36 @@ COMMIT deletes them before the next scope starts.
 Breach → `phase='error'`, `error='OWNERSHIP_INTERNAL_ERROR'` — **never**
 silently partial; an over-cap scope is an error, not a folded result.
 
-**Cleanup — concrete, not aspirational:**
+**Cleanup — concrete, and routed through the canonical abandon:**
 
 - Rows carry `created_at`/`updated_at`; the checkpoint upsert touches
   `updated_at` on every application, so **activity is directly visible on
   the rows themselves.**
-- **Stale threshold:** work/staging rows whose repo build shows no
-  checkpoint for **14 days** (measured via row `updated_at` joined to
-  `ownership_sync_state.updated_at`) are abandoned. Two weeks is far
-  beyond any legitimate pause — slices checkpoint every ~40 s while a
-  build lives; even a fully paused build must beat 14 days.
-- **Active-build protection:** a build that is checkpointing (any page tx
-  within the window) is by definition not stale — the threshold only
-  fires on genuinely dead state.
-- **Sweep triggers:** (a) unconditionally at every build start for that
-  repo — rows with `calculation_version ≠ building_version` or whose
-  scope is gone are deleted; (b) a periodic sweep function
-  (`own_sweep_stale_work`, proposed in 013) invoked by whatever scheduler
-  the implementation tranche wires — so cleanup eventually runs even if
-  the repo never builds again; (c) unconditional FK cascade on
+- **Stale threshold:** a repository build showing no checkpoint for
+  **14 days** (no valid lease; row `updated_at` and
+  `ownership_sync_state.updated_at` both older) is abandoned. Two weeks
+  is far beyond any legitimate pause — slices checkpoint every ~40 s
+  while a build lives.
+- **A stale build is never cleaned piecemeal.** `own_sweep_stale_work`
+  must NOT bare-`DELETE` work rows for a repo whose `building_version`
+  is still set — that would strand V's snapshots and V-only contributors.
+  Under the sync-row lock it verifies `building_version = V` and genuine
+  staleness, then runs `own_abandon_build` (§5.6) — the identical
+  delete/prune/clear sequence. Only **orphan rows with no
+  `building_version`** (e.g. leftovers of an already-cleared build) may
+  be deleted directly.
+- **Active-build protection:** a build checkpointing within the window is
+  by definition not stale — the threshold only fires on genuinely dead
+  state.
+- **Sweep triggers:** (a) at every build start for that repo — validity
+  check §5.6b → resume or `own_abandon_build`; (b) a periodic sweep
+  function (`own_sweep_stale_work`, proposed in 013) invoked by whatever
+  scheduler the implementation tranche wires — so cleanup eventually runs
+  even if the repo never builds again; (c) unconditional FK cascade on
   repository/account deletion.
-- **Error-build behavior:** `phase='error'` leaves work rows for operator
-  inspection (they're backup-excluded and bounded) until the 14-day sweep
-  or the next build start.
+- **Error-build behavior:** `phase='error'` leaves build state for
+  operator inspection (backup-excluded and bounded) until the 14-day
+  sweep runs the abandon path or the next build start does.
 - **Gate-off behavior:** identical — no caller runs, rows age out via the
   sweep; no special case needed.
 
@@ -707,14 +760,28 @@ relaxation of §5's prohibited list.
 
 - Both work relations → **EPHEMERAL** in `backup-scope.mjs`
   (classification is mandatory — an unclassified table fails CI).
-  Verified, not assumed: losing them costs a restarted scope only;
-  dumping them would persist pseudonymous state for zero benefit.
-- **Restore semantics:** restore returns sync_state (OPERATIONAL) but no
-  work rows. Resume detects `building_version set ∧ work rows absent ∧
-  scope mid-walk` → resets `current.cursor = null`, `pass='accumulate'`
-  for that scope → pages re-fetched, CAS txs rebuild. No page can be
-  double-applied — cursor/delta atomicity is per-transaction, not
-  per-backup. `active_version` rows are untouched throughout.
+  Verified against the revision-3 state model: losing them never loses
+  active user data — the recovery cost is **"discard the incomplete
+  building version and rebuild it,"** not "resume the current scope."
+  Dumping them would persist pseudonymous state for zero benefit; the
+  EPHEMERAL classification stands.
+- **Restore semantics — abandon, never piecemeal-resume:** restore
+  returns `ownership_sync_state` (OPERATIONAL) but no work rows. If the
+  restored row has `building_version = V`, the required build state for V
+  is by definition absent/incomplete → V is unrecoverable → run
+  `own_abandon_build`: delete V snapshots, delete any surviving V work
+  rows, prune unreferenced V-only contributors, clear V build state. Then
+  a later ownership run begins a NEW complete build — re-enumerate
+  scopes, obtain a fresh pinned revision, accumulate from the start; **no
+  previously committed V scope is trusted.**
+  - *Initial V1 restore* (`active_version=null`, partial V1): remove all
+    V1 artifacts → repo returns to "ownership not ready" → a fresh V1
+    build starts later.
+  - *N active + N+1 building restore:* remove all partial N+1 artifacts →
+    N stays byte-identical and active → a fresh N+1 build starts later.
+  - `active_version` is untouched in both cases — every active row comes
+    from CORE tables (`ownership_scopes`, `ownership_contributors`,
+    `ownership_snapshots` at N, `ownership_sync_state`).
 
 ---
 
@@ -784,10 +851,20 @@ endpoint form, now sha-pinned.
   only — on **both**.
 - `own_checkpoint_page(...)` — §6.1; `security invoker`, `EXECUTE →
   service_role`, all other grants revoked. The same transactional pattern
-  covers scope-COMMIT (§5.3), promotion (§5.7), and abort (§5.6) — whether
-  as additional functions or a client-managed multi-statement tx is an
-  implementation detail of 1C-B.
-- `own_sweep_stale_work(...)` — the §7 sweep, same security shape.
+  covers scope-COMMIT (§5.3) and promotion (§5.7) — whether as additional
+  functions or a client-managed multi-statement tx is an implementation
+  detail of 1C-B.
+- `own_abandon_build(p_user, p_repository, p_version)` — **the canonical
+  build-abandonment primitive** (§5.6): locks the sync-state row,
+  validates the expected `building_version`, deletes the version's
+  snapshots and both ephemeral relations, anti-join prunes unreferenced
+  contributors, clears build state, preserves `active_version`. There is
+  ONE semantic abandon operation — the stale sweep, restore
+  reconciliation, operator abort, and invalid-state recovery all call it.
+- `own_sweep_stale_work(...)` — repository-build-aware: bare-deletes
+  orphan work rows only when `building_version` is null; for a genuinely
+  stale live build (no lease, no activity in 14 days) it calls
+  `own_abandon_build` — same security shape.
 - `backup-scope.mjs`: append both tables to `EPHEMERAL_TABLES` (same PR —
   CI requires classification).
 - Recovery-drill addition: assert the tables exist post-migration and are
@@ -879,8 +956,14 @@ endpoint form, now sha-pinned.
 | DB timeout, unknown outcome | maybe committed | retry: C′ → 'stale' else apply | exactly-once either way | — | — |
 | Worker timeout | as crash cases | next worker | CAS | — | lease expiry §14 |
 | Deploy during build | in-flight tx aborts or completes | next deploy resumes | CAS | — | additive 013 keeps reads compatible |
-| Gate off mid-build | ephemeral rows idle | no caller runs | — | — | 14-day sweep / next enable |
-| Repo disconnected mid-build | rows persist; calls stop at gate | no | — | — | resume on reconnect; sweep if abandoned |
+| Gate off mid-build | ephemeral rows idle | no caller runs | — | — | stale sweep → `own_abandon_build` / next enable |
+| Repo disconnected mid-build | rows persist; calls stop at gate | no | — | — | resume on reconnect if §5.6b valid; else canonical abandon |
+| **Stale TTL while N+1 building** | N+1 snapshots + staging exist; build dead ≥14d | n/a — whole V discarded | — | — | `own_abandon_build`: V snapshots+work gone, V-only contributors pruned, N untouched |
+| **Restore: N+1 sync state, no ephemeral tables** | sync row claims building V; work/staging absent | **never piecemeal-resume** | — | — | `own_abandon_build` → fresh N+1 build later; N stays byte-identical |
+| **Restore: initial V1, no ephemeral state** | partial V1 artifacts | never resume | — | — | V1 artifacts removed; `active_version=null` → "not ready"; fresh V1 later |
+| **Orphan work rows, `building_version=null`** | rows without a live build | n/a | — | — | direct sweep delete permitted — no build semantics to preserve |
+| **Corrupt/inconsistent ephemeral state** | violates §5.6b invariants | never reconstruct heuristically | — | — | `own_abandon_build` → fresh build |
+| **New build requested while `building_version` set** | existing build state | resume iff §5.6b passes; else `own_abandon_build` first | — | — | `building_version=null` before new build initializes — no overlapping versions |
 | Repo deleted mid-build | FK cascade removes work+staging+sync rows | n/a | — | — | cascade is total |
 | Installation revoked | state intact | fails at next fetch | CAS | — | `GITHUB_ACCESS_REVOKED` |
 | Pinned revision disappears | pages error; cursor=C | retry once → fail closed | partial scope state never served (building_version) | — | `OWNERSHIP_HISTORY_FAILED`; next build re-pins |
@@ -942,7 +1025,7 @@ endpoint form, now sha-pinned.
 | G. Exact Top-25 preserved? | **YES** | §3 — work key = contributor key, identical comparator, frozen pass-1 metrics |
 | H. Overflow identity fields unpersisted? | **YES** | §4.4 — staging accepts represented keys only; durable contributor rows exist only via COMMIT |
 | I. Every page transition exactly-once? | **YES** | §6.2 — single-transaction CAS, proven |
-| J. Work state backup-excludable safely? | **YES** | §9 — loss = restarted scope, never user data |
+| J. Work state backup-excludable safely? | **YES** | §9/§5.6a — loss = discarded *building* version (canonical abandon + fresh rebuild), never active user data |
 
 ## 17. Readiness verdict
 
