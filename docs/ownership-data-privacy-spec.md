@@ -1203,3 +1203,58 @@ ownership-cycle budget must be measured during staged rollout before GA
 | 4 | Monthly indefinitely vs compaction? | **Full monthly, no compaction in V1** — sparse writes + top-25/other + 300k/repo cap bound volume; compaction stays a version-gated option |
 | 5 | Separate HEAD table vs mixed? | **One `ownership_snapshots` table**; `period_granularity='head'` + sentinel `period_start` distinguishes HEAD rows |
 | 6 | Global vs repo-scoped contributor identity? | **Repository-scoped** — no global contributor table, no cross-tenant index or join, ever |
+
+---
+
+## 27. PROPOSED amendment — ephemeral build working state (NOT LIVE)
+
+> **Status: proposed only.** Recorded by the Phase 1C-B0 checkpoint design
+> ([ownership-checkpoint-architecture.md](ownership-checkpoint-architecture.md)).
+> Nothing below is implemented, migrated, or approved for production. It
+> becomes contract only if the implementation tranche is approved.
+
+The §9.1 blocker analysis reached a proved conclusion: **exact**
+Top-25/Other membership and `human_contributor_count` require the complete
+per-contributor set of a scope, while a `history(path:)` walk can span many
+invocations — so exact crash-safe accumulation requires *some* durable
+per-contributor intermediate state, and none of the four 012 tables can
+hold it without violating this contract (snapshots require a durable
+contributor FK; the linked-contributor CHECK forces identity fields; the
+sync-state JSONB is backed up, unbounded, and unconstrainable).
+
+The proposed amendment is deliberately narrow:
+
+1. **New data class — EPHEMERAL build working state.** Per
+   (scope × month × contributor_key) touch counters plus the `is_bot`
+   boolean and min/max `committedDate`, existing only while
+   `building_version` is set for that repository, keyed by the **same
+   opaque `contributor_key`** already defined in §5/§6 (sha256 over
+   domain + repository uuid + node id). The key carries no node id, no
+   login, no name, no email, no path, and no raw nodes.
+2. **The §6.4 guarantee is preserved verbatim** — overflow-only
+   contributors still get **no durable identity row** and their GitHub
+   identity fields (`github_node_id`, `display_login`) are still **never
+   persisted**. The work row is a counter, not an identity row; it is
+   deleted at scope finalization, is backup-excluded (EPHEMERAL class),
+   cascades on repository/account deletion, and is swept on abandoned
+   builds.
+3. **Two-pass identity resolution.** GitHub identity fields
+   (`author.user.{id,login}`) are re-read in a second walk only to write
+   durable `ownership_contributors` rows for keys already known to be
+   represented — overflow identities are classified transiently (to
+   compute their work key) and discarded in memory per page, exactly as
+   §9 requires.
+4. **Build-boundary SHA.** `ownership_sync_state.history_cursor` may carry
+   the build's pinned commit oid in addition to page cursors — a second
+   sanctioned SHA beside `last_processed_sha` (§5.12), required because
+   `defaultBranchRef` resolves at query time and multi-page builds must
+   not straddle pushes.
+5. Rejected within the design: provisional persistence of
+   `github_node_id`/`display_login` for overflow contributors in any form
+   (ephemeral identity maps, provisional contributor rows), and JSONB
+   accumulators inside `ownership_sync_state` (backed up, unbounded).
+
+If this amendment is rejected, the honest alternatives are: (a) accept
+per-scope restart-in-single-invocation with no completion guarantee on
+long histories, or (b) accept approximate/page-local folding — both
+rejected in the design document.
