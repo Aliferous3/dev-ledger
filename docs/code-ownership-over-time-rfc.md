@@ -6,7 +6,7 @@ Status: draft — reconnaissance and design only. No production behavior changes
 
 Dev Ledger can legitimately answer *"who appears to own or know which parts of this repository, and how has that changed over time?"* using **GitHub GraphQL metadata alone — no clone, no source blobs, no patches**.
 
-Two capabilities make this possible and are **expected** to be covered by the app's existing read-only `contents` permission (must be verified with a real installation token during the Phase-0 spike, §19):
+Two capabilities make this possible and are **expected** to be covered by the app's existing read-only `contents` permission (must be verified with a real installation token during the Phase-0.5 feasibility spike, §19):
 
 - `Commit.blame(path:)` — surviving-line attribution per file at a given revision, returned as line ranges + commit references. **No source text is returned or needed.**
 - `Commit.history(path:)` — per-path (file or directory) commit history, returning author identity and timestamps. **No source text is returned or needed.** Note: `additions`/`deletions` on `Commit` are whole-commit statistics and must **not** be treated as path-scoped churn (§4).
@@ -74,7 +74,7 @@ From `src/security/SecurityPrivacyPage.tsx` and `docs/architecture.md`:
 | Ephemeral local clone | contents:read | Clone size = repo size; needs disk + long runtime | Full | Full source touches worker disk | Viable but unnecessary for V1; see §6 privacy cost |
 | REST blame | n/a | **Does not exist** | — | — | Not an option |
 
-**Permissions:** no *additional* GitHub permissions are expected — blame, trees, and path-filtered history are expected to sit under `contents:read`, which the app already holds. This is provisional and must be verified with a real Dev Ledger installation token during the Phase-0 spike (§19) before any implementation work is treated as unblocked.
+**Permissions:** no *additional* GitHub permissions are expected — blame, trees, and path-filtered history are expected to sit under `contents:read`, which the app already holds. This is provisional and must be verified with a real Dev Ledger installation token during the Phase-0.5 feasibility spike (§19) before any implementation work is treated as unblocked.
 
 **Rate limits:** use **5,000 GraphQL points/hour** as the conservative planning floor for normal GitHub App installations. Real limits can scale with installation repository/user counts — non-Enterprise installation ceilings can reach ~12,500 points/hour, and Enterprise Cloud installations carry a higher baseline. GraphQL also enforces secondary limits (compute/timeouts per query, request rate); alias-batched blame queries must be sized against observed `rateLimit.cost`/`remaining` responses, measured in the spike.
 
@@ -125,7 +125,7 @@ Outputs stay separate signals; the UI labels them as estimates.
 | Source persisted? | No. |
 | What derived data is stored? | Per user/repo/dir/period/contributor: touch counts and shares, recent-window touches, surviving-line share at HEAD, last-touch timestamps, contributor identity reference + login label (§10). |
 | Private repos different? | Same pipeline; RLS + tenant scoping apply identically. Installations already see only granted repos. |
-| New GitHub permissions? | **None expected** — `contents:read` is expected to cover blame/trees/history, but this is provisional pending the Phase-0 spike verification (§19). |
+| New GitHub permissions? | **None expected** — `contents:read` is expected to cover blame/trees/history, but this is provisional pending the Phase-0.5 feasibility spike verification (§19). |
 | New data category? | **Yes — other contributors' identities and contribution aggregates.** This is the one real privacy-model change. |
 
 **Wording requiring amendment:**
