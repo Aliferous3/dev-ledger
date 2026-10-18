@@ -208,7 +208,15 @@ per **represented key only**:
 |---|---|
 | `user_id`, `repository_id`, `scope_id`, `calculation_version` | same boundary/isolation/cascade reasons |
 | `work_key` | which represented contributor this stages |
-| `github_node_id`, `display_login`, `is_bot` | the identity triple needed to create the durable contributor row at COMMIT — nothing else |
+| `github_node_id`, `display_login` | the identity pair needed to create the durable contributor row at COMMIT — nothing else |
+| `created_at`, `updated_at` | same stale-sweep requirement as counters (§7) |
+
+Deliberately **no `is_bot` column**: bot classification is part of the
+frozen pass-1 attribution (§5.1 — `human_contributor_count` depends on
+it), and the retained `ownership_contributors.is_bot` for the build comes
+from the frozen counter state, not from pass 2. Staging a second
+is_bot would create a competing authority; pass 2 instead *verifies*
+observed bot status against the frozen value (§5.3).
 
 Hard rules for the staging relation:
 
@@ -241,7 +249,10 @@ resolution + atomic page checkpoints + pinned-revision walks.**
 accumulate walk completes, the counters freeze:
 
 - the set of work keys, per-month touch counts, unlinked share,
-  Top-25 membership, `human_contributor_count`, `is_bot` classification.
+  Top-25 membership, `human_contributor_count`, and **`is_bot`
+  classification** — frozen because `human_contributor_count` depends on
+  it; the retained `ownership_contributors.is_bot` written at COMMIT is
+  the pass-1 value, never a pass-2 observation.
 
 RESOLVE **must not mutate those metrics.** It exists solely to rediscover
 `id`/`login` for keys pass 1 already proved individually represented. Any
@@ -293,12 +304,14 @@ ACCUMULATE   walk history(pinned_oid, path=scope) page by page;
              until hasNextPage=false → accumulate_done=true
 RESOLVE      re-walk the same scope's pinned history (pass 2);
              per page, the SAME CAS primitive with p_identities:
-             recompute work_key for each node; stage
-             {work_key → node_id, login, is_bot} into
-             ownership_history_identity_work ONLY for keys in the
+             recompute work_key for each node; for keys in the
              represented set (recomputed deterministically from the
-             completed accumulation counters each invocation);
-             skipped entirely when every represented key is staged
+             completed accumulation counters each invocation) ALSO
+             verify observed is_bot(current login) == frozen is_bot —
+             a mismatch is classification drift → fail closed;
+             stage {work_key → node_id, login} into
+             ownership_history_identity_work; skipped entirely when
+             every represented key is staged and verified
 COMMIT       ONE transaction — the only place retained rows are written:
              1. verify accumulation complete for the scope
              2. verify a staged identity exists for EVERY represented
@@ -334,16 +347,40 @@ mapping. Semantics now:
   the freeze didn't already count;
 - an overflow key disappearing in pass 2 is irrelevant — overflow
   contributes only counts, which are frozen;
-- a login rename under the same node id is a valid refresh — pass-2 stage
-  captures the current login, which is the correct durable display value.
+- a login rename under the same node id that **preserves bot
+  classification** is a valid refresh — pass-2 stage captures the current
+  login, which is the correct durable display value;
+- a login change under the same node id that **flips bot
+  classification** (ordinary login → `[bot]`-suffixed, or vice versa) is
+  classification drift: the frozen `is_bot` is part of the attribution
+  metrics, so the scope **fails closed and restarts at a fresh
+  ACCUMULATE** — bounded retries, then `OWNERSHIP_HISTORY_FAILED`. Pass 2
+  may never silently alter bot classification.
 
-### 5.4 first_seen_at / last_seen_at
+### 5.4 first_seen_at / last_seen_at — corrected semantics
 
-Work rows keep min/max `committedDate` per (scope, key, month). At COMMIT:
-contributor first/last = min/max over all the contributor's work rows
-**across scopes** (upsert `least`/`greatest` — contributor rows are
-repo-unique). Value-identical to the one-shot reducer's running min/max;
-day precision preserved.
+Work rows keep min/max `committedDate` per (scope, key, month). At scope
+COMMIT, for each represented contributor:
+
+```
+current_scope_first = min(first_seen_at over that key's CURRENT-scope work rows)
+current_scope_last  = max(last_seen_at  over that key's CURRENT-scope work rows)
+```
+
+then the retained `ownership_contributors` row upserts with:
+
+```
+first_seen_at = least(existing.first_seen_at, current_scope_first)
+last_seen_at  = greatest(existing.last_seen_at, current_scope_last)
+```
+
+So retained first/last bounds accumulate **only across finalized scopes in
+which the contributor was individually represented**. Activity observed in
+an earlier scope where the contributor stayed overflow-only does **not**
+contribute — those work rows are destroyed at that scope's COMMIT, and no
+claim can be made about them. The spec §27 amendment states this so the
+field names never imply an all-repository-touch guarantee the storage
+model cannot provide.
 
 ### 5.5 Unlinked and bots
 
@@ -355,6 +392,41 @@ wedges at that cursor for an operator decision rather than silently
 reclassifying. `is_bot` travels on the work row as a bare boolean — the
 only way `human_contributor_count` can include/exclude overflow
 contributors exactly without their logins.
+
+### 5.6 Pre-flip build abort — explicit cleanup
+
+Scope COMMITs legitimately create `ownership_contributors` rows and
+`building_version` snapshots before the build completes. If the build is
+abandoned before promotion (error, gate-off, operator abort), those rows
+must not orphan — this is identity minimization, not housekeeping.
+
+**Abandon transaction (one tx, under the same sync-row lock):**
+
+1. Verify `(user_id, repository_id)` row, `building_version = V`,
+   `phase != 'done'`.
+2. Delete `ownership_snapshots` where `repository_id` and
+   `calculation_version = V`.
+3. Delete `ownership_history_work` and `ownership_history_identity_work`
+   for that repo/version.
+4. Clear `building_version`, `history_cursor` build state, and
+   `pending_scopes` for the build.
+5. **Prune** `ownership_contributors` rows for the repository not
+   referenced by *any* `ownership_snapshots` row in *any* version — the
+   anti-join is what makes it safe: contributors still referenced by the
+   active/retained version survive; contributors introduced only by the
+   aborted build are removed. Synthetic `unlinked`/`other` rows prune the
+   same way — they are reconstructable.
+6. `active_version` is never touched; phase falls back to the state implied
+   by whether an active version exists (`done`/`error` as appropriate).
+
+Required implementation-time tests:
+
+- **Initial-build abort:** `active_version=null`, some V1 scopes
+  committed → abort → zero V1 snapshots, zero V1-only contributor rows,
+  zero rows in both work relations.
+- **N → N+1 abort:** N active, some N+1 scopes committed → abort → all N
+  rows untouched; contributors referenced by N survive; contributors
+  introduced only by N+1 pruned; no N+1 snapshots or work rows remain.
 
 ---
 
@@ -470,14 +542,24 @@ implementation tranche is approved:
 1. **New data class — EPHEMERAL short-lived persisted operational state:**
    (a) per (scope × month × work_key) counters + `is_bot` + min/max
    committedDate; (b) per represented-key identity staging
-   (`work_key`, `github_node_id`, `display_login`, `is_bot`) existing
-   only between pass-1 completion and scope COMMIT. `work_key` is a
-   repo-scoped pseudonymous identifier — permitted persisted only under
-   the §3 conditions.
+   (`work_key`, `github_node_id`, `display_login`) existing only between
+   pass-1 completion and scope COMMIT. `work_key` is a repo-scoped
+   pseudonymous identifier — permitted persisted only under the §3
+   conditions.
 2. **§6.4 preserved verbatim** — overflow contributors get no retained
    identity row and their GitHub identity fields never reach any
    persisted state; durable contributor rows are created only inside
    scope finalization from staged, already-represented keys.
+   **Attribution freeze:** `is_bot` is frozen by pass 1 along with all
+   counts; pass 2 verifies rather than re-derives it, and a mismatch
+   fails the scope closed rather than silently reclassifying.
+   **Abort cleanup:** abandoned builds delete their versioned snapshots
+   and ephemeral state, then prune `ownership_contributors` rows
+   unreferenced by any snapshot in any version — retained-version
+   contributors always survive (§5.6).
+   **Seen-at semantics:** retained `first_seen_at`/`last_seen_at`
+   accumulate only across finalized scopes where the contributor was
+   individually represented (§5.4) — no all-repository-touch claim.
 3. **Second persisted SHA** — `history_cursor.pinned_oid` joins
    `last_processed_sha` as a sanctioned SHA (build boundary vs
    incremental anchor).
@@ -559,11 +641,13 @@ endpoint form, now sha-pinned.
   `on delete cascade`; unique `(scope_id, calculation_version,
   period_start, work_key)`; CHECKs on work_key shape, non-negative
   counts, `calculation_version > 0`, first ≤ last seen.
-- `create table public.ownership_history_identity_work` — §4.4 columns;
-  same composite FK pattern plus `(scope_id, repository_id)`; unique
-  `(scope_id, calculation_version, work_key)`; CHECK work_key is a 64-hex
-  key (never `'unlinked'`/`'other'` — synthetic buckets carry no identity
-  and must never be staged).
+- `create table public.ownership_history_identity_work` — §4.4 columns:
+  tenant/scope/version + `work_key` + `github_node_id` + `display_login`
+  + timestamps only (**no `is_bot`** — classification is frozen pass-1
+  state, §5.1/§5.3); same composite FK pattern; unique `(scope_id,
+  calculation_version, work_key)`; CHECK work_key is a 64-hex key (never
+  `'unlinked'`/`'other'` — synthetic buckets carry no identity and must
+  never be staged).
 - RLS enabled, zero policies; revoke browser roles; `service_role` DML
   only — on **both**.
 - `own_checkpoint_page(...)` — §6.1; `security invoker`, `EXECUTE →
@@ -606,10 +690,28 @@ endpoint form, now sha-pinned.
   - overflow key disappears during resolve → ignored, aggregates frozen;
   - new linked key appearing only in resolve → ignored this build (next
     fresh build may observe it);
-  - login rename under same node id → staged login refreshes correctly;
+  - login rename under same node id preserving bot classification →
+    staged login refreshes correctly;
+  - same node id, ordinary login → `[bot]` login between passes → fail
+    closed, restart at fresh ACCUMULATE;
+  - same node id, `[bot]` → ordinary login between passes → same
+    fail/restart;
+  - identical bot classification between passes → valid;
   - resolve completes, worker crashes before COMMIT → **zero** durable
     contributor rows from that scope — staged rows stay ephemeral and the
-    next attempt re-verifies them inside the same COMMIT transaction.
+    next attempt re-verifies them inside the same COMMIT transaction;
+  - the retained `is_bot` on every contributor row equals the pass-1
+    frozen value, never a pass-2 observation.
+- **Candidate/upsert equivalence:** the contributor candidate set and
+  each candidate's `first_seen_at`/`last_seen_at` must equal the one-shot
+  result, with the documented merge rule — repo-level bounds accumulate
+  only over scopes where the contributor was individually represented
+  (§5.4), and the simulated multi-scope run must exercise the
+  least/greatest upsert across finalized scopes.
+- **Abort cases:** initial-build abort leaves zero V1 snapshots,
+  zero V1-only contributor rows, zero work/staging rows; N→N+1 abort
+  preserves all N rows and N-referenced contributors while pruning
+  N+1-only contributors (§5.6).
 
 ---
 
@@ -634,6 +736,10 @@ endpoint form, now sha-pinned.
 | Installation revoked | state intact | fails at next fetch | CAS | — | `GITHUB_ACCESS_REVOKED` |
 | Pinned revision disappears | pages error; cursor=C | retry once → fail closed | partial scope state never served (building_version) | — | `OWNERSHIP_HISTORY_FAILED`; next build re-pins |
 | Represented key unresolvable in pass 2 | staging incomplete | bounded retry → restart scope at fresh ACCUMULATE → `OWNERSHIP_HISTORY_FAILED` | — | — | scope restarts; stale staged rows deleted on restart/sweep |
+| Pass-2 bot-classification drift | staging not written for that key | same fail-closed restart at fresh ACCUMULATE | frozen pass-1 `is_bot` is the only authority | — | scope restarts; staged rows deleted |
+| Build abort after ≥1 scope COMMITs | committed scope snapshots + contributor rows for `building_version` | abandon tx (§5.6) | — | — | single tx: delete versioned snapshots + both work relations + clear build state |
+| Abort cleanup, N active + N+1 building | N rows are served data | n/a — cleanup only touches N+1 | — | — | N snapshots and N-referenced contributors preserved; N+1 artifacts deleted |
+| Orphan contributor pruning | contributor rows unreferenced by every version | part of abandon tx | — | — | anti-join delete — only rows unreferenced by ANY snapshot version are removed |
 | Crash between resolve-done and COMMIT | staged rows persist, zero retained writes | COMMIT retries from stored state | — | — | staging is ephemeral until consumed |
 | calculation_version changed | old-version rows orphaned | n/a | version-scoped unique keys | — | GC by version at next build / sweep |
 | Stale concurrent worker | lease + CAS | loser gets 'stale' | CAS rejects second apply | — | lease takeover after expiry |
