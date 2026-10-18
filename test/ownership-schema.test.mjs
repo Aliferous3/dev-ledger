@@ -229,32 +229,100 @@ test('dash_ownership_* RPCs are STABLE SECURITY INVOKER, tenant-scoped, serve-ga
 // feature's concrete identifiers instead of the bare word.
 const OWNERSHIP_IDENTIFIERS = /ownership_scopes|ownership_contributors|ownership_snapshots|ownership_sync_state|dash_ownership|ownership_sync|identity_kind|contributor_key|scope_path_hash/i
 
-test('no ownership ingestion or runtime wiring exists in lib/api/src', () => {
+// Phase 1C-A: the pure ingestion core may now exist under lib/ownership/,
+// but it must remain unwired — no caller, no DB write, no runtime import.
+const OWNERSHIP_CORE_DIR = 'lib/ownership/'
+const isOwnershipCore = (rel) => rel.startsWith(OWNERSHIP_CORE_DIR)
+
+function sourceFiles(dir) {
+  return readdirSync(path.join(ROOT, dir), { recursive: true })
+    .filter((f) => /\.(mjs|ts|tsx|js|jsx)$/.test(String(f)))
+    .map((f) => `${dir}/${String(f).replaceAll('\\', '/')}`)
+}
+
+test('ownership core stays inside lib/ownership — nothing else references it', () => {
   for (const dir of ['lib', 'api', 'src']) {
-    const files = readdirSync(path.join(ROOT, dir), { recursive: true })
-      .filter((f) => /\.(mjs|ts|tsx|js|jsx)$/.test(String(f)))
-    for (const f of files) {
-      const rel = `${dir}/${String(f).replaceAll('\\', '/')}`
+    for (const rel of sourceFiles(dir)) {
+      if (isOwnershipCore(rel)) continue
       const text = src(rel)
       assert.doesNotMatch(text, OWNERSHIP_IDENTIFIERS,
         `${rel} references ownership tables/RPCs — ingestion must stay dormant`)
       assert.doesNotMatch(text, /blame\(path|history\(path/i,
         `${rel} must not issue blame/history(path:) GraphQL calls`)
+      assert.doesNotMatch(text, /from\s+['"][^'"]*ownership\//i,
+        `${rel} must not import the ownership core`)
     }
   }
 })
 
-test('no ownership feature flag, env var, cron, or webhook wiring', () => {
-  assert.doesNotMatch(src('vercel.json'), /OWNERSHIP/i)
-  assert.doesNotMatch(src('.env.example'), /OWNERSHIP/i)
-  for (const dir of ['lib', 'api']) {
-    const files = readdirSync(path.join(ROOT, dir), { recursive: true })
-      .filter((f) => /\.(mjs|ts|tsx|js|jsx)$/.test(String(f)))
-    for (const f of files) {
-      const rel = `${dir}/${String(f).replaceAll('\\', '/')}`
-      const text = src(rel)
-      assert.doesNotMatch(text, /OWNERSHIP_ENABLED|dash_ownership/i, `${rel} must not wire ownership`)
+test('ownership core is pure — no db, octokit, supabase, fs, or runner imports', () => {
+  for (const rel of sourceFiles('lib').filter(isOwnershipCore)) {
+    const text = src(rel)
+    for (const m of text.matchAll(/(?:import|from|require)\s*\(?\s*['"]([^'"]+)['"]/g)) {
+      const spec = m[1]
+      assert.ok(
+        spec.startsWith('node:') || spec.startsWith('./') || spec.startsWith('../'),
+        `${rel} imports external module ${spec} — the core must stay dependency-free`,
+      )
+      assert.doesNotMatch(spec, /db|github|sync|octokit|supabase|analytics|sessions|require-user/i,
+        `${rel} must not import runtime infrastructure`)
     }
+    assert.doesNotMatch(text, /process\.env\.(?!OWNERSHIP_INGEST_ENABLED|OWNERSHIP_CANARY_REPOSITORY_IDS)[A-Z_]+/,
+      `${rel} may only read the two documented gate env vars`)
+    assert.doesNotMatch(text, /console\.(log|info|warn|error|debug)/,
+      `${rel} must not console-log — paths/logins/values never hit logs`)
+    assert.doesNotMatch(text, /securityEvent|posthog|analytics\(/i,
+      `${rel} must not emit telemetry in this tranche`)
+  }
+})
+
+test('no ownership table write exists anywhere in lib/api/src', () => {
+  // supabase-table refs and SQL write verbs aimed at ownership tables;
+  // .insert(/.upsert( are PostgREST write verbs — .update(/.delete( are too
+  // ambiguous with crypto/Map APIs to ban by name alone
+  const writerRe = /from\s*\(\s*['"`]ownership_|insert\s+into\s+ownership_|update\s+ownership_|delete\s+from\s+ownership_|\.insert\s*\(|\.upsert\s*\(/i
+  for (const dir of ['lib', 'api', 'src']) {
+    for (const rel of sourceFiles(dir)) {
+      if (isOwnershipCore(rel)) continue
+      const text = src(rel)
+      for (const tbl of ['ownership_scopes', 'ownership_contributors', 'ownership_snapshots', 'ownership_sync_state']) {
+        assert.ok(!text.includes(tbl), `${rel} references ${tbl} — writes are a later tranche`)
+      }
+    }
+  }
+  // the pure core itself must not construct persistence calls either
+  for (const rel of sourceFiles('lib').filter(isOwnershipCore)) {
+    const text = src(rel)
+    assert.doesNotMatch(text, writerRe, `${rel} contains a persistence-shaped call`)
+  }
+})
+
+test('gate env vars exist only in the gate module and .env.example docs', () => {
+  const GATE_RE = /OWNERSHIP_INGEST_ENABLED|OWNERSHIP_CANARY_REPOSITORY_IDS/
+  for (const dir of ['lib', 'api', 'src']) {
+    for (const rel of sourceFiles(dir)) {
+      const text = src(rel)
+      if (rel === 'lib/ownership/gate.mjs') continue
+      assert.doesNotMatch(text, GATE_RE, `${rel} must not read ownership env directly`)
+    }
+  }
+  assert.doesNotMatch(src('vercel.json'), /OWNERSHIP/i)
+  // .env.example may document the gate, but must ship the disabled value
+  const envExample = src('.env.example')
+  assert.match(envExample, /OWNERSHIP_INGEST_ENABLED=false/)
+  assert.doesNotMatch(envExample, /OWNERSHIP_INGEST_ENABLED=true/)
+})
+
+test('no ownership feature flag, cron, webhook, or dashboard wiring', () => {
+  for (const f of ['lib/sync.mjs', 'api/sync.mjs', 'api/sync-range.mjs',
+    'api/cron/sync.mjs', 'api/webhooks/github.mjs', 'api/dashboard.mjs']) {
+    const text = src(f)
+    assert.doesNotMatch(text, OWNERSHIP_IDENTIFIERS,
+      `${f} must not wire ownership ingestion`)
+    assert.doesNotMatch(text, /blame\(path|history\(path/i,
+      `${f} must not issue blame/history(path:) calls`)
+    assert.doesNotMatch(text, /from\s+['"][^'"]*ownership\//i,
+      `${f} must not import the ownership core`)
   }
 })
 

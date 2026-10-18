@@ -1,6 +1,6 @@
 # Ownership Data & Privacy Contract — Production Specification
 
-> **Status: proposed production contract — no ownership persistence implemented yet.**
+> **Status: schema foundation deployed; ingestion and UI not yet live.**
 >
 > This document is the authoritative implementation contract for the Code
 > Ownership Over Time feature. It translates the approved architecture
@@ -9,9 +9,19 @@
 > into an exact data contract that Phase 1B (schema + ingestion) and Phase 1C
 > (dashboard) must implement and that review must enforce.
 >
-> **Nothing in this document is live.** Where the text describes ownership
-> behavior it describes *future behavior once ownership ships*. Current
-> production behavior is described in §2 and cited against real files.
+> **What is live today:** migration `012_ownership.sql` is applied in
+> production — the four ownership tables exist with RLS/grants/composite-FK
+> foundations, and the dormant `dash_ownership_*` SECURITY INVOKER RPCs are
+> deployed. All four tables hold **zero rows**.
+>
+> **What is NOT live:** no ownership ingestion runs; no ownership data is
+> collected or written; `OWNERSHIP_INGEST_ENABLED` is not enabled anywhere;
+> no ownership UI exists; the public trust record
+> (`src/security/SecurityPrivacyPage.tsx`) has NOT been amended — it changes
+> only in the release train where collection actually begins (§17). Where
+> the text describes ownership behavior it describes *future behavior once
+> ownership ships*. Current production behavior is described in §2 and cited
+> against real files.
 
 Companion documents:
 
@@ -538,6 +548,33 @@ Rules:
   by reading back that scope's existing provisional aggregate rows (upserts
   are set-valued, idempotent) — raw nodes are never re-storable.
 
+### 9.1 Persistence handoff — hard constraint for Phase 1C-B (BLOCKER)
+
+The Phase 1C-A reducer is correct **only** when it sees the complete node
+set for each scope-period it finalizes. The following are hard constraints,
+not implementation details, and they block all ownership writes until the
+persistence tranche resolves them:
+
+- **Page-local Top-25/Other folding is invalid.** The Top-25 boundary is
+  defined over a *complete* scope-month's contributor set. Folding per
+  fetched page fabricates wrong membership (a contributor who would rank
+  inside the full-month Top-25 can be spilled, or vice versa).
+- `human_contributor_count` must be computed over the **full transient
+  contributor set** for the scope-month — never a page-local or folded
+  subset. It must never silently cap at the Top-N boundary.
+- **Overflow-only contributor identities must not be durably stored merely
+  to simplify paging** — §6.4 durable-identity minimization is a hard rule,
+  not a convenience; writing identity rows "temporarily" is still writing.
+- **Advancing a GraphQL cursor independently from aggregate state can
+  double-count or skip a page.** Aggregate written then crash before cursor
+  → page reduced twice; cursor written then crash before aggregate → page
+  never counted. Cursor/checkpoint writes must be **atomic with the
+  aggregate state they describe**.
+- Phase 1C-B must therefore design **and prove** a crash-safe
+  accumulation/checkpoint strategy — atomic page checkpoints or
+  equivalent set-valued, idempotent writes — **before any ownership write
+  path is implemented**. This is an explicit blocker.
+
 ---
 
 ## 10. Production data model — final candidate
@@ -762,9 +799,11 @@ Mirroring the audited production convention (§2.4):
 
 ---
 
-## 16. Dashboard API contract (specification only — not implemented)
+## 16. Dashboard API contract (RPC foundations deployed dormant; consumer not implemented)
 
-A future `dash_ownership_*` RPC family feeds the ownership section. Smallest
+The `dash_ownership_*` invoker RPCs are deployed (migration 012) but dormant
+— `active_version` is never set, so they return nothing. A future API layer
+feeds the ownership section through them. Smallest
 useful payload shape per repository:
 
 ```jsonc
