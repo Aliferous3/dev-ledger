@@ -264,8 +264,10 @@ test('.env.example contains placeholder values only', () => {
   for (const line of ex.split('\n')) {
     const m = line.match(/^([A-Z_]+)=(.+)$/);
     if (!m) continue;
+    // 'false' is an allowed placeholder for hard-off feature gates — never
+    // 'true': an enabled-by-default example would defeat the gate's purpose
     assert.ok(
-      /^(https?:\/\/[\w.-]+|[\w.-]+\.supabase\.com|\d+)$/.test(m[2]),
+      /^(https?:\/\/[\w.-]+|[\w.-]+\.supabase\.com|\d+|false)$/.test(m[2]),
       `.env.example ${m[1]} holds a non-placeholder value`,
     );
   }

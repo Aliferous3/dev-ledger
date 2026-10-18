@@ -1,6 +1,6 @@
 # Ownership Data & Privacy Contract — Production Specification
 
-> **Status: proposed production contract — no ownership persistence implemented yet.**
+> **Status: schema foundation deployed; ingestion and UI not yet live.**
 >
 > This document is the authoritative implementation contract for the Code
 > Ownership Over Time feature. It translates the approved architecture
@@ -9,9 +9,19 @@
 > into an exact data contract that Phase 1B (schema + ingestion) and Phase 1C
 > (dashboard) must implement and that review must enforce.
 >
-> **Nothing in this document is live.** Where the text describes ownership
-> behavior it describes *future behavior once ownership ships*. Current
-> production behavior is described in §2 and cited against real files.
+> **What is live today:** migration `012_ownership.sql` is applied in
+> production — the four ownership tables exist with RLS/grants/composite-FK
+> foundations, and the dormant `dash_ownership_*` SECURITY INVOKER RPCs are
+> deployed. All four tables hold **zero rows**.
+>
+> **What is NOT live:** no ownership ingestion runs; no ownership data is
+> collected or written; `OWNERSHIP_INGEST_ENABLED` is not enabled anywhere;
+> no ownership UI exists; the public trust record
+> (`src/security/SecurityPrivacyPage.tsx`) has NOT been amended — it changes
+> only in the release train where collection actually begins (§17). Where
+> the text describes ownership behavior it describes *future behavior once
+> ownership ships*. Current production behavior is described in §2 and cited
+> against real files.
 
 Companion documents:
 
@@ -762,9 +772,11 @@ Mirroring the audited production convention (§2.4):
 
 ---
 
-## 16. Dashboard API contract (specification only — not implemented)
+## 16. Dashboard API contract (RPC foundations deployed dormant; consumer not implemented)
 
-A future `dash_ownership_*` RPC family feeds the ownership section. Smallest
+The `dash_ownership_*` invoker RPCs are deployed (migration 012) but dormant
+— `active_version` is never set, so they return nothing. A future API layer
+feeds the ownership section through them. Smallest
 useful payload shape per repository:
 
 ```jsonc
