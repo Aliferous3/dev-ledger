@@ -20,6 +20,7 @@ out/
 build/
 .output/
 *.tmp
+.tmp/
 *.swp
 .eslintcache
 .nyc_output
@@ -50,3 +51,5 @@ sbom*.json
 # NOTE: do NOT re-add a bare `.env*` here — it would re-ignore `.env.example`,
 # which is intentionally tracked (placeholder values only). The env patterns
 # at the top already cover real env files.
+.vercel
+.env*
