@@ -15,6 +15,10 @@ const SITE_ORIGIN = 'https://dev-ledger-site.vercel.app'
 const PROXIED_PATHS = [
   '/blog',
   '/tools',
+  '/answers',
+  '/guides',
+  '/glossary',
+  '/comparisons',
   '/rss.xml',
   '/sitemap.xml',
   '/sitemap.xsl',
@@ -52,6 +56,12 @@ test('publishing paths proxy to the private site project under unchanged URLs', 
   assert.equal(blogDeep?.destination, SITE_ORIGIN + '/blog/:path*')
   const toolsDeep = v.rewrites.find((r) => r.source === '/tools/:path*')
   assert.equal(toolsDeep?.destination, SITE_ORIGIN + '/tools/:path*')
+  // Authority sections (SEO wave 2) proxy the same way — indexless
+  // collections, so only the deep-path forms carry content.
+  for (const section of ['answers', 'guides', 'glossary', 'comparisons']) {
+    const deep = v.rewrites.find((r) => r.source === `/${section}/:path*`)
+    assert.equal(deep?.destination, `${SITE_ORIGIN}/${section}/:path*`, `/${section}/:path* proxy missing`)
+  }
   // Proxied paths must not also exist as local files — the filesystem
   // wins over rewrites, so a stray file would silently shadow the site.
   for (const p of ['public/rss.xml', 'public/sitemap.xml', 'public/llms.txt', 'public/sitemap.xsl', 'public/sitemap.css']) {
@@ -59,6 +69,9 @@ test('publishing paths proxy to the private site project under unchanged URLs', 
   }
   assert.ok(!existsSync(path.join(ROOT, 'blog')), 'blog/ output dir must not exist locally')
   assert.ok(!existsSync(path.join(ROOT, 'tools')), 'tools/ output dir must not exist locally')
+  for (const section of ['answers', 'guides', 'glossary', 'comparisons']) {
+    assert.ok(!existsSync(path.join(ROOT, section)), section + '/ output dir must not exist locally')
+  }
   assert.ok(!existsSync(path.join(ROOT, 'content/blog')), 'content/blog must not exist locally')
 })
 
