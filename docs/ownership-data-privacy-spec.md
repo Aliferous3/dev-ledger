@@ -1235,43 +1235,52 @@ The proposed amendment is deliberately narrow:
 1. **New data class — EPHEMERAL build working state, two relations.** (a)
    Per (scope × month × work_key) touch counters plus the `is_bot`
    boolean and min/max `committedDate`, existing only while
-   `building_version` is set for that repository. (b) Per
-   represented-work-key identity staging carrying exactly
-   `github_node_id` and `display_login` (no `is_bot` — bot
-   classification is frozen pass-1 attribution, not a second staged
-   authority), existing only between a scope's completed accumulation and
-   its finalization. `work_key` is the same `contributor_key` defined in
-   §5/§6 — a **deterministic, repository-scoped pseudonymous identifier**
-   derived from GitHub node identity: no plaintext identity, not
-   user-displayable, linkable within the repository, and therefore not
-   anonymous. It may appear in persisted build state only under the
+   `building_version` is set for that repository. (b) **Build-level**
+   contributor staging at grain `(repository_id, calculation_version,
+   work_key)` carrying `github_node_id`, `display_login`, frozen
+   `is_bot`, and `first_seen_at`/`last_seen_at`, existing only for
+   contributor keys already proved individually represented, and only
+   while the build lives. `work_key` is the same `contributor_key`
+   defined in §5/§6 — a **deterministic, repository-scoped pseudonymous
+   identifier** derived from GitHub node identity: no plaintext identity,
+   not user-displayable, linkable within the repository, and therefore
+   not anonymous. It may appear in persisted build state only under the
    EPHEMERAL conditions above — service-role-only, backup-excluded, never
-   logged, deleted at finalization, cascade-deleted, swept on abandoned
-   builds.
+   logged, cascade-deleted, swept on abandoned builds.
 2. **The §6.4 guarantee is preserved verbatim** — overflow-only
    contributors still get **no retained identity row** and their GitHub
    identity fields (`github_node_id`, `display_login`) are **never
-   persisted in any table**. Staged identity rows are written only for
-   contributor keys pass 1 already proved individually represented;
-   `ownership_contributors` rows are created **only inside the atomic
-   scope-finalization transaction**, never during page-by-page resolve —
-   so an abandoned scope can never orphan a durable identity. If a build
-   is abandoned after scope finalizations but before promotion, the abort
-   transaction deletes the building-version's snapshots and ephemeral
-   state and then **prunes `ownership_contributors` rows unreferenced by
-   any snapshot in any version** — contributors still referenced by the
-   active/retained version always survive; this pruning is part of
-   identity minimization, not housekeeping.
+   persisted in any table**. Two further guarantees are required because
+   `ownership_contributors` is shared across calculation versions while
+   the dashboard RPCs filter only snapshots by `active_version`:
+   **(a) shared contributor rows are never mutated while a
+   `building_version` is incomplete** — mid-build metadata writes would
+   leak into active-version responses; intended building-version metadata
+   lives only in build staging and is applied to shared rows in the same
+   transaction as the `active_version` flip. **(b)** a scope
+   finalization may create a *new* contributor row solely to satisfy
+   building-snapshot foreign keys — no active-version snapshot can
+   reference it, so active output is unchanged — and if the build aborts,
+   the abort transaction deletes the building-version snapshots and
+   ephemeral state, then **prunes `ownership_contributors` rows
+   unreferenced by any snapshot in any version**: active-version-
+   referenced contributors always survive (and were never mutated, so
+   nothing needs restoring); this pruning is part of identity
+   minimization, not housekeeping.
 3. **Two-pass identity resolution, attribution-frozen.** The accumulate
    pass fixes every metric — work keys, counts, Top-25, unlinked share,
    human counts, **and `is_bot` classification** (`human_contributor_count`
    depends on it; the retained `ownership_contributors.is_bot` is always
-   the pass-1 value). The resolve pass re-reads `author.user.{id,login}`
-   solely to stage identities for represented keys and cannot mutate
-   metrics — a bot-classification mismatch between passes is identity
-   drift: the scope fails closed and restarts at a fresh accumulate. A
-   required key that stays unresolvable fails the scope closed the same
-   way — GitHub's account-link resolution can change independently of the
+   the frozen pass-1 value, staged at build level and applied at
+   promotion). The resolve pass re-reads `author.user.{id,login}` solely
+   to stage identities for represented keys and cannot mutate metrics —
+   a bot-classification mismatch between passes, **or across scopes of
+   one build**, is identity drift: the scope fails closed and restarts at
+   a fresh accumulate (cross-scope drift restarts the repository build
+   from a new pinned boundary — one contributor cannot be human in one
+   scope and bot in another within one calculation version). A required
+   key that stays unresolvable fails the scope closed the same way —
+   GitHub's account-link resolution can change independently of the
    pinned commit, and the build succeeds only while selected keys remain
    resolvable and consistent.
 4. **Build-boundary SHA.** `ownership_sync_state.history_cursor` may carry
