@@ -73,7 +73,7 @@ describe('ownership spike — sanitization', () => {
     assert.equal(out, 'commit <sha40> by <contributor> in <repo>')
   })
 
-  it('summarizeBlameRanges counts lines, ranges, and unlinked share', () => {
+  it('summarizeBlameRanges counts lines, ranges, and unlinked shares', () => {
     const s = summarizeBlameRanges([
       { startingLine: 1, endingLine: 10, commit: { oid: 'a'.repeat(40), author: { user: { id: '1', login: 'x' } } } },
       { startingLine: 11, endingLine: 15, commit: { oid: 'b'.repeat(40), author: { user: null } } },
@@ -82,7 +82,11 @@ describe('ownership spike — sanitization', () => {
     assert.equal(s.ranges, 2)
     assert.equal(s.linkedContributors, 1)
     assert.equal(s.unlinkedRanges, 1)
+    assert.equal(s.unlinkedLines, 5)
     assert.equal(s.linkedRangeShare, 0.5)
+    assert.equal(s.unlinkedRangeShare, 0.5)
+    assert.equal(s.linkedLineShare, 10 / 15)
+    assert.equal(s.unlinkedLineShare, 5 / 15)
   })
 })
 

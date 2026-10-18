@@ -35,12 +35,17 @@ export function summarizeBlameRanges(ranges) {
   const contributors = new Set()
   const commits = new Set()
   let unlinkedRanges = 0
+  let unlinkedLines = 0
   for (const r of ranges || []) {
-    lines += (r.endingLine - r.startingLine + 1)
+    const span = r.endingLine - r.startingLine + 1
+    lines += span
     commits.add(r.commit?.oid)
     const login = r.commit?.author?.user?.login || null
     if (login) contributors.add(login)
-    else unlinkedRanges++
+    else {
+      unlinkedRanges++
+      unlinkedLines += span
+    }
   }
   return {
     ranges: (ranges || []).length,
@@ -48,6 +53,10 @@ export function summarizeBlameRanges(ranges) {
     distinctCommits: commits.size,
     linkedContributors: contributors.size,
     unlinkedRanges,
+    unlinkedLines,
     linkedRangeShare: ranges?.length ? (ranges.length - unlinkedRanges) / ranges.length : 0,
+    linkedLineShare: lines ? (lines - unlinkedLines) / lines : 0,
+    unlinkedRangeShare: ranges?.length ? unlinkedRanges / ranges.length : 0,
+    unlinkedLineShare: lines ? unlinkedLines / lines : 0,
   }
 }

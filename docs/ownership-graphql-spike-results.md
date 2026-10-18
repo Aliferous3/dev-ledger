@@ -90,7 +90,7 @@ Blame cost is **flat 1 point** even at 2,390 ranges / 11k lines. Latency correla
 | 20 | 1 | 0.05 | 1,119 ms | 56 | 7.9 | 39 | ok |
 | 50 | 1 | 0.02 | 2,527 ms | 51 | 40.4 | 206 | ok |
 
-**Cost does not scale with alias count** — a 50-file batch still costs 1 point (the `rateLimit.cost` model prices the connection/field structure, not alias fan-out). Latency grows sub-linearly (~50 ms/file at 50 aliases). No errors, no timeouts at any level; 50 was the top of the tested ladder per protocol.
+**Reported GraphQL cost remained 1 throughout the tested 1, 5, 10, 20 and 50-alias range** — the `rateLimit.cost` model prices the connection/field structure rather than alias fan-out in this window. This does not prove arbitrary alias counts stay at cost 1; 50 is the measured ceiling and the production batch size. Latency grows sub-linearly (~50 ms/file at 50 aliases). No errors, no timeouts at any level.
 
 ## Tree enumeration (TEST F)
 
@@ -116,9 +116,11 @@ Findings: `history(path:)` **does split at the rename boundary** — the old pat
 | `Aliferous3/dev-ledger` history pages | 312 commits | 0 | 0% |
 | `Aliferous3/dev-ledger` blame ranges | 46 | 0 | 0% |
 | `facebook/react` repo-wide history (500 recent commits) | 500 commits | 0 | 0% |
-| `facebook/react` large-file blame (`renderer.js`) | 2,390 ranges | 679 | **28.4%** |
+| `facebook/react` large-file blame (`renderer.js`) | 2,390 ranges | 679 | **28.4%** of ranges |
 
-Unlinked authors are **not rare on old history** — deep blame ranges on a mature public repo showed ~28% of ranges unattributable to a GitHub account (linked accounts require the commit's email to match a GitHub identity; old commits with non-linked emails surface as `author.user = null`). Recent commits on GitHub-native workflows are ~0% unlinked. The RFC's "Unlinked contributor" bucket is **required, sized as a common case on mature repos**, not an edge case.
+Same file by surviving lines: 1,505 of 8,082 blamed lines attributed to unlinked authors — **18.6% unlinked surviving-line share** (range share overstates because unlinked ranges tend to be smaller).
+
+Unlinked authors are **not rare on old history** — deep blame on a mature public repo showed ~28% of ranges and ~19% of surviving lines unattributable to a GitHub account (linked accounts require the commit's email to match a GitHub identity; old commits with non-linked emails surface as `author.user = null`). Recent commits on GitHub-native workflows are ~0% unlinked. The RFC's "Unlinked contributor" bucket is **required, sized as a common case on mature repos**, not an edge case.
 
 ## Rate-limit findings (TEST J)
 
@@ -137,8 +139,8 @@ Unlinked authors are **not rare on old history** — deep blame ranges on a matu
 
 | Limit | Recommended | Basis |
 |---|---|---|
-| Blame aliases per query | **50** (tested ceiling; latency ~50 ms/file) | cost stays 1 pt — the binding constraint is response size/latency, not points |
-| Files blamed per repo per cycle | ~5,000, sampled above that | 50-alias batches → ~100 queries ≈ 100 pts ≈ 2% of hourly floor |
+| Blame aliases per query | **50** (tested ceiling; latency ~50 ms/file) | cost stayed 1 pt through the tested range — the binding constraint is response size/latency, not points |
+| Files blamed per repo per full cycle | ~5,000, sampled above that | a **resumable full analysis cycle, not one 45 s slice** — at ~50 ms/file batch latency plus pacing, a 5k-file repo normally spans multiple 45 s slices; govern by wall-clock budget, response-size guard, and a persisted blame file cursor (file complexity varies — no fixed files-per-slice constant yet); GraphQL points are the secondary guard (~100 pts for 5k files) |
 | Directories analyzed | ≤500, depth ≤4 | unchanged from RFC; tree enumeration is one REST call |
 | GraphQL cost per 45 s slice | ≤300 pts | leaves headroom for normal sync inside the same hourly budget |
 | Response size guard | warn >2 MB, abort >5 MB | 50-alias batch ≈ 40 KB; huge-file blame ≈ hundreds of KB |
@@ -154,9 +156,9 @@ Unlinked authors are **not rare on old history** — deep blame ranges on a matu
 
 ## RFC assumptions falsified / revised
 
-1. "Blame fields are relatively cheap" → **dramatically understated**: measured cost is 1 pt regardless of batch size; the real constraint is latency/response size, not points. HEAD blame is *more* affordable than modeled.
-2. "Unlinked contributor" bucket is not a rare edge — ~28% of deep blame ranges on a mature public repo; must be a first-class bucket, not a fallback.
-3. Per-file surviving-line history (deferred in RFC) is **cheaper than assumed** — blame at historical revisions is 1 pt/file/revision; monthly snapshots on ≤2k-file repos (~60 snapshots × 40 batched queries ≈ 2,400 pts) are within budget. Still keep it post-V1, but it's no longer a blocker.
+1. "Blame fields are relatively cheap" → **dramatically understated** within the tested window: reported cost remained 1 throughout the 1–50 alias range; the real constraint is latency/response size, not points. HEAD blame is *more* affordable than modeled.
+2. "Unlinked contributor" bucket is not a rare edge — ~28% of deep blame ranges and ~19% of surviving lines on a mature public repo; must be a first-class bucket, not a fallback.
+3. Per-file surviving-line history (deferred in RFC): HEAD blame measured cost 1 throughout the tested queries. Historical-revision blame uses the same GraphQL field but **was not benchmarked in this spike**, so historical snapshot cost remains provisional until directly measured. The earlier ~2,400-pt monthly-snapshot estimate is therefore provisional, not measured. Still keep historical blame post-V1.
 4. Tree truncation is real but rare (>100k entries); keep the fallback, expect to rarely use it.
 
 ## Architecture changes required
