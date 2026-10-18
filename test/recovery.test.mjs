@@ -69,9 +69,10 @@ test('backup is allowlist-only — explicit --table per BACKUP_TABLES, no exclus
   const b = src('scripts/backup-db.mjs');
   assert.match(b, /BACKUP_TABLES\.map\(.*--table=public\./s, 'must emit --table=public.<t> per allowlisted table');
   assert.doesNotMatch(b, /--exclude-table/, 'exclusion-list model silently backs up unclassified tables');
-  assert.equal(BACKUP_TABLES.length, 10);
+  assert.equal(BACKUP_TABLES.length, 14);
   for (const t of ['users', 'github_installations', 'repositories', 'repository_languages',
-    'commits', 'pull_requests', 'repo_coverage', 'repo_sync', 'user_sync', 'feedback']) {
+    'commits', 'pull_requests', 'repo_coverage', 'repo_sync', 'user_sync', 'feedback',
+    'ownership_scopes', 'ownership_contributors', 'ownership_snapshots', 'ownership_sync_state']) {
     assert.ok(BACKUP_TABLES.includes(t), `BACKUP_TABLES missing ${t}`);
   }
   // nothing outside the allowlist can enter the archive — no whole-db dump

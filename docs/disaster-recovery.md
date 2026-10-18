@@ -76,6 +76,10 @@ schema/table is *not* backed up until explicitly classified in
 | `repo_coverage` | operational | yes | derived but needs full re-ingest to rebuild — cheap to keep |
 | `repo_sync` | operational | yes | phase markers; self-healing hints |
 | `user_sync` | operational | yes | stale `syncing`/`locked` rows are taken over by cron's stale-lock logic |
+| `ownership_scopes` | core | yes | ownership scope map — for retained/disconnected repos GitHub may no longer serve the data; irreplaceable |
+| `ownership_contributors` | core | yes | repo-scoped contributor identity rows — same irreplaceability |
+| `ownership_snapshots` | core | yes | ownership aggregates — real retained user history, not always reconstructable |
+| `ownership_sync_state` | operational | yes | ownership cursors/version markers; losing it means a re-ingest |
 | `auth_sessions` | ephemeral | **no** | recovery must force re-auth, never resurrect live sids |
 | `webhook_deliveries` | ephemeral | **no** | dedup history; post-restore deliveries reprocess idempotently |
 | `security_events` | ephemeral | **no** | 30-day operational telemetry |

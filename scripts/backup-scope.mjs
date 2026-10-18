@@ -18,6 +18,11 @@ export const CORE_TABLES = [
   'commits',               // ingested commit rows — the expensive history
   'pull_requests',         // ingested PR rows (no titles/numbers/authors — data minimization)
   'feedback',              // user-submitted transmissions — not re-ingestable
+  'ownership_scopes',      // ownership scope map — irreplaceable for
+                           // retained/disconnected repos GitHub can no
+                           // longer serve
+  'ownership_contributors',// repo-scoped contributor identity rows
+  'ownership_snapshots',   // ownership aggregates — same irreplaceability
 ]
 
 // OPERATIONAL — reconstructable in principle, but restoring them avoids a
@@ -29,6 +34,8 @@ export const OPERATIONAL_TABLES = [
                            // full GitHub re-ingest — cheap to keep
   'repo_sync',             // per-repo sync phase markers (push kicks)
   'user_sync',             // per-user sync status; 'syncing' rows resume via cron
+  'ownership_sync_state',  // ownership cursors/version markers — losing it
+                           // means a re-ingest, same as repo_sync
 ]
 
 // EPHEMERAL — intentionally excluded from backups.
