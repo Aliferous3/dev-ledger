@@ -101,10 +101,13 @@ create table if not exists public.ownership_contributors (
   constraint ownership_contributors_kind
     check (identity_kind in ('linked', 'unlinked', 'aggregate')),
 
-  -- linked rows carry the durable identity pair; synthetic rows never can.
+  -- linked rows carry the durable identity pair and may never squat on the
+  -- reserved synthetic keys — contributor_key is unique per repository, so
+  -- a linked row keyed 'unlinked'/'other' would block the genuine bucket.
   constraint ownership_contributors_linked
     check (identity_kind <> 'linked'
-           or (github_node_id is not null and display_login is not null)),
+           or (github_node_id is not null and display_login is not null
+               and contributor_key not in ('unlinked', 'other'))),
 
   constraint ownership_contributors_unlinked
     check (identity_kind <> 'unlinked'
@@ -194,13 +197,18 @@ create table if not exists public.ownership_snapshots (
   constraint ownership_snapshots_version
     check (calculation_version > 0),
 
-  -- head rows use the fixed sentinel; month rows are first-of-month UTC
+  -- head rows use the fixed sentinel; month rows are the first instant of
+  -- the month IN UTC. The month boundary is computed on the UTC wall clock
+  -- (AT TIME ZONE 'UTC' both ways) so the check does not depend on the
+  -- session TimeZone.
   constraint ownership_snapshots_period
     check (
       (period_granularity = 'head'
         and period_start = '1970-01-01 00:00:00+00'::timestamptz)
       or (period_granularity = 'month'
-        and period_start = date_trunc('month', period_start))
+        and period_start =
+            (date_trunc('month', period_start at time zone 'UTC')
+             at time zone 'UTC'))
     ),
 
   constraint ownership_snapshots_counts

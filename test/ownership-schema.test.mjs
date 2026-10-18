@@ -112,6 +112,8 @@ test('identity kinds are a closed set with shape-separating checks', () => {
   assert.match(body, /is_bot = false or identity_kind = 'linked'/i, 'bots must be linked-only')
   assert.match(body, /github_node_id is not null and display_login is not null/i,
     'linked rows must require the durable identity pair')
+  assert.match(body, /contributor_key not in \('unlinked', 'other'\)/i,
+    'linked rows must not squat the reserved synthetic keys')
   assert.match(body, /first_seen_at <= last_seen_at/i)
   assert.match(body, /unique \(repository_id, contributor_key\)/i)
 })
@@ -135,7 +137,15 @@ test('period rules: month is first-of-month UTC, head is the fixed sentinel', ()
   const body = tableSql('ownership_snapshots')
   assert.match(body, /check \(period_granularity in \('month', 'head'\)\)/i)
   assert.match(body, /'1970-01-01 00:00:00\+00'::timestamptz/, 'head sentinel missing')
-  assert.match(body, /date_trunc\('month', period_start\)/i, 'month boundary check missing')
+  // month boundary must be computed on the UTC wall clock — a bare
+  // date_trunc('month', timestamptz) follows the session TimeZone.
+  assert.match(
+    body,
+    /date_trunc\('month', period_start at time zone 'UTC'\)\s*at time zone 'UTC'/i,
+    'month boundary must be computed explicitly in UTC',
+  )
+  assert.doesNotMatch(body, /date_trunc\('month', period_start\)/i,
+    'session-timezone-dependent date_trunc must not appear')
   assert.match(body, /calculation_version > 0/i)
 })
 
