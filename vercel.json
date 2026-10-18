@@ -92,6 +92,70 @@
       "destination": "https://dev-ledger-site.vercel.app/tools/:path*"
     },
     {
+      "source": "/answers",
+      "destination": "https://dev-ledger-site.vercel.app/answers"
+    },
+    {
+      "source": "/answers/",
+      "destination": "https://dev-ledger-site.vercel.app/answers/"
+    },
+    {
+      "source": "/answers/:path*/",
+      "destination": "https://dev-ledger-site.vercel.app/answers/:path*/"
+    },
+    {
+      "source": "/answers/:path*",
+      "destination": "https://dev-ledger-site.vercel.app/answers/:path*"
+    },
+    {
+      "source": "/guides",
+      "destination": "https://dev-ledger-site.vercel.app/guides"
+    },
+    {
+      "source": "/guides/",
+      "destination": "https://dev-ledger-site.vercel.app/guides/"
+    },
+    {
+      "source": "/guides/:path*/",
+      "destination": "https://dev-ledger-site.vercel.app/guides/:path*/"
+    },
+    {
+      "source": "/guides/:path*",
+      "destination": "https://dev-ledger-site.vercel.app/guides/:path*"
+    },
+    {
+      "source": "/glossary",
+      "destination": "https://dev-ledger-site.vercel.app/glossary"
+    },
+    {
+      "source": "/glossary/",
+      "destination": "https://dev-ledger-site.vercel.app/glossary/"
+    },
+    {
+      "source": "/glossary/:path*/",
+      "destination": "https://dev-ledger-site.vercel.app/glossary/:path*/"
+    },
+    {
+      "source": "/glossary/:path*",
+      "destination": "https://dev-ledger-site.vercel.app/glossary/:path*"
+    },
+    {
+      "source": "/comparisons",
+      "destination": "https://dev-ledger-site.vercel.app/comparisons"
+    },
+    {
+      "source": "/comparisons/",
+      "destination": "https://dev-ledger-site.vercel.app/comparisons/"
+    },
+    {
+      "source": "/comparisons/:path*/",
+      "destination": "https://dev-ledger-site.vercel.app/comparisons/:path*/"
+    },
+    {
+      "source": "/comparisons/:path*",
+      "destination": "https://dev-ledger-site.vercel.app/comparisons/:path*"
+    },
+    {
       "source": "/site-assets/:path*",
       "destination": "https://dev-ledger-site.vercel.app/site-assets/:path*"
     },
