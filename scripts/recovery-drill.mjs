@@ -99,12 +99,368 @@ async function seed(sql) {
   await sql`insert into webhook_deliveries (delivery_id, event) values ('drill-delivery', 'push')`
   await sql`insert into security_events (event, severity, route, method, status, reason_code)
             values ('logout_completed', 'info', '/api/auth/logout', 'POST', 200, null)`
+  // ── ownership rows (synthetic fixtures — NOT production ingestion) ──
+  // Covers every row shape: repo scope, dir scope, linked/unlinked/
+  // aggregate contributors, monthly + head contributor and scope-total
+  // snapshots, and sync state at active_version=1.
+  const scopeRepo = crypto.randomUUID()
+  const scopeDir = crypto.randomUUID()
+  const cLinked = crypto.randomUUID()
+  const cUnlinked = crypto.randomUUID()
+  const cOther = crypto.randomUUID()
+  await sql`insert into ownership_scopes (id, user_id, repository_id, scope_path_hash, display_path, scope_type, depth)
+            values (${scopeRepo}, ${uid}, ${repoId}, 'h-repo', null, 'repo', 0)`
+  await sql`insert into ownership_scopes (id, user_id, repository_id, scope_path_hash, display_path, scope_type, depth)
+            values (${scopeDir}, ${uid}, ${repoId}, 'h-src-api', 'src/api', 'dir', 2)`
+  await sql`insert into ownership_contributors (id, user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login)
+            values (${cLinked}, ${uid}, ${repoId}, 'k-alice', 'linked', 'MDQ6VXNlcjExMQ==', 'alice')`
+  await sql`insert into ownership_contributors (id, user_id, repository_id, contributor_key, identity_kind)
+            values (${cUnlinked}, ${uid}, ${repoId}, 'unlinked', 'unlinked')`
+  await sql`insert into ownership_contributors (id, user_id, repository_id, contributor_key, identity_kind)
+            values (${cOther}, ${uid}, ${repoId}, 'other', 'aggregate')`
+  await sql`insert into ownership_snapshots
+            (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start,
+             touch_commits, touch_share, calculation_version)
+            values (${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'month', '2026-09-01T00:00:00Z', 12, 0.5, 1)`
+  await sql`insert into ownership_snapshots
+            (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start,
+             total_touch_commits, human_contributor_count, unlinked_touch_share, calculation_version)
+            values (${uid}, ${repoId}, ${scopeDir}, null, 'month', '2026-09-01T00:00:00Z', 24, 3, 0.2, 1)`
+  await sql`insert into ownership_snapshots
+            (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start,
+             surviving_lines, surviving_line_share, recent_touch_commits, last_meaningful_touch, calculation_version)
+            values (${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'head', '1970-01-01T00:00:00Z', 500, 0.31, 5, now(), 1)`
+  await sql`insert into ownership_snapshots
+            (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start,
+             human_contributor_count, recent_human_maintainer_count, top_human_contributor_share,
+             total_surviving_lines, unlinked_surviving_line_share, calculation_version)
+            values (${uid}, ${repoId}, ${scopeDir}, null, 'head', '1970-01-01T00:00:00Z', 4, 2, 0.42, 1613, 0.15, 1)`
+  await sql`insert into ownership_sync_state (user_id, repository_id, phase, active_version)
+            values (${uid}, ${repoId}, 'done', 1)`
+
   // Sentinel outside the allowlist — proves the dump cannot pick up
   // unrelated schemas/tables (Supabase internals, unclassified app tables).
   await sql`create schema drill_internal`
   await sql`create table drill_internal.do_not_backup (marker text)`
   await sql`insert into drill_internal.do_not_backup values ('must-not-survive')`
-  return { uid, repoId }
+  return { uid, repoId, scopeRepo, scopeDir, cLinked, cUnlinked, cOther }
+}
+
+// ── ownership schema proofs against real Postgres ────────────────────────
+// Runs on drill_src BEFORE the backup: negative inserts all fail at the
+// constraint/FK level (no rows persist), and throwaway tenants prove repo +
+// user cascade and the version serve-gate. Net DB effect is zero.
+//
+// mustFail asserts the SPECIFIC constraint that fired — a malformed insert
+// (wrong column count, NOT NULL on an unrelated field) cannot masquerade
+// as a passing invariant proof.
+async function ownershipProofs(sql, { uid, repoId, scopeDir, cLinked, cOther }) {
+  const problems = []
+  const check = (ok, msg) => { if (!ok) problems.push(msg) }
+  const mustFail = async (fn, label, expected = null) => {
+    try {
+      await fn()
+      problems.push(`${label}: insert/update must have been rejected`)
+    } catch (e) {
+      if (!expected) return
+      const names = [].concat(expected.name)
+      const cname = e.constraint_name || e.constraint || ''
+      const code = e.code || ''
+      const msg = String(e.message || '')
+      const hit = names.some((n) => cname === n || msg.includes(n))
+      if (!hit) {
+        problems.push(`${label}: expected constraint ${names.join('/')} `
+          + `(${expected.code || 'any'}), got ${cname || code || msg.slice(0, 80)}`)
+      }
+      if (expected.code && code !== expected.code) {
+        problems.push(`${label}: expected SQLSTATE ${expected.code}, got ${code || 'none'}`)
+      }
+    }
+  }
+  const CHK = (name) => ({ name, code: '23514' })   // check_violation
+  const FK = (name) => ({ name, code: '23503' })    // foreign_key_violation
+
+  // ── tenant mismatch: database must reject cross-tenant/cross-repo pairs.
+  // Every attempted row is otherwise structurally valid so the ONLY thing
+  // that can fire is the intended composite FK.
+  const uidB = crypto.randomUUID()
+  const repoB = crypto.randomUUID()
+  const scopeB = crypto.randomUUID()
+  const cB = crypto.randomUUID()
+  await sql`insert into users (id, github_user_id, github_login) values (${uidB}, 43434343, 'drill-tenant-b')`
+  await sql`insert into repositories (id, user_id, github_repo_id, owner_login, name, full_name)
+            values (${repoB}, ${uidB}, 323232, 'drill-tenant-b', 'repo-b', 'drill-tenant-b/repo-b')`
+  // valid repo-B ownership fixtures for isolated composite-FK proofs
+  await sql`insert into ownership_scopes (id, user_id, repository_id, scope_path_hash, scope_type, depth)
+            values (${scopeB}, ${uidB}, ${repoB}, 'h-b', 'repo', 0)`
+  await sql`insert into ownership_contributors (id, user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login)
+            values (${cB}, ${uidB}, ${repoB}, 'k-bob', 'linked', 'MDQ6VXNlcjIyMg==', 'bob')`
+
+  await mustFail(() => sql`insert into ownership_scopes
+    (user_id, repository_id, scope_path_hash, scope_type, depth)
+    values (${uid}, ${repoB}, 'x', 'repo', 0)`,
+    'tenant A user_id + tenant B repository_id (scope)', FK('ownership_scopes_repo_tenant'))
+  await mustFail(() => sql`insert into ownership_contributors
+    (user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login)
+    values (${uid}, ${repoB}, 'k-b2', 'linked', 'MDQ6VXNlcjIyMw==', 'bob2')`,
+    'tenant mismatch contributor', FK('ownership_contributors_repo_tenant'))
+  // scope isolation: scope belongs to repo A, repository_id claims repo B,
+  // contributor NULL (scope-total shape), fresh period so the unique key
+  // cannot collide — only scope_repo FK can fire.
+  await mustFail(() => sql`insert into ownership_snapshots
+    (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start,
+     total_touch_commits, human_contributor_count, calculation_version)
+    values (${uidB}, ${repoB}, ${scopeDir}, null, 'month', '2026-11-01T00:00:00Z', 3, 1, 1)`,
+    'snapshot: scope from repo A + repository_id repo B', FK('ownership_snapshots_scope_repo'))
+  // contributor isolation: scope belongs to repo B (consistent), contributor
+  // belongs to repo A — only contrib_repo FK can fire.
+  await mustFail(() => sql`insert into ownership_snapshots
+    (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start,
+     touch_commits, calculation_version)
+    values (${uidB}, ${repoB}, ${scopeB}, ${cLinked}, 'month', '2026-09-01T00:00:00Z', 1, 1)`,
+    'snapshot: contributor from repo A + repository_id repo B', FK('ownership_snapshots_contrib_repo'))
+  await mustFail(() => sql`insert into ownership_sync_state (user_id, repository_id)
+    values (${uid}, ${repoB})`, 'tenant mismatch sync_state', FK('ownership_sync_state_repo_tenant'))
+
+  // ── scope shape / type guards — structurally valid rows that violate
+  // exactly the named invariant
+  // 'file' violates both the type enum and the shape guard — either may be
+  // reported; what matters is that no file scope can ever exist.
+  await mustFail(() => sql`insert into ownership_scopes
+    (user_id, repository_id, scope_path_hash, display_path, scope_type, depth)
+    values (${uid}, ${repoId}, 'f', 'a.ts', 'file', 1)`, 'file scope type',
+    CHK(['ownership_scopes_type', 'ownership_scopes_shape']))
+  await mustFail(() => sql`insert into ownership_scopes
+    (user_id, repository_id, scope_path_hash, display_path, scope_type, depth)
+    values (${uid}, ${repoId}, 'd0', 'x', 'dir', 0)`, 'dir depth 0', CHK('ownership_scopes_shape'))
+  await mustFail(() => sql`insert into ownership_scopes
+    (user_id, repository_id, scope_path_hash, display_path, scope_type, depth)
+    values (${uid}, ${repoId}, 'd5', 'a/b/c/d/e', 'dir', 5)`, 'dir depth 5', CHK('ownership_scopes_shape'))
+  await mustFail(() => sql`insert into ownership_scopes
+    (user_id, repository_id, scope_path_hash, display_path, scope_type, depth)
+    values (${uid}, ${repoId}, 'rp', 'src/x', 'repo', 0)`, 'repo scope with path', CHK('ownership_scopes_shape'))
+  await mustFail(() => sql`insert into ownership_scopes
+    (user_id, repository_id, scope_path_hash, display_path, scope_type, depth, excluded, exclusion_reason)
+    values (${uid}, ${repoId}, 'ex1', 'vendor/x', 'dir', 1, true, 'vendor')`,
+    'exclusion_reason vendor', CHK('ownership_scopes_exclusion'))
+  await mustFail(() => sql`insert into ownership_scopes
+    (user_id, repository_id, scope_path_hash, display_path, scope_type, depth, excluded, exclusion_reason)
+    values (${uid}, ${repoId}, 'ex2', 'x/y', 'dir', 1, false, 'cardinality_cap')`,
+    'excluded=false with reason', CHK('ownership_scopes_exclusion'))
+  // legal cardinality_cap row is allowed — insert then delete to keep seed counts
+  const capId = crypto.randomUUID()
+  await sql`insert into ownership_scopes (id, user_id, repository_id, scope_path_hash, display_path, scope_type, depth, excluded, exclusion_reason)
+            values (${capId}, ${uid}, ${repoId}, 'h-deep', 'a/b/c/d', 'dir', 4, true, 'cardinality_cap')`
+  await sql`delete from ownership_scopes where id = ${capId}`
+
+  // ── identity-shape guards
+  await mustFail(() => sql`insert into ownership_contributors
+    (user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login)
+    values (${uid}, ${repoId}, 'k-noid', 'linked', null, 'bob')`,
+    'linked without node id', CHK('ownership_contributors_linked'))
+  await mustFail(() => sql`insert into ownership_contributors
+    (user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login)
+    values (${uid}, ${repoId}, 'k-nologin', 'linked', 'MDQ6VXNlcjMzMw==', null)`,
+    'linked without login', CHK('ownership_contributors_linked'))
+  // reserved synthetic keys can never be squatted by a linked row
+  await mustFail(() => sql`insert into ownership_contributors
+    (user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login)
+    values (${uid}, ${repoId}, 'unlinked', 'linked', 'MDQ6VXNlcjMzNA==', 'squatter')`,
+    'linked row keying unlinked', CHK('ownership_contributors_linked'))
+  await mustFail(() => sql`insert into ownership_contributors
+    (user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login)
+    values (${uid}, ${repoId}, 'other', 'linked', 'MDQ6VXNlcjMzNQ==', 'squatter')`,
+    'linked row keying other', CHK('ownership_contributors_linked'))
+  await mustFail(() => sql`insert into ownership_contributors
+    (user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login)
+    values (${uid}, ${repoId}, 'unlinked2', 'unlinked', 'MDQ6VXNlcjQ0NA==', null)`,
+    'unlinked with node id', CHK('ownership_contributors_unlinked'))
+  await mustFail(() => sql`insert into ownership_contributors
+    (user_id, repository_id, contributor_key, identity_kind)
+    values (${uid}, ${repoId}, 'k-x', 'unlinked')`, 'unlinked with wrong key', CHK('ownership_contributors_unlinked'))
+  await mustFail(() => sql`insert into ownership_contributors
+    (user_id, repository_id, contributor_key, identity_kind, is_bot)
+    values (${uid}, ${repoId}, 'other2', 'aggregate', false)`, 'aggregate with wrong key', CHK('ownership_contributors_aggregate'))
+  // violates both the unlinked shape (is_bot=false) and the linked-only bot
+  // rule — either constraint may be reported.
+  await mustFail(() => sql`insert into ownership_contributors
+    (user_id, repository_id, contributor_key, identity_kind, is_bot)
+    values (${uid}, ${repoId}, 'unlinked-bot', 'unlinked', true)`, 'is_bot on unlinked',
+    CHK(['ownership_contributors_unlinked', 'ownership_contributors_bot']))
+  // bot must be linked — this insert is legal
+  const botId = crypto.randomUUID()
+  await sql`insert into ownership_contributors (id, user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login, is_bot)
+            values (${botId}, ${uid}, ${repoId}, 'k-bot', 'linked', 'MDQ6VXNlcjU1NQ==', 'dependabot[bot]', true)`
+  await sql`delete from ownership_contributors where id = ${botId}`
+
+  // ── snapshot guards
+  await mustFail(() => sql`insert into ownership_snapshots
+    (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, touch_commits, calculation_version)
+    values (${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'month', '2026-09-01T00:00:00Z', 5, 0)`,
+    'calculation_version 0', CHK('ownership_snapshots_version'))
+  await mustFail(() => sql`insert into ownership_snapshots
+    (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, touch_share, calculation_version)
+    values (${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'month', '2026-09-01T00:00:00Z', 1.5, 1)`,
+    'share > 1', CHK('ownership_snapshots_shares'))
+  await mustFail(() => sql`insert into ownership_snapshots
+    (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, touch_commits, calculation_version)
+    values (${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'month', '2026-09-15T00:00:00Z', 1, 1)`,
+    'month not first-of-month', CHK('ownership_snapshots_period'))
+  await mustFail(() => sql`insert into ownership_snapshots
+    (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, surviving_lines, calculation_version)
+    values (${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'head', '2026-01-01T00:00:00Z', 1, 1)`,
+    'head without sentinel period_start', CHK('ownership_snapshots_period'))
+  await mustFail(() => sql`insert into ownership_snapshots
+    (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, touch_commits, surviving_lines, calculation_version)
+    values (${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'month', '2026-09-01T00:00:00Z', 3, 7, 1)`,
+    'monthly contributor row carrying head fields', CHK('ownership_snapshots_shape'))
+  await mustFail(() => sql`insert into ownership_snapshots
+    (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, surviving_lines, touch_commits, calculation_version)
+    values (${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'head', '1970-01-01T00:00:00Z', 5, 3, 1)`,
+    'head contributor row carrying monthly fields', CHK('ownership_snapshots_shape'))
+  await mustFail(() => sql`insert into ownership_snapshots
+    (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, total_touch_commits, touch_commits, calculation_version)
+    values (${uid}, ${repoId}, ${scopeDir}, null, 'month', '2026-10-01T00:00:00Z', 4, 4, 1)`,
+    'scope-total row carrying contributor fields', CHK('ownership_snapshots_shape'))
+
+  // ── month boundary is UTC, not session-timezone ──
+  // On a dedicated connection (reserved so SET TIME ZONE sticks): in
+  // Asia/Dubai, 2026-08-31T20:00:00Z is local-midnight Sep 1 — it must be
+  // REJECTED while true UTC boundary 2026-09-01T00:00:00Z is accepted.
+  {
+    const conn = await sql.reserve()
+    try {
+      await conn`set time zone 'Asia/Dubai'`
+      const okId = crypto.randomUUID()
+      await conn`insert into ownership_snapshots
+        (id, user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, touch_commits, calculation_version)
+        values (${okId}, ${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'month', '2026-10-01T00:00:00Z', 2, 1)`
+      await conn`delete from ownership_snapshots where id = ${okId}`
+      let rejected = false
+      try {
+        await conn`insert into ownership_snapshots
+          (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, touch_commits, calculation_version)
+          values (${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'month', '2026-08-31T20:00:00Z', 2, 1)`
+      } catch (e) {
+        rejected = String(e.message || '').includes('ownership_snapshots_period')
+          || (e.constraint_name || e.constraint) === 'ownership_snapshots_period'
+        if (!rejected) problems.push(`non-UTC boundary rejected by wrong constraint: ${e.message}`)
+      }
+      if (!rejected) problems.push('Asia/Dubai-local midnight 2026-08-31T20:00Z was accepted as month boundary — UTC check broken')
+      await conn`reset time zone`
+    } finally {
+      conn.release()
+    }
+  }
+
+  // ── sync_state guards
+  await mustFail(() => sql`insert into ownership_sync_state (user_id, repository_id, phase)
+    values (${uid}, ${repoId}, 'bogus')`, 'invalid phase', CHK('ownership_sync_state_phase'))
+  await mustFail(() => sql`insert into ownership_sync_state (user_id, repository_id, error)
+    values (${uid}, ${repoId}, 'ECONNRESET upstream socket hangup')`, 'raw error text', CHK('ownership_sync_state_error'))
+  await mustFail(() => sql`insert into ownership_sync_state (user_id, repository_id, active_version, building_version)
+    values (${uid}, ${repoId}, 1, 1)`, 'active = building', CHK('ownership_sync_state_versions'))
+  // closed-taxonomy error is legal
+  await sql`update ownership_sync_state set error = 'OWNERSHIP_BLAME_FAILED' where user_id = ${uid} and repository_id = ${repoId}`
+  await sql`update ownership_sync_state set error = null where user_id = ${uid} and repository_id = ${repoId}`
+
+  // ── version coexistence: v1 and v2 rows may coexist in storage
+  await sql`insert into ownership_snapshots
+            (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start,
+             touch_commits, touch_share, calculation_version)
+            values (${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'month', '2026-09-01T00:00:00Z', 99, 0.9, 2)`
+  // RPC must still serve only active v1 (touch_commits 12, not 99)
+  const tl = await sql`select touch_commits from dash_ownership_timeline(${uid}, ${repoId}, 'h-src-api')
+                       where display_login = 'alice'`
+  check(tl.length === 1 && Number(tl[0].touch_commits) === 12,
+    `timeline served ${tl.length} rows with touch_commits ${tl[0]?.touch_commits} — expected exactly 1 row at v1 value 12`)
+  const headRows = await sql`select * from dash_ownership_head(${uid}, ${repoId}, 'h-src-api')`
+  check(headRows.length === 1 && headRows[0].display_login === 'alice' && Number(headRows[0].surviving_lines) === 500,
+    'dash_ownership_head served wrong rows')
+  check(headRows[0] && !('github_node_id' in headRows[0]) && !('contributor_key' in headRows[0]),
+    'dash_ownership_head leaked identity internals')
+  const scopes = await sql`select * from dash_ownership_scopes(${uid}, ${repoId})`
+  check(scopes.length === 2 && scopes.some((s) => s.display_path === 'src/api' && Number(s.total_surviving_lines) === 1613),
+    'dash_ownership_scopes served wrong rows')
+  await sql`delete from ownership_snapshots where calculation_version = 2`
+
+  // ── bootstrap + promotion + rebuild lifecycle on a throwaway tenant
+  const uidC = crypto.randomUUID()
+  const repoC = crypto.randomUUID()
+  const scopeC = crypto.randomUUID()
+  const cC = crypto.randomUUID()
+  await sql`insert into users (id, github_user_id, github_login) values (${uidC}, 45454545, 'drill-tenant-c')`
+  await sql`insert into repositories (id, user_id, github_repo_id, owner_login, name, full_name)
+            values (${repoC}, ${uidC}, 333333, 'drill-tenant-c', 'repo-c', 'drill-tenant-c/repo-c')`
+  await sql`insert into ownership_scopes (id, user_id, repository_id, scope_path_hash, scope_type, depth)
+            values (${scopeC}, ${uidC}, ${repoC}, 'h-root', 'repo', 0)`
+  await sql`insert into ownership_contributors (id, user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login)
+            values (${cC}, ${uidC}, ${repoC}, 'k-carol', 'linked', 'MDQ6VXNlcjY2Ng==', 'carol')`
+  await sql`insert into ownership_snapshots
+            (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, touch_commits, calculation_version)
+            values (${uidC}, ${repoC}, ${scopeC}, ${cC}, 'month', '2026-09-01T00:00:00Z', 7, 1)`
+  // FIRST BUILD: active null + building 1 → nothing served
+  await sql`insert into ownership_sync_state (user_id, repository_id, phase, active_version, building_version)
+            values (${uidC}, ${repoC}, 'history', null, 1)`
+  const [{ c: notReady }] = await sql`select count(*)::int c from dash_ownership_scopes(${uidC}, ${repoC})`
+  check(notReady === 0, 'partial first build was served — active_version gate broken')
+  // PROMOTION: atomic flip → V1 visible
+  await sql`update ownership_sync_state set active_version = 1, building_version = null, phase = 'done'
+            where user_id = ${uidC} and repository_id = ${repoC}`
+  const v1rows = await sql`select touch_commits from dash_ownership_timeline(${uidC}, ${repoC}, 'h-root')`
+  check(v1rows.length === 1 && Number(v1rows[0].touch_commits) === 7, 'promoted V1 not visible')
+  // RECALC: V2 rows coexist while V1 stays served
+  await sql`update ownership_sync_state set building_version = 2 where user_id = ${uidC} and repository_id = ${repoC}`
+  await sql`insert into ownership_snapshots
+            (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, touch_commits, calculation_version)
+            values (${uidC}, ${repoC}, ${scopeC}, ${cC}, 'month', '2026-09-01T00:00:00Z', 42, 2)`
+  const stillV1 = await sql`select touch_commits from dash_ownership_timeline(${uidC}, ${repoC}, 'h-root')`
+  check(stillV1.length === 1 && Number(stillV1[0].touch_commits) === 7, 'building V2 leaked into served results')
+  // FLIP: atomic serve change
+  await sql`update ownership_sync_state set active_version = 2, building_version = null
+            where user_id = ${uidC} and repository_id = ${repoC}`
+  const v2rows = await sql`select touch_commits from dash_ownership_timeline(${uidC}, ${repoC}, 'h-root')`
+  check(v2rows.length === 1 && Number(v2rows[0].touch_commits) === 42, 'version flip did not change served results')
+  // repo delete cascades every ownership table (D)
+  await sql`delete from repositories where id = ${repoC}`
+  for (const t of ['ownership_scopes', 'ownership_contributors', 'ownership_snapshots', 'ownership_sync_state']) {
+    const [{ c }] = await sql`select count(*)::int c from ${sql(t)} where repository_id = ${repoC}`
+    check(c === 0, `${t} rows survived repository delete (repo cascade broken)`)
+  }
+  await sql`delete from users where id = ${uidC}`
+
+  // ── user-delete cascade proof on a SEPARATE tenant: the user row is
+  // removed directly while its repository + all four ownership tables hold
+  // live rows — exercising users -> repositories -> ownership_* through
+  // the real FK chain (E).
+  const uidD = crypto.randomUUID()
+  const repoD = crypto.randomUUID()
+  const scopeD = crypto.randomUUID()
+  const cD = crypto.randomUUID()
+  await sql`insert into users (id, github_user_id, github_login) values (${uidD}, 46464646, 'drill-tenant-d')`
+  await sql`insert into repositories (id, user_id, github_repo_id, owner_login, name, full_name)
+            values (${repoD}, ${uidD}, 343434, 'drill-tenant-d', 'repo-d', 'drill-tenant-d/repo-d')`
+  await sql`insert into ownership_scopes (id, user_id, repository_id, scope_path_hash, scope_type, depth)
+            values (${scopeD}, ${uidD}, ${repoD}, 'h-d', 'repo', 0)`
+  await sql`insert into ownership_contributors (id, user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login)
+            values (${cD}, ${uidD}, ${repoD}, 'k-dana', 'linked', 'MDQ6VXNlcjc3Nw==', 'dana')`
+  await sql`insert into ownership_snapshots
+            (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, touch_commits, calculation_version)
+            values (${uidD}, ${repoD}, ${scopeD}, ${cD}, 'month', '2026-09-01T00:00:00Z', 4, 1)`
+  await sql`insert into ownership_sync_state (user_id, repository_id, phase, active_version)
+            values (${uidD}, ${repoD}, 'done', 1)`
+  await sql`delete from users where id = ${uidD}`   // no repo delete first
+  for (const t of ['ownership_scopes', 'ownership_contributors', 'ownership_snapshots', 'ownership_sync_state']) {
+    const [{ c }] = await sql`select count(*)::int c from ${sql(t)} where user_id = ${uidD}`
+    check(c === 0, `${t} rows survived direct user delete (user cascade broken)`)
+  }
+  const [{ c: repoDLeft }] = await sql`select count(*)::int c from repositories where id = ${repoD}`
+  check(repoDLeft === 0, 'repositories row survived user delete')
+
+  // tenant B cleanup — its remaining rows exercise user cascade too
+  await sql`delete from users where id = ${uidB}`
+
+  return problems
 }
 
 // Archive TOC proof: pg_restore --list shows exactly which TABLE DATA
@@ -188,6 +544,14 @@ async function verify(src, dst, ids, extraProblems = []) {
     select privilege_type from information_schema.role_table_grants
     where table_schema = 'public' and table_name = 'commits' and grantee = 'service_role'`
   check(sr.some((g) => g.privilege_type === 'SELECT'), 'service_role missing SELECT on commits')
+  const sro = await dst`
+    select privilege_type from information_schema.role_table_grants
+    where table_schema = 'public' and table_name = 'ownership_scopes' and grantee = 'service_role'`
+  check(sro.some((g) => g.privilege_type === 'SELECT') && sro.some((g) => g.privilege_type === 'INSERT'),
+    'service_role missing SELECT/INSERT on ownership_scopes')
+  // restored ownership RPCs still enforce the serve gate
+  const [orow] = await dst`select count(*)::int c from dash_ownership_scopes(${ids.uid}, ${ids.repoId})`
+  check(orow.c === 2, `restored dash_ownership_scopes returned ${orow.c}, expected 2`)
 
   // Behavioral proof, not just grant inspection: switch into each role the
   // way Supabase's authenticator does and actually read an app table.
@@ -278,8 +642,15 @@ async function main() {
     const src = postgres(srcUrl, { onnotice: () => {} })
     const seeded = await seed(src)
     Object.assign(ids, seeded)
+    const oProblems = await ownershipProofs(src, seeded)
     await src.end()
-    console.log('drill: seeded synthetic rows (user, repo, commit, PR, sync state, ephemeral rows)')
+    if (oProblems.length) {
+      for (const p of oProblems) console.error(`  FAIL ${p}`)
+      fail(`${oProblems.length} ownership schema proof(s) failed`)
+    }
+    console.log('drill: seeded synthetic rows (user, repo, commit, PR, sync state, ownership, ephemeral rows)')
+    console.log('drill: ownership proofs passed — tenant FKs, shape checks, closed error taxonomy,')
+    console.log('       identity kinds, version serve-gate (build/promote/coexist/flip), cascades')
 
     // same backup path the operator uses
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-drill-'))

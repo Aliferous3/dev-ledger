@@ -354,6 +354,17 @@ test('every user-linked table cascades from users in the migrations', () => {
   }
   // repository_languages hangs off repositories — the only non-user FK.
   assert.match(all, /references (?:public\.)?repositories\(id\) on delete cascade/i)
+  // 012 ownership tables cascade through the tenant-qualified composite FK:
+  // (repository_id, user_id) -> repositories(id, user_id) on delete cascade,
+  // which chains to users(id) cascade via repositories.
+  const ownership = src('migrations/012_ownership.sql')
+  for (const tbl of ['ownership_scopes', 'ownership_contributors', 'ownership_snapshots', 'ownership_sync_state']) {
+    assert.match(
+      ownership,
+      new RegExp(`create table if not exists public\\.${tbl}[\\s\\S]*?foreign key \\(repository_id, user_id\\)[\\s\\S]*?references public\\.repositories \\(id, user_id\\)[\\s\\S]*?on delete cascade`, 'i'),
+      `${tbl} must tenant-cascade through repositories(id, user_id)`,
+    )
+  }
 })
 
 /* ── WS7: backup scope stays allowlist-only ─────────────────────────────── */
@@ -364,6 +375,19 @@ test('backup allowlist excludes ephemeral and carries no removed fields', async 
     assert.ok(EPHEMERAL_TABLES.includes(t), `${t} must stay ephemeral`)
     assert.ok(!BACKUP_TABLES.includes(t), `${t} must not be backed up`)
   }
+})
+
+test('ownership backup split: derived history is CORE, sync state OPERATIONAL', async () => {
+  const { BACKUP_TABLES, CORE_TABLES, OPERATIONAL_TABLES, EPHEMERAL_TABLES } = await import('../scripts/backup-scope.mjs')
+  // ownership history is irreplaceable for retained/disconnected repos —
+  // it is backed up as CORE, never classified ephemeral
+  for (const t of ['ownership_scopes', 'ownership_contributors', 'ownership_snapshots']) {
+    assert.ok(CORE_TABLES.includes(t), `${t} must be CORE`)
+    assert.ok(BACKUP_TABLES.includes(t), `${t} must be backed up`)
+  }
+  assert.ok(OPERATIONAL_TABLES.includes('ownership_sync_state'), 'ownership_sync_state must be OPERATIONAL')
+  assert.ok(BACKUP_TABLES.includes('ownership_sync_state'), 'ownership_sync_state is backed up like repo_sync')
+  assert.ok(!EPHEMERAL_TABLES.includes('ownership_sync_state'), 'ownership sync state must not be ephemeral')
 })
 
 /* ── WS5: legal text cannot re-claim removed fields ──────────────────────── */
