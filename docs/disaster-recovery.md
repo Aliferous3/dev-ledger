@@ -57,11 +57,21 @@ migrations are the authoritative schema/security definition and are replayed
 first on any recovery target. `schema_migrations` is rebuilt by the runner.
 
 **The dump is allowlist-only.** `pg_dump` is invoked with repeated
-`--table=public.<name>` for exactly `BACKUP_TABLES` — never a whole-database
-dump. Supabase warns that raw `pg_dump` can include platform-internal
-schemas/objects; the allowlist guarantees an unknown or newly added
-schema/table is *not* backed up until explicitly classified in
+`--table=public.<name>` for the schema-aware subset of `BACKUP_TABLES` —
+never a whole-database dump. Supabase warns that raw `pg_dump` can include
+platform-internal schemas/objects; the allowlist guarantees an unknown or
+newly added schema/table is *not* backed up until explicitly classified in
 `scripts/backup-scope.mjs` (and CI fails loudly on any unclassified table).
+
+**The dump is migration-aware.** Before `pg_dump` runs, `db:backup` reads the
+target's `schema_migrations` and requests only the allowlisted tables the
+*applied* migrations actually created (`resolveBackupTables()`). This keeps
+the mandatory pre-migration backup safe when the target lags repo main —
+e.g. backing up before applying `012_ownership.sql` simply excludes the
+not-yet-created ownership tables. It fails closed on a broken schema: a
+table the applied migrations expect but the DB lacks, or an allowlisted
+table present without a recorded migration, aborts the backup rather than
+producing a silently partial artifact.
 
 ### Table classification (scripts/backup-scope.mjs is the code-level truth)
 

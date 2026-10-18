@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url'
 import postgres from 'postgres'
 import { loadOperatorEnv, databaseUrl, pgEnv } from './operator-env.mjs'
 import { runPgTool } from './pg-tools.mjs'
-import { BACKUP_TABLES } from './backup-scope.mjs'
+import { BACKUP_TABLES, migrationFiles, resolveBackupTables } from './backup-scope.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -38,12 +38,39 @@ async function main() {
   const env = pgEnv(url)
 
   const sql = postgres(url, { onnotice: () => {} })
-  let serverMajor
+  let serverMajor, applied, existing
   try {
     const [{ server_version_num }] = await sql`show server_version_num`
     serverMajor = Math.floor(Number(server_version_num) / 10000)
+    // Migration-aware backup scope: the target may lag repo main (a fresh
+    // pre-migration backup is taken BEFORE the pending migration runs), so
+    // the allowlist must be resolved against the applied schema, not
+    // blindly requested. Missing/unrecorded schema state fails closed.
+    try {
+      applied = (await sql`select filename from public.schema_migrations`).map((r) => r.filename)
+    } catch {
+      throw new Error('schema_migrations is missing — the target was never migrated; refusing to back up')
+    }
+    // BASE TABLE only — a view must never satisfy a required backup table.
+    existing = (await sql`
+      select table_name from information_schema.tables
+      where table_schema = 'public'
+        and table_type = 'BASE TABLE'`).map((r) => r.table_name)
   } finally {
     await sql.end()
+  }
+
+  const resolved = resolveBackupTables({ applied, existing })
+  if (resolved.length === 0) {
+    throw new Error('resolved backup set is empty — target schema predates any backed-up table')
+  }
+  const latest = [...applied].sort().at(-1)
+  const repoCount = migrationFiles().length
+  const behind = applied.length < repoCount
+  console.log(`schema: ${applied.length} migrations applied (latest: ${latest || 'none'}), repo has ${repoCount}${behind ? ' — target is BEHIND repo main' : ''}`)
+  const skipped = BACKUP_TABLES.filter((t) => !resolved.includes(t))
+  if (skipped.length) {
+    console.log(`note: schema-aware resolution excludes not-yet-created table(s) from this backup: ${skipped.join(', ')}`)
   }
 
   const dir = backupDir()
@@ -58,7 +85,7 @@ async function main() {
     '--data-only',
     '--no-owner',
     '--no-privileges',
-    ...BACKUP_TABLES.map((t) => `--table=public.${t}`),
+    ...resolved.map((t) => `--table=public.${t}`),
   ], { binaryOut: true })
   fs.writeFileSync(file, stdout)
 
@@ -72,7 +99,7 @@ async function main() {
   console.log(`  bytes:    ${fs.statSync(file).size}`)
   console.log(`  sha256:   ${sha}`)
   console.log(`  postgres: server major ${serverMajor}`)
-  console.log(`  tables:   ${BACKUP_TABLES.length} allowlisted (${BACKUP_TABLES.join(', ')})`)
+  console.log(`  tables:   ${resolved.length} of ${BACKUP_TABLES.length} allowlisted (${resolved.join(', ')})`)
   console.log('store this artifact ONLY in an encrypted vault / encrypted disk / encrypted off-site location')
 }
 

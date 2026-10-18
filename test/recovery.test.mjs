@@ -65,9 +65,13 @@ test('backup script puts credentials in env, never argv', () => {
   assert.doesNotMatch(b, /process\.env\.(SUPABASE_DB_PASSWORD|DATABASE_URL)\s*\+/); // no value concatenation into args
 });
 
-test('backup is allowlist-only — explicit --table per BACKUP_TABLES, no exclusion-list', () => {
+test('backup is allowlist-only — explicit --table per resolved table, no exclusion-list', () => {
   const b = src('scripts/backup-db.mjs');
-  assert.match(b, /BACKUP_TABLES\.map\(.*--table=public\./s, 'must emit --table=public.<t> per allowlisted table');
+  // --table args are emitted only from the schema-aware resolved subset of
+  // BACKUP_TABLES — never the full DB, never an exclusion list
+  assert.match(b, /resolveBackupTables/, 'must resolve the backup set against the applied schema');
+  assert.match(b, /resolved\.map\(.*--table=public\./s, 'must emit --table=public.<t> per resolved allowlisted table');
+  assert.match(b, /resolved\.length === 0/, 'must refuse to dump when nothing allowlisted exists');
   assert.doesNotMatch(b, /--exclude-table/, 'exclusion-list model silently backs up unclassified tables');
   assert.equal(BACKUP_TABLES.length, 14);
   for (const t of ['users', 'github_installations', 'repositories', 'repository_languages',
