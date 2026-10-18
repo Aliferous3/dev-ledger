@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 const {
   UNLINKED_KEY,
   OTHER_KEY,
+  OwnershipIdentityError,
   contributorKey,
   isBotLogin,
   unlinkedContributor,
@@ -73,9 +74,35 @@ test('author.user == null → the single unlinked bucket', () => {
   assert.deepEqual(unlinkedContributor(), c)
 })
 
-test('malformed linked identity collapses to unlinked, never fabricated', () => {
-  for (const bad of [{ id: '', login: 'x' }, { id: 'N_1' }, { login: 'x' }, {}, { id: 7, login: 'x' }]) {
-    assert.equal(classifyAuthorIdentity(bad, REPO_A).identity_kind, 'unlinked')
+test('malformed linked identity THROWS — never silently becomes unlinked', () => {
+  // a present-but-broken user object is a data-contract violation, not
+  // unresolved attribution: 'unlinked' means ONLY author.user == null
+  for (const bad of [
+    { id: '', login: 'x' },        // empty id
+    { id: '  ', login: 'x' },      // whitespace-only id
+    { id: 'N_1' },                 // missing login
+    { login: 'x' },                // missing id
+    {},                            // both missing
+    { id: 7, login: 'x' },         // wrong id type
+    { id: 'N_1', login: 7 },       // wrong login type
+    { id: 'N_1', login: ' ' },     // whitespace-only login
+    'a-string', 42, true,          // non-object values
+  ]) {
+    assert.throws(() => classifyAuthorIdentity(bad, REPO_A), OwnershipIdentityError, JSON.stringify(bad))
+  }
+})
+
+test('thrown identity errors carry no identifying values', () => {
+  for (const bad of [{ id: 'N_secret_node' }, { id: 'N_x', login: 99 }]) {
+    try {
+      classifyAuthorIdentity(bad, REPO_A)
+      assert.fail('should have thrown')
+    } catch (e) {
+      assert.ok(e instanceof OwnershipIdentityError)
+      for (const leak of ['N_secret_node', 'N_x', '99', REPO_A]) {
+        assert.ok(!e.message.includes(leak), `error leaked ${leak}`)
+      }
+    }
   }
 })
 

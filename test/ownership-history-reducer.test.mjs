@@ -11,7 +11,7 @@ const {
   shareOf,
   reduceHistoryToMonthly,
 } = await import('../lib/ownership/history-reducer.mjs')
-const { contributorKey } = await import('../lib/ownership/contributors.mjs')
+const { contributorKey, OwnershipIdentityError } = await import('../lib/ownership/contributors.mjs')
 
 const REPO = '11111111-2222-3333-4444-555555555555'
 const SCOPE = { scope_type: 'dir', display_path: 'src/api', depth: 2, scope_path_hash: 'h' }
@@ -252,4 +252,38 @@ test('contributor rows carry only the contracted fields', () => {
 test('malformed nodes fail loudly — no silent garbage metrics', () => {
   assert.throws(() => reduceHistoryToMonthly({ repositoryId: REPO, scope: SCOPE, nodes: [{}] }), TypeError)
   assert.throws(() => reduceHistoryToMonthly({ repositoryId: REPO, scope: SCOPE, nodes: [node('bogus')] }), TypeError)
+})
+
+test('malformed linked identity propagates OwnershipIdentityError — no partial result', () => {
+  // a present-but-broken user object is a data-contract violation mid-stream:
+  // the reducer must throw, never emit months/candidates for the good nodes
+  const nodes = [
+    node('2026-09-01T00:00:00Z', user('A')),
+    node('2026-09-02T00:00:00Z', { id: 'N_broken' }), // missing login
+    node('2026-09-03T00:00:00Z', user('B')),
+  ]
+  assert.throws(
+    () => reduceHistoryToMonthly({ repositoryId: REPO, scope: SCOPE, nodes }),
+    OwnershipIdentityError,
+  )
+  try {
+    reduceHistoryToMonthly({ repositoryId: REPO, scope: SCOPE, nodes })
+  } catch (e) {
+    for (const leak of ['N_broken', 'N_A', REPO]) {
+      assert.ok(!e.message.includes(leak), `error leaked ${leak}`)
+    }
+  }
+})
+
+test('null/undefined/missing author.user → unlinked; non-null malformed throws', () => {
+  const unlinkedNodes = [
+    { committedDate: '2026-09-01T00:00:00Z' },                        // no author
+    { committedDate: '2026-09-02T00:00:00Z', author: null },          // null author
+    { committedDate: '2026-09-03T00:00:00Z', author: { user: null } },// null user
+    node('2026-09-04T00:00:00Z'),                                     // user undefined via helper
+  ]
+  const [m] = reduceHistoryToMonthly({ repositoryId: REPO, scope: SCOPE, nodes: unlinkedNodes }).months
+  assert.equal(m.totals.unlinked_touch_share, 1)
+  const u = m.contributors.find((c) => c.identity_kind === 'unlinked')
+  assert.equal(u.touch_commits, 4)
 })

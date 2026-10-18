@@ -10,14 +10,12 @@ const {
   BLAME_BATCH_LIMIT,
   historyPathQuery,
   batchedBlameQuery,
-  treeEntriesQuery,
   assertOwnershipQuerySafe,
 } = await import('../lib/ownership/queries.mjs')
 
 const ALL_QUERIES = {
   history: historyPathQuery(),
   blame50: batchedBlameQuery(Array.from({ length: 50 }, (_, i) => `p${i}`)),
-  tree: treeEntriesQuery(),
 }
 
 /* ── forbidden-field audit ───────────────────────────────────────────── */
@@ -50,7 +48,6 @@ test('no Blob/object-content selection can appear', () => {
 test('identity selection is exactly user { id login } — no name/email creep', () => {
   for (const [name, q] of Object.entries(ALL_QUERIES)) {
     const blocks = q.match(/user\s*\{[^}]*\}/g) ?? []
-    if (name === 'tree') { assert.equal(blocks.length, 0); continue }
     assert.ok(blocks.length > 0, `${name} must select user identity`)
     for (const b of blocks) assert.match(b, /^user\s*\{\s*id\s+login\s*\}$/)
   }
@@ -83,14 +80,6 @@ test('batched blame is capped at the measured 50-alias ceiling', () => {
   assert.match(q, /rateLimit\s*\{/)
 })
 
-/* ── tree entries shape ──────────────────────────────────────────────── */
-
-test('tree query selects only enumeration fields — path, type, name', () => {
-  const q = treeEntriesQuery()
-  assert.match(q, /entries\s*\{\s*name\s+path\s+type\s*\}/)
-  assert.doesNotMatch(q, /entries\s*\{[^}]*oid/, 'tree entry oid is not needed')
-})
-
 /* ── audit function itself ───────────────────────────────────────────── */
 
 test('assertOwnershipQuerySafe rejects widened selections', () => {
@@ -105,6 +94,13 @@ test('assertOwnershipQuerySafe rejects widened selections', () => {
   ]) {
     assert.throws(() => assertOwnershipQuerySafe(bad), /forbidden|non-contract/, bad)
   }
+})
+
+test('no unmeasured GraphQL tree route exists in the production family', async () => {
+  const mod = await import('../lib/ownership/queries.mjs')
+  assert.equal(mod.treeEntriesQuery, undefined,
+    'tree enumeration is measured only via the REST recursive git tree — '
+    + 'a GraphQL entries route may not be introduced unmeasured')
 })
 
 test('runtime code never imports the spike query module', async () => {

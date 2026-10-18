@@ -548,6 +548,33 @@ Rules:
   by reading back that scope's existing provisional aggregate rows (upserts
   are set-valued, idempotent) — raw nodes are never re-storable.
 
+### 9.1 Persistence handoff — hard constraint for Phase 1C-B (BLOCKER)
+
+The Phase 1C-A reducer is correct **only** when it sees the complete node
+set for each scope-period it finalizes. The following are hard constraints,
+not implementation details, and they block all ownership writes until the
+persistence tranche resolves them:
+
+- **Page-local Top-25/Other folding is invalid.** The Top-25 boundary is
+  defined over a *complete* scope-month's contributor set. Folding per
+  fetched page fabricates wrong membership (a contributor who would rank
+  inside the full-month Top-25 can be spilled, or vice versa).
+- `human_contributor_count` must be computed over the **full transient
+  contributor set** for the scope-month — never a page-local or folded
+  subset. It must never silently cap at the Top-N boundary.
+- **Overflow-only contributor identities must not be durably stored merely
+  to simplify paging** — §6.4 durable-identity minimization is a hard rule,
+  not a convenience; writing identity rows "temporarily" is still writing.
+- **Advancing a GraphQL cursor independently from aggregate state can
+  double-count or skip a page.** Aggregate written then crash before cursor
+  → page reduced twice; cursor written then crash before aggregate → page
+  never counted. Cursor/checkpoint writes must be **atomic with the
+  aggregate state they describe**.
+- Phase 1C-B must therefore design **and prove** a crash-safe
+  accumulation/checkpoint strategy — atomic page checkpoints or
+  equivalent set-valued, idempotent writes — **before any ownership write
+  path is implemented**. This is an explicit blocker.
+
 ---
 
 ## 10. Production data model — final candidate

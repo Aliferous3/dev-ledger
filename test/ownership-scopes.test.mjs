@@ -15,6 +15,7 @@ const {
   pathDepth,
   isValidDirScopePath,
   isExcludedPath,
+  isBinaryBlobPath,
   repoScopeCandidate,
   deriveScopeCandidates,
 } = await import('../lib/ownership/scopes.mjs')
@@ -143,9 +144,9 @@ test('excluded-class paths never appear in candidates OR overflow', () => {
   const { scopes, overflow } = deriveScopeCandidates(entries)
   const all = [...scopes, ...overflow].map((s) => s.display_path).filter(Boolean)
   for (const p of all) assert.equal(isExcludedPath(p), false, `${p} leaked`)
-  // 'a' and 'api' are real dirs whose only listed subtree is excluded — the
-  // dirs themselves remain valid scopes; the excluded paths do not appear
-  assert.deepEqual(all, ['a', 'api', 'src'])
+  // 'a' and 'api' contain ONLY excluded content — dirs do not exist merely
+  // because excluded blobs appeared in the tree
+  assert.deepEqual(all, ['src'])
 })
 
 test('>500 otherwise-valid dirs resolve deterministically (depth, then path)', () => {
@@ -174,6 +175,70 @@ test('>500 otherwise-valid dirs resolve deterministically (depth, then path)', (
     assert.equal(o.scope_type, 'dir')
     assert.equal(isExcludedPath(o.display_path), false)
   }
+})
+
+test('binary-only directories produce no scope; eligible blobs derive dirs', () => {
+  const { scopes, overflow } = deriveScopeCandidates([
+    { path: 'assets/logo.png', type: 'blob' },
+    { path: 'assets/icons/close.svg', type: 'blob' },   // svg is NOT binary
+    { path: 'media/intro.mp4', type: 'blob' },
+    { path: 'fonts/main.woff2', type: 'blob' },
+    { path: 'docs/spec.pdf', type: 'blob' },
+    { path: 'pkg/release.zip', type: 'blob' },
+    { path: 'bin/app.exe', type: 'blob' },
+    { path: 'deep/a/b/c/d.bin', type: 'blob' },
+  ])
+  const paths = [...scopes, ...overflow].map((s) => s.display_path).filter(Boolean)
+  // every listed dir is binary-only EXCEPT 'assets' (has close.svg) — 'bin'
+  // is only an eligible dir name, but its blob is binary so nothing results
+  assert.deepEqual(paths, ['assets', 'assets/icons'])
+})
+
+test('mixed source + binary directory stays a scope; binary file never appears', () => {
+  const { scopes } = deriveScopeCandidates([
+    { path: 'src/widget.ts', type: 'blob' },
+    { path: 'src/widget.png', type: 'blob' },
+    { path: 'src/readme.pdf', type: 'blob' },
+  ])
+  const paths = scopes.map((s) => s.display_path)
+  assert.ok(paths.includes('src'))
+  for (const e of ['src/widget.png', 'src/readme.pdf', 'src/widget.ts']) {
+    assert.ok(!paths.includes(e), `${e} is a file — never a scope`)
+  }
+})
+
+test('binary classifier is extension-conservative — text/source stays eligible', () => {
+  for (const p of ['a/logo.png', 'x/favicon.ICO', 'm/song.FlAc', 'z/lib.o',
+    'f/font.woff2', 'd/paper.pdf', 'v/clip.webm', 'r/pack.tar.gz']) {
+    assert.equal(isBinaryBlobPath(p), true, p)
+  }
+  for (const p of ['a/logo.svg', 'x/readme.md', 's/main.ts', 'c/config.yaml',
+    'm/bundle.min.js', 'l/package-lock.json', 'd/data.csv', 'a/LICENSE',
+    'x/file', 'a/.gitignore', 'src/app.exe.ts']) {
+    assert.equal(isBinaryBlobPath(p), false, p)
+  }
+})
+
+test('tree entries alone never create scopes — dirs derive from eligible blobs', () => {
+  const { scopes } = deriveScopeCandidates([
+    { path: 'a/b/c', type: 'tree' },
+    { path: 'a/b', type: 'tree' },
+    { path: 'a', type: 'tree' },
+  ])
+  assert.equal(scopes.length, 1, 'only the repo scope — trees imply nothing without eligible blobs')
+  assert.equal(scopes[0].scope_type, 'repo')
+})
+
+test('enumeration order never affects the result', () => {
+  const entries = [
+    { path: 'z/deep/file.ts', type: 'blob' },
+    { path: 'a/img.png', type: 'blob' },
+    { path: 'm/index.ts', type: 'blob' },
+    { path: 'a/logo.svg', type: 'blob' },
+  ]
+  const forward = deriveScopeCandidates(entries)
+  const reverse = deriveScopeCandidates([...entries].reverse())
+  assert.deepEqual(forward, reverse)
 })
 
 test('candidate shape maps onto ownership_scopes columns only', () => {
