@@ -1222,37 +1222,60 @@ hold it without violating this contract (snapshots require a durable
 contributor FK; the linked-contributor CHECK forces identity fields; the
 sync-state JSONB is backed up, unbounded, and unconstrainable).
 
+Terminology for this amendment is exact: **EPHEMERAL** means short-lived
+*persisted* operational state — written to Postgres, but backup-excluded,
+never browser/API-exposed, never logged or telemetered, deleted at scope
+finalization or on build-abort cleanup, and fully reconstructable by
+restarting the build. **RETAINED** means durable, backed-up, user-visible
+ownership data (`ownership_scopes`, `ownership_contributors`,
+`ownership_snapshots` at `active_version`). Persisted ≠ retained.
+
 The proposed amendment is deliberately narrow:
 
-1. **New data class — EPHEMERAL build working state.** Per
-   (scope × month × contributor_key) touch counters plus the `is_bot`
+1. **New data class — EPHEMERAL build working state, two relations.** (a)
+   Per (scope × month × work_key) touch counters plus the `is_bot`
    boolean and min/max `committedDate`, existing only while
-   `building_version` is set for that repository, keyed by the **same
-   opaque `contributor_key`** already defined in §5/§6 (sha256 over
-   domain + repository uuid + node id). The key carries no node id, no
-   login, no name, no email, no path, and no raw nodes.
+   `building_version` is set for that repository. (b) Per
+   represented-work-key identity staging carrying exactly
+   `github_node_id`, `display_login`, `is_bot`, existing only between a
+   scope's completed accumulation and its finalization. `work_key` is the
+   same `contributor_key` defined in §5/§6 — a **deterministic,
+   repository-scoped pseudonymous identifier** derived from GitHub node
+   identity: no plaintext identity, not user-displayable, linkable within
+   the repository, and therefore not anonymous. It may appear in
+   persisted build state only under the EPHEMERAL conditions above —
+   service-role-only, backup-excluded, never logged, deleted at
+   finalization, cascade-deleted, swept on abandoned builds.
 2. **The §6.4 guarantee is preserved verbatim** — overflow-only
-   contributors still get **no durable identity row** and their GitHub
-   identity fields (`github_node_id`, `display_login`) are still **never
-   persisted**. The work row is a counter, not an identity row; it is
-   deleted at scope finalization, is backup-excluded (EPHEMERAL class),
-   cascades on repository/account deletion, and is swept on abandoned
-   builds.
-3. **Two-pass identity resolution.** GitHub identity fields
-   (`author.user.{id,login}`) are re-read in a second walk only to write
-   durable `ownership_contributors` rows for keys already known to be
-   represented — overflow identities are classified transiently (to
-   compute their work key) and discarded in memory per page, exactly as
-   §9 requires.
+   contributors still get **no retained identity row** and their GitHub
+   identity fields (`github_node_id`, `display_login`) are **never
+   persisted in any table**. Staged identity rows are written only for
+   contributor keys pass 1 already proved individually represented;
+   `ownership_contributors` rows are created **only inside the atomic
+   scope-finalization transaction**, never during page-by-page resolve —
+   so an abandoned scope can never orphan a durable identity.
+3. **Two-pass identity resolution, attribution-frozen.** The accumulate
+   pass fixes every metric (work keys, counts, Top-25, unlinked share,
+   human counts, bot flags); the resolve pass re-reads
+   `author.user.{id,login}` solely to stage identities for represented
+   keys and cannot mutate metrics. A required key that stays
+   unresolvable fails the scope closed and restarts at a fresh
+   accumulate — GitHub's account-link resolution can change independently
+   of the pinned commit, and the build succeeds only while selected keys
+   remain resolvable.
 4. **Build-boundary SHA.** `ownership_sync_state.history_cursor` may carry
    the build's pinned commit oid in addition to page cursors — a second
    sanctioned SHA beside `last_processed_sha` (§5.12), required because
    `defaultBranchRef` resolves at query time and multi-page builds must
    not straddle pushes.
 5. Rejected within the design: provisional persistence of
-   `github_node_id`/`display_login` for overflow contributors in any form
-   (ephemeral identity maps, provisional contributor rows), and JSONB
-   accumulators inside `ownership_sync_state` (backed up, unbounded).
+   `github_node_id`/`display_login` for contributors not yet proven
+   represented (optimistic identity maps, provisional contributor rows);
+   JSONB accumulators inside `ownership_sync_state` (backed up,
+   unbounded); and folding pass-1-linked contributors into `unlinked`
+   when they unlink during pass 2 (unimplementable — a null `author.user`
+   carries no node id mapping back to the work key; pass-2 non-resolution
+   instead fails the scope closed).
 
 If this amendment is rejected, the honest alternatives are: (a) accept
 per-scope restart-in-single-invocation with no completion guarantee on
