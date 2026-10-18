@@ -609,7 +609,10 @@ PK `id`. Composite FK `(repository_id, user_id) → repositories(id, user_id)`
 cascade. Unique `(repository_id, scope_path_hash)`. Index
 `(repository_id, depth)` for bounded enumeration. Columns per §4.1.
 Write: ownership ingestion. Read: dashboard RPCs join through it for labels.
-Cardinality: ≤500/repo; ~50–200 typical.
+Cardinality: ≤500/repo; ~50–200 typical. *(Under proposed §27 the bound
+is stated per version: ≤500 **directory memberships** per
+`calculation_version`; the base table may transiently hold the union of
+active+building sets — ≈≤1000 worst case, pruned after abort/GC.)*
 
 ### `ownership_contributors`
 PK `id`. Composite FK `(repository_id, user_id) → repositories(id, user_id)`
@@ -689,6 +692,17 @@ Worked result: medium repo at 20% sparsity ≈ 48k rows; large repo hits the
 cap and degrades to shallower scope coverage instead of 1.5M rows. Postgres
 handles 300k indexed rows trivially — the cap exists for hygiene and
 per-tenant fairness, not database survival.
+
+*Under proposed §27 the scope bounds decompose precisely — they are four
+different counts, not one "≤500 scopes/repo":* **base scope identities**
+(≈≤ the union of the active and building directory sets; ≈≤1000 transient
+during N/N+1 coexistence); **version memberships** (≤500 directories per
+`calculation_version`, repo scope separate — directories beyond the hard
+cap are never persisted at all, so membership is never an overflow
+inventory); **analyzed memberships** (the `excluded=false` subset —
+`excluded='cardinality_cap'` marks only in-set scopes omitted on projected
+snapshot volume); **snapshots** (sparse writes, Top-25+Other fan-out,
+~300k/repo cap as above).
 
 ---
 
@@ -1292,6 +1306,28 @@ The proposed amendment is deliberately narrow:
    `ON DELETE CASCADE` — deletion would destroy active data). Abandoned
    and garbage-collected versions delete their membership rows and then
    prune base scopes referenced by nothing.
+   **(d) DB-enforced membership integrity** — `ownership_snapshots` gains
+   a composite FK `(scope_id, repository_id, user_id,
+   calculation_version) → ownership_scope_versions`, backed by a
+   supporting unique on the same four columns, with `ON DELETE NO
+   ACTION`/`RESTRICT` (never CASCADE): a snapshot can exist only for a
+   scope belonging to its own version/repo/tenant, and deleting a
+   membership row can never destroy snapshots — cleanup order is always
+   snapshots first, membership second. Repository/account deletion still
+   cascades completely through the other FKs.
+   **(e) private-path bound is precise** — the ≤500 cap is a *hard
+   directory-enumeration cap per calculation version*: directories beyond
+   it (`deriveScopeCandidates().overflow`) are never persisted
+   individually — no base scope row, no membership row, no `display_path`
+   in storage/logs/telemetry. `excluded='cardinality_cap'` is reserved
+   for scopes *inside* the bounded persisted set that are omitted from
+   analysis only because the repo snapshot/storage budget would breach —
+   it is never a "repo contained this path" inventory marker, and
+   `ownership_scope_versions` never becomes a full repository path
+   inventory. While N and N+1 coexist, `ownership_scopes` may hold the
+   union of two bounded sets (≈≤1000 base identities worst case,
+   transient); old-only identities are pruned after abort/GC — no
+   unbounded accumulation.
 3. **Two-pass identity resolution, attribution-frozen.** The accumulate
    pass fixes every metric — work keys, counts, Top-25, unlinked share,
    human counts, **and `is_bot` classification** (`human_contributor_count`
