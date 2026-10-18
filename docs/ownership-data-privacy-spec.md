@@ -217,13 +217,15 @@ Fields that failed are listed at the end as **rejected**.
 | `display_path` | text, null for repo scope | UI label after disconnect — see §8 decision |
 | `scope_type` | text: `repo` \| `dir` | repo row carries no path |
 | `depth` | int | bounded enumeration (≤4 per RFC §18) |
-| `excluded` | boolean + `exclusion_reason` text null | vendor/generated/binary/submodule skip is itself a persisted decision; lets UI say "not analyzed" vs "missing" |
+| `excluded` | boolean + `exclusion_reason` text null | **only** for legitimately persisted scopes later omitted by cardinality/analysis limits (`'cardinality_cap'`), so UI can say "not analyzed" — never for vendor/generated/binary/submodule paths, which are excluded in memory and never persisted at all (§8) |
 | `created_at`, `updated_at` | timestamptz | housekeeping |
 
 **Rejected:** `file` scope type (no file-level UI in V1 — RFC §18);
 per-scope GitHub object ids (tree SHAs not needed once enumeration is a
 cursor — rejected to keep Git internals out of storage, except `last_sha`
-in sync state §4.4 where it is a resume anchor).
+in sync state §4.4 where it is a resume anchor); persisting
+vendor/generated/binary/submodule paths even as tombstones — they are
+filtered in memory during enumeration and never reach this table (§8).
 
 ### 4.2 Contributor identity (`ownership_contributors`)
 
@@ -277,8 +279,8 @@ historical row, once written, never changes meaning.
 
 | Granularity | Fields carried | Semantics |
 |---|---|---|
-| `month` | `total_touch_commits` int, `attributable_contributor_count` int, `unlinked_touch_share` numeric(5,4) | immutable period denominators |
-| `head` | `attributable_contributor_count` int, `recent_maintainer_count` int, `top_contributor_share` numeric(5,4), `total_surviving_lines` bigint, `unlinked_surviving_line_share` numeric(5,4) | current-state concentration inputs — §6.3 defines the attributable-only basis |
+| `month` | `total_touch_commits` int, `human_contributor_count` int, `unlinked_touch_share` numeric(5,4) | immutable period denominators |
+| `head` | `human_contributor_count` int, `recent_human_maintainer_count` int, `top_human_contributor_share` numeric(5,4), `total_surviving_lines` bigint, `unlinked_surviving_line_share` numeric(5,4) | current-state concentration inputs — human-only basis: `linked` ∧ `!is_bot` (§6.3, §6.5) |
 
 Unique: `(scope_id, contributor_id, period_granularity, period_start,
 calculation_version)` — **`calculation_version` is part of row identity** so
@@ -303,8 +305,8 @@ path-scoped — measured spike finding; would be a false metric);
 | `history_cursor` | jsonb: `{ scope_id: endCursor }` | per-dir `history(path:)` page cursors |
 | `blame_cursor` | jsonb: `{ next_scope, next_file_index, tree_sha }` | resume mid-blame pass; `tree_sha` detects tree drift between slices |
 | `pending_scopes` | uuid[] or jsonb | scopes whose aggregates are incomplete |
-| `active_version` | int | the `calculation_version` the dashboard currently serves |
-| `building_version` | int null | the version under construction; null when no rebuild is in progress (§13) |
+| `active_version` | int null | the `calculation_version` the dashboard currently serves; **null until the first build completes** (§13) |
+| `building_version` | int null | the version under construction; null when no build is in progress (§13) |
 | `last_processed_sha` | text null | HEAD boundary anchor for incremental runs — the *only* sha allowed |
 | `last_processed_at` | timestamptz | `pushed_at ≤ last_processed_at` incremental skip |
 | `error` | text — **closed taxonomy only** | same `lib/sync-errors.mjs` discipline; new codes added to the enum, never provider text |
@@ -396,17 +398,17 @@ many real individuals and is explicitly not one contributor. Therefore:
 - it must **not** count as exactly one known contributor;
 - it must **not** be eligible for top-contributor/concentration position;
 - it must **not** count as one recent maintainer;
-- it must **not** lower `attributable_contributor_count` by folding real
+- it must **not** lower `human_contributor_count` by folding real
   people into a single name;
 - its touch share and surviving-line share are stored/displayed **as their
   own unresolved-attribution figures** (`unlinked_touch_share`,
   `unlinked_surviving_line_share` on scope-total rows), separate from the
-  per-attributable-contributor metrics;
-- concentration metrics (`attributable_contributor_count`,
-  `recent_maintainer_count`, `top_contributor_share`) operate **only over
-  `linked` contributors** and must be qualified in UI/methodology as
-  covering attributable attribution only, whenever the unresolved share is
-  material.
+  per-contributor metrics;
+- concentration metrics (`human_contributor_count`,
+  `recent_human_maintainer_count`, `top_human_contributor_share`) operate
+  **only over `linked` contributors with `is_bot = false`** (§6.5) and
+  must be qualified in UI/methodology as covering attributable human
+  attribution only, whenever the unresolved share is material.
 
 Justification for the single bucket (over pseudonymous subdivision):
 
@@ -421,7 +423,7 @@ Justification for the single bucket (over pseudonymous subdivision):
   amendment and methodology copy that calls it approximate. V1 does not
   subdivide.
 
-### 6.4 Synthetic `aggregate` buckets ("other")
+### 6.4 Synthetic `aggregate` buckets ("other") + identity minimization
 
 The top-25-per-scope-period cap (§11) folds surplus contributors into an
 `other` row: `identity_kind='aggregate'`, `contributor_key='other'`,
@@ -430,18 +432,32 @@ The top-25-per-scope-period cap (§11) folds surplus contributors into an
 Rules:
 
 - `aggregate` rows are **never treated as people** — excluded from
-  `attributable_contributor_count`, `recent_maintainer_count`, and
+  `human_contributor_count`, `recent_human_maintainer_count`, and
   top-contributor position exactly like `unlinked`.
 - `unlinked` is **never folded into `other`** — unresolved attribution stays
   visibly unresolved; `other` only ever contains excess *linked*
   contributors.
 - No GitHub identity fields may ever appear on `aggregate` rows (§23 test).
+- **Durable-identity minimization:** a linked contributor gets a durable
+  `ownership_contributors` row **only when they are individually
+  represented** in at least one retained result. Contributors that fall
+  below the top-N threshold in every scope-period are aggregated into
+  `other` **transiently, in memory** — no identity row is created solely
+  for them. The fold happens during slice aggregation; overflow identities
+  never reach storage.
 
 ### 6.5 Bots
 
 `is_bot` heuristic (`[bot]` suffix, `bot` account type where exposed).
-Bots are rows like any linked contributor — the UI may filter them but the
-data is identical in kind.
+Bots are stored like any linked contributor and may be displayed
+separately, but they are **not people** for metric purposes:
+
+- `human_contributor_count`, `recent_human_maintainer_count`, and
+  `top_human_contributor_share` all exclude `is_bot = true` by default —
+  the metric basis is `identity_kind='linked' AND is_bot = false`.
+- Automation must not make a module appear human-maintained or
+  single-person-concentrated. Bot attribution may be surfaced as its own
+  labeled figure, never merged into the human counts silently.
 
 ---
 
@@ -527,34 +543,61 @@ Rules:
 ## 10. Production data model — final candidate
 
 **Four tables — the smallest normalized model** satisfying isolation,
-cascade, timeline, blame, resumability, and versioning:
+cascade, timeline, blame, resumability, and versioning.
+
+**Database-enforced tenant consistency (hard requirement):** every
+ownership table denormalizes `user_id` alongside `repository_id` for
+scoping speed, and simple independent FKs would *not* prove the pair is
+consistent — a bug could pair user A's `user_id` with user B's
+`repository_id`. Phase 1B must enforce the pairing **in the database** with
+composite foreign keys (application-side checks alone are insufficient):
+
+- `repositories` gains a unique constraint on `(id, user_id)` (it already
+  has `unique(user_id, github_repo_id)`; the composite surrogate unique is
+  what ownership FKs target).
+- Every ownership table declares
+  `foreign key (repository_id, user_id) references repositories(id, user_id) on delete cascade`.
+- `ownership_snapshots` additionally declares
+  `foreign key (scope_id, repository_id) references ownership_scopes(id, repository_id) on delete cascade` and
+  `foreign key (contributor_id, repository_id) references ownership_contributors(id, repository_id) on delete cascade`
+  — a snapshot cannot pair a scope or contributor from one repository with
+  another's repository_id, and both parents cascade with the repo.
+- The required supporting uniques (`ownership_scopes(id, repository_id)`,
+  `ownership_contributors(id, repository_id)`) are Phase-1B implementation
+  detail, as is the exact SQL. The contract is: **the database itself
+  rejects any cross-tenant or cross-repo pairing** (§23 tests prove it).
 
 ### `ownership_scopes`
-PK `id`. FKs: `user_id → users cascade`, `repository_id → repositories
-cascade`. Unique `(repository_id, scope_path_hash)`. Index
+PK `id`. Composite FK `(repository_id, user_id) → repositories(id, user_id)`
+cascade. Unique `(repository_id, scope_path_hash)`. Index
 `(repository_id, depth)` for bounded enumeration. Columns per §4.1.
 Write: ownership ingestion. Read: dashboard RPCs join through it for labels.
 Cardinality: ≤500/repo; ~50–200 typical.
 
 ### `ownership_contributors`
-PK `id`. FKs: `user_id → users cascade`, `repository_id → repositories
-cascade`. Unique `(repository_id, contributor_key)`. Index
+PK `id`. Composite FK `(repository_id, user_id) → repositories(id, user_id)`
+cascade. Unique `(repository_id, contributor_key)`. Index
 `(repository_id)` only — **deliberately no index on `github_node_id`**
 (cross-tenant enumeration must not even be convenient). Columns per §4.2.
-Cardinality: ≤~200/repo; top-25-per-scope cap applies to *snapshot writes*,
-not this table.
+Cardinality: small — identity rows exist **only for contributors
+individually represented in a retained result** plus the `unlinked` and
+`other` synthetic rows (§6.4); overflow identities are folded transiently
+and never persisted. ≤~30/repo typical.
 
 ### `ownership_snapshots`
-PK `id`. FKs: `user_id`, `repository_id`, `scope_id → ownership_scopes
-cascade`, `contributor_id → ownership_contributors cascade` (null =
-scope-total row). Unique `(scope_id, contributor_id, period_granularity,
-period_start, calculation_version)` — version is part of row identity so
-served and building versions coexist — plus a partial unique index for
-null-contributor scope-total rows. Index `(repository_id, period_start)`
-for timeline queries. Columns per §4.3. Cardinality: §11.
+PK `id`. Composite FKs `(repository_id, user_id) → repositories`,
+`(scope_id, repository_id) → ownership_scopes`,
+`(contributor_id, repository_id) → ownership_contributors` (null =
+scope-total row), all cascade. Unique `(scope_id, contributor_id,
+period_granularity, period_start, calculation_version)` — version is part
+of row identity so served and building versions coexist — plus a partial
+unique index for null-contributor scope-total rows. Index
+`(repository_id, period_start)` for timeline queries. Columns per §4.3.
+Cardinality: §11.
 
 ### `ownership_sync_state`
-PK `(user_id, repository_id)`. FKs cascade both. Columns per §4.4.
+PK `(user_id, repository_id)`. Composite FK `(repository_id, user_id) →
+repositories(id, user_id)` cascade. Columns per §4.4.
 Cardinality: 1/repo.
 
 **Rejected alternatives:** a fifth `ownership_scope_summaries` table
@@ -590,12 +633,17 @@ anyway. Guardrails, all enforced at write time:
 2. **Top-25 + "other"** per scope-period: the `unlinked` bucket always gets
    its own row and is never folded into `other`; linked contributors below
    rank 25 (by period touches) fold into an `identity_kind='aggregate'` row
-   (`contributor_key='other'`, §6.4) — caps fan-out at ≤27 contributor rows
-   per scope/period (25 linked + unlinked + other) plus one scope-total row.
+   (`contributor_key='other'`, §6.4) **in memory** — overflow identities
+   get no durable `ownership_contributors` rows. Caps fan-out at ≤27
+   contributor rows per scope/period (25 linked + unlinked + other) plus
+   one scope-total row.
 3. **Per-repo snapshot cap** — e.g. 300k rows/repo: on breach, deepest
-   scopes are pruned first and marked `excluded='cardinality_cap'` in
-   `ownership_scopes`. This converts unbounded worst cases into bounded
-   degradation of granularity, never unbounded storage.
+   **already-persisted, otherwise-valid** scopes are omitted from analysis
+   and flagged `excluded='cardinality_cap'` — the only legitimate use of
+   the excluded fields, since UI must distinguish "not analyzed due to
+   limits" from "doesn't exist" (vendor/generated/binary/submodule paths
+   never reach the table at all — §8). This converts unbounded worst cases
+   into bounded degradation of granularity, never unbounded storage.
 4. **HEAD rows are ≤ ~28/scope** — up to 25 linked + 1 unlinked + 1
    `aggregate` + 1 scope-total row per scope, one `head` snapshot each —
    small relative to monthly history, but not one row per scope.
@@ -627,13 +675,23 @@ per-tenant fairness, not database survival.
 - `calculation_version` is **part of snapshot row identity** (§4.3
   uniqueness) — version N and N+1 rows coexist in the table simultaneously.
 - `ownership_sync_state` carries two explicit versions:
-  - `active_version` — the version dashboard reads serve;
+  - `active_version` — the version dashboard reads serve, **null until the
+    first build completes**;
   - `building_version` — the version currently being written, or null.
 - **Serve gate:** dashboard functions return only rows where
-  `calculation_version = active_version`. A partially built N+1 is never
-  exposed; results from two versions are never mixed in a response.
+  `calculation_version = active_version`. `active_version IS NULL` → the
+  repo returns "ownership not ready / unavailable" — partial rows of an
+  in-progress first build are never exposed; results from two versions are
+  never mixed in a response.
 
-Version bump flow:
+Initial bootstrap (the first-ever build for a repo):
+
+- `active_version = null`, `building_version = 1` — ingestion writes V1
+  rows while the dashboard reports "not ready".
+- On validated completion: atomically `active_version = 1`,
+  `building_version = null` — V1 becomes visible in a single update.
+
+Version bump flow (N → N+1, same machinery):
 
 1. `active_version=N`, `building_version` set to N+1; scopes re-marked
    pending.
@@ -717,9 +775,9 @@ useful payload shape per repository:
       "path": "src/api",            // null → repository scope
       "depth": 2,
       "excluded": false,
-      "attributableContributorCount": 6,   // linked only — unlinked/other are not people
-      "recentMaintainerCount": 3,          // linked only
-      "topContributorShare": 0.42,         // among attributable contributors only
+      "humanContributorCount": 6,          // linked ∧ not-bot only — unlinked/other/bots are not people
+      "recentHumanMaintainerCount": 3,     // linked ∧ not-bot only
+      "topHumanContributorShare": 0.42,    // among human attributable contributors only
       "unlinkedTouchShare": 0.19,          // unresolved attribution — reported separately
       "unlinkedSurvivingLineShare": 0.15,
       "attributionQualified": true,        // unresolved share is material → UI must qualify concentration figures
@@ -748,8 +806,9 @@ contributors appear as **current login only**; `kind: "unlinked"` renders
 "Unlinked contributor" (unresolved attribution, not a person);
 `kind: "aggregate"` renders "Other contributors" (excess linked
 contributors under the top-25 cap — likewise not a person). Neither is ever
-counted in `attributableContributorCount`, `recentMaintainerCount`, or
-`topContributorShare`.
+counted in `humanContributorCount`, `recentHumanMaintainerCount`, or
+`topHumanContributorShare`; bots (`bot: true`) are excluded from those
+fields too and may only be shown separately labeled.
 
 ---
 
@@ -775,20 +834,22 @@ never before it is true.
 
 > ['OWNERSHIP', 'Derived ownership aggregates: for each repository and
 > directory scope, per-contributor monthly touch counts and shares, HEAD
-> surviving-line shares, attributable-contributor counts and
+> surviving-line shares, human-contributor counts and
 > unresolved-attribution shares, and first/last activity dates.
-> Linked contributors are identified by GitHub account id and current
-> username; contributions GitHub cannot link to an account are grouped under
-> a single "Unlinked contributor" label and reported separately from named
+> Linked contributors are identified by their GitHub account identity and
+> current username — the minimum needed to label ownership results;
+> contributions GitHub cannot link to an account are grouped under a single
+> "Unlinked contributor" label and reported separately from named
 > contributors.'],
 
 **§03 WHAT DEV LEDGER DOES NOT STORE — amend AUTHOR IDENTIFIERS:**
 
 > ['AUTHOR IDENTIFIERS', 'Individual commit and pull-request rows still
 > belong to your account by construction — other people\'s commits are never
-> stored as records. Ownership analysis stores only derived aggregates about
-> other contributors (section 02). Contributor email addresses are never
-> requested or stored.'],
+> stored as records. Ownership analysis stores only the minimal linked
+> GitHub identity needed to label ownership results, plus derived
+> repository/directory aggregates (section 02). Contributor email addresses
+> are never requested or stored.'],
 
 > (SOURCE CODE, COMMIT MESSAGES, PULL-REQUEST TITLES, EMAIL ADDRESS, ACCESS
 > TOKENS, WEBHOOK PAYLOADS rows are unchanged — all still true. Add
@@ -841,11 +902,13 @@ Signal definitions:
   public repository — and it is reported as unresolved attribution, never
   as a single contributor.
 - **Concentration metrics** — contributor counts, recent-maintainer counts,
-  and top-contributor share are computed over attributable (linked)
-  contributors only. "Unlinked contributor" and "Other contributors" are
-  unresolved/synthetic groupings, not people, and are never counted as
-  individuals. Where unresolved attribution is material, concentration
-  figures are qualified as covering attributable attribution only.
+  and top-contributor share are computed over attributable **human**
+  contributors only (linked accounts, bots excluded by default).
+  "Unlinked contributor" and "Other contributors" are unresolved/synthetic
+  groupings, not people, and are never counted as individuals; bot
+  activity may be shown separately labeled. Where unresolved attribution
+  is material, concentration figures are qualified as covering
+  attributable human attribution only.
 
 Limitations, stated plainly: squash merges attribute the squashed commit to
 its author, not its original writers; renames and cross-directory moves can
@@ -882,14 +945,22 @@ ownership event carries these.
 - All four ownership tables enter `BACKUP_TABLES` in
   `scripts/backup-scope.mjs` — classification **is mandatory**: an
   unclassified new table fails CI by design.
-- Class: **operational** (rebuildable from GitHub at real cost — same
-  reasoning as `repo_coverage`). Not ephemeral: losing them means a full
-  ownership re-ingest.
+- **Classification — not uniformly reconstructable:**
+  - **CORE:** `ownership_scopes`, `ownership_contributors`,
+    `ownership_snapshots`. Losing these is real, user-visible historical
+    data loss: a disconnected-but-retained repository may no longer be
+    readable from GitHub at all, yet the product intentionally keeps its
+    historical analytics (§14). For those repos the aggregates are
+    **irreplaceable**, not merely expensive to rebuild.
+  - **OPERATIONAL:** `ownership_sync_state` — cursors/phase markers;
+    losing it means a re-ingest, same reasoning as `repo_sync`.
 - Normal retention applies (7 daily / 4 weekly). Repository/account deletion
   does not rewrite historical dumps — disclosed on the trust page §08.
-- Restores preserve tenant isolation: `user_id` FKs are part of the dump.
+- Restores preserve tenant isolation: the `user_id`/composite FKs are part
+  of the dump.
 - No backup-behavior change in this phase; classifying tables happens in the
-  Phase 1B migration PR.
+  Phase 1B migration PR, and the §23 test asserts the CORE/OPERATIONAL
+  split.
 
 ---
 
@@ -960,6 +1031,14 @@ GraphQL points as the secondary guard.
   assertion).
 - `resume` continues from cursors.
 
+**Tenant consistency (database-enforced)**
+- Deliberately mismatched inserts are rejected: `user_id` of tenant A paired
+  with `repository_id` of tenant B fails at the composite FK.
+- A snapshot pairing a scope or contributor from repo X with a different
+  `repository_id` fails at the composite FK.
+- These are database-constraint tests (fixture Postgres / drill), not just
+  application-mock tests — application-only checks are insufficient.
+
 **Identity**
 - Linked contributor durable key is `github_node_id` (GraphQL
   `author.user.id`); login refreshable; `databaseId` never requested.
@@ -968,13 +1047,20 @@ GraphQL points as the secondary guard.
   `display_login` always null.
 - `identity_kind='aggregate'` rows carry no GitHub identity fields and are
   never treated as people; `unlinked` is never folded into `other`.
-- `attributable_contributor_count`, `recent_maintainer_count`, and
-  `top_contributor_share` exclude `unlinked` and `aggregate` rows.
+- Contributors represented **only** inside `other` get no durable
+  `ownership_contributors` row — overflow identities stay transient.
+- `human_contributor_count`, `recent_human_maintainer_count`, and
+  `top_human_contributor_share` exclude `unlinked`, `aggregate`, **and
+  `is_bot` rows**; bots may appear only as separately labeled figures.
 - `is_bot` set correctly.
 
 **Versioning**
 - `calculation_version` is part of snapshot uniqueness — V1 and V2 rows
   coexist safely.
+- **First build:** `active_version` null + `building_version` 1 → partial V1
+  rows are never served; repo reports "not ready".
+- **Promotion:** validated completion flips `active_version` atomically and
+  clears `building_version`.
 - V1 remains fully readable for the entire V2 rebuild.
 - Dashboard serves `active_version` rows only.
 - An incomplete `building_version` is never exposed.
@@ -985,17 +1071,25 @@ GraphQL points as the secondary guard.
 - Rollback before the flip leaves `active_version` data untouched.
 - Two versions never mix within a single response.
 
+**Scope exclusion**
+- Vendor/generated/binary/submodule directory paths are never persisted —
+  no `ownership_scopes` row exists for them.
+- `excluded`/`exclusion_reason` is only ever set on otherwise-valid
+  persisted scopes omitted by the cardinality cap.
+
 **API**
 - Response contains no internal ids/node ids/SHAs/emails; `contributor:
   null` for `unlinked` and `aggregate` rows; concentration fields carry the
-  attributable-only basis and `attributionQualified` flag.
+  human-only basis and `attributionQualified` flag.
 
 **Telemetry**
 - No ownership event carries repo names, paths, or logins (allowlist test).
 
 **Backup scope**
-- Ownership tables classified in `backup-scope.mjs` (existing unclassified-
-  table CI failure proves this can't be skipped).
+- `ownership_scopes`/`ownership_contributors`/`ownership_snapshots` are in
+  `CORE_TABLES`; `ownership_sync_state` is in `OPERATIONAL_TABLES` — the
+  test asserts the split, not just presence (existing unclassified-table CI
+  failure proves classification can't be skipped).
 
 ---
 
