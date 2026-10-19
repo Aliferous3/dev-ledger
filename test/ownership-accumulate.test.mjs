@@ -15,7 +15,11 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 import { reduceHistoryToMonthly } from '../lib/ownership/history-reducer.mjs'
-import { contributorKey, UNLINKED_KEY } from '../lib/ownership/contributors.mjs'
+import {
+  contributorKey,
+  UNLINKED_KEY,
+  OwnershipIdentityError,
+} from '../lib/ownership/contributors.mjs'
 import { reducePageDeltas } from '../lib/ownership/page-deltas.mjs'
 import {
   runAccumulateSlice,
@@ -121,10 +125,14 @@ function makeMemDb({ repoRow } = {}) {
           const cur = st.history_cursor?.current
           if (!cur || cur.scope_id !== args.p_scope || cur.pass !== args.p_pass) return 'stale'
           if ((cur.cursor ?? null) !== (args.p_expected_cursor ?? null)) return 'stale'
-          // additive upsert — same row exists => sums merge
+          // additive upsert — same row exists => sums merge; mirrors the
+          // real function's stored-row is_bot drift guard (fail closed)
           for (const d of args.p_deltas) {
             const k = key(args.p_version, args.p_scope, d.period_start, d.work_key)
             const prev = state.work.get(k)
+            if (prev && prev.is_bot !== d.is_bot) {
+              throw new Error('is_bot classification drift')
+            }
             state.work.set(k, prev
               ? {
                   ...prev,
@@ -194,24 +202,28 @@ function makeMemDb({ repoRow } = {}) {
 // Serves the three audited queries off a synthetic node stream partitioned
 // by opaque index cursors — the same stream a real history(path:) walk
 // would produce. calls[] records every query+vars for static assertions.
+// cost/remaining accept a constant or (query, vars, callIndex) -> value so
+// tests can assign distinct telemetry per request type.
 function makeTransport({ nodes = [], tree = [], pinnedOid = OID, pageSize = 100, remaining = 5000, cost = 1 } = {}) {
   const calls = []
-  const rl = () => ({ cost, remaining, resetAt: '2026-01-01T00:00:00Z' })
+  const pick = (v, q, vars) => (typeof v === 'function' ? v(q, vars, calls.length) : v)
+  const rl = (q, vars) => ({ cost: pick(cost, q, vars), remaining: pick(remaining, q, vars), resetAt: '2026-01-01T00:00:00Z' })
   return {
     calls,
     async graphql(query, vars) {
       calls.push({ query, vars })
+      const meta = rl(query, vars)
       if (query.includes('defaultBranchRef')) {
-        return { repository: { defaultBranchRef: { target: { oid: pinnedOid } } }, rateLimit: rl() }
+        return { repository: { defaultBranchRef: { target: { oid: pinnedOid } } }, rateLimit: meta }
       }
       if (query.includes('tree {')) {
         return {
           repository: { object: { __typename: 'Commit', oid: vars.oid, tree: { oid: 'b'.repeat(40) } } },
-          rateLimit: rl(),
+          rateLimit: meta,
         }
       }
       // pinned history page — object(oid:) mismatch yields a null object
-      if (vars.oid !== pinnedOid) return { repository: { object: null }, rateLimit: rl() }
+      if (vars.oid !== pinnedOid) return { repository: { object: null }, rateLimit: meta }
       const start = vars.cursor == null ? 0 : Number(vars.cursor.split(':')[1])
       const end = Math.min(start + pageSize, nodes.length)
       return {
@@ -224,12 +236,20 @@ function makeTransport({ nodes = [], tree = [], pinnedOid = OID, pageSize = 100,
             },
           },
         },
-        rateLimit: rl(),
+        rateLimit: meta,
       }
     },
     async getTree() { return { tree, truncated: false } },
   }
 }
+
+// request-type predicates for per-query telemetry
+const isProbe = (q) => q.includes('defaultBranchRef')
+const isHistory = (q) => q.includes('history(first')
+const isObject = (q) => !isProbe(q) && !isHistory(q)
+// build-start calls are telemetry-free; history pages cost `n` each — keeps
+// "one page per slice" semantics under the unified slice budget
+const pageCosts = (n = 1) => (q) => (isHistory(q) ? n : 0)
 
 const run = (db, transport, opts = {}) =>
   runAccumulateSlice({ db, transport, repositoryId: REPO, env: ENV, ...opts })
@@ -385,11 +405,10 @@ test('scope ordering: repo scope first, pending ordered by depth+hash', async ()
     { path: 'docs/x.md', type: 'blob' }, { path: 'node_modules/pkg/i.js', type: 'blob' },
     { path: '.gitmodules', type: 'blob' },
   ]
-  const t = makeTransport({ nodes: [], tree })
-  // first slice stops at membership+first-scope; inspect the durable state
-  const r = await run(db, t, { budgetMs: 0 })
-  // with zero budget the loop exits before the first page — state must still
-  // show repo scope current at accumulate
+  const t = makeTransport({ nodes: syntheticNodes(), tree })
+  // budget covers build-start + scope prep (3 requests) + exactly one page —
+  // the loop must stop before page 2 with the repo scope current
+  const r = await run(db, t, { costBudget: 4 })
   const sync = await db.loadSync()
   assert.ok([SLICE_STATUS.SLICE_BUDGET, SLICE_STATUS.RESOLVE_READY].includes(r.status))
   const cur = sync.history_cursor?.current
@@ -416,7 +435,7 @@ test('resume: second slice picks up the durable cursor with no double-count', as
   await driveToTerminal(db1, t1)
 
   const db2 = makeMemDb()
-  const t2 = makeTransport({ nodes })
+  const t2 = makeTransport({ nodes, cost: pageCosts(1) })
   const first = await run(db2, t2, { costBudget: 1 }) // one page per slice
   assert.equal(first.status, SLICE_STATUS.SLICE_BUDGET)
   const r = await driveToTerminal(db2, t2, { costBudget: 1 })
@@ -490,7 +509,7 @@ test('B: die between fetch and checkpoint — no counters, no cursor move', asyn
 
 test('C+D: committed page replayed with the old cursor -> stale, no double-count', async () => {
   const db = makeMemDb()
-  await run(db, makeTransport({ nodes: syntheticNodes().slice(0, 30), pageSize: 10 }), { costBudget: 1 })
+  await run(db, makeTransport({ nodes: syntheticNodes().slice(0, 30), pageSize: 10, cost: pageCosts(1) }), { costBudget: 1 })
   const before = db.workRows()
   // replay the committed page with the now-stale expected cursor
   const lastArgs = db._state.calls.checkpointArgs.at(-1)
@@ -504,7 +523,7 @@ test('C+D: committed page replayed with the old cursor -> stale, no double-count
 
 test('E+F: wrong expected cursor / wrong version write nothing', async () => {
   const db = makeMemDb()
-  const t = makeTransport({ nodes: syntheticNodes().slice(0, 10) })
+  const t = makeTransport({ nodes: syntheticNodes().slice(0, 10), cost: pageCosts(1) })
   await run(db, t, { costBudget: 1 })
   const sync = await db.loadSync()
   const args = db._state.calls.checkpointArgs.at(-1)
@@ -521,7 +540,7 @@ test('G+H: restart between every page completes identically', async () => {
   await driveToTerminal(db1, makeTransport({ nodes }))
   const db2 = makeMemDb()
   // fresh workerId + tiny budget each slice = a restart between pages
-  const r = await driveToTerminal(db2, makeTransport({ nodes, pageSize: 25 }), {
+  const r = await driveToTerminal(db2, makeTransport({ nodes, pageSize: 25, cost: pageCosts(1) }), {
     costBudget: 1,
     get workerId() { return crypto.randomUUID() },
   })
@@ -548,7 +567,12 @@ test('I: rate-limit error before the page commits writes nothing', async () => {
 test('J: rate-limit reserve stops the slice after a committed page; next slice resumes', async () => {
   const nodes = syntheticNodes()
   const db = makeMemDb()
-  const t = makeTransport({ nodes, pageSize: 100, remaining: RATE_LIMIT_RESERVE - 1 })
+  // only history-page telemetry dips below the reserve — build-start
+  // requests keep their headroom so the slice reaches the page loop
+  const t = makeTransport({
+    nodes, pageSize: 100,
+    remaining: (q) => (isHistory(q) ? RATE_LIMIT_RESERVE - 1 : 5000),
+  })
   const r = await run(db, t)
   assert.equal(r.status, SLICE_STATUS.RATE_LIMITED)
   assert.ok(db.workRows().length > 0) // page 1 committed before the reserve check
@@ -605,7 +629,7 @@ test('pinned object null -> retry once -> fail closed, never repin', async () =>
 test('live foreign lease wins the slice; expired lease is taken', async () => {
   const db = makeMemDb()
   const t = makeTransport({ nodes: syntheticNodes().slice(0, 3) })
-  await run(db, t, { workerId: 'w1', budgetMs: 0 })
+  await run(db, t, { workerId: 'w1' })
   // force the lease to look live-foreign
   const sync = await db.loadSync()
   sync.history_cursor.lease = { owner: 'other-worker', expires: new Date(Date.now() + 60000).toISOString() }
@@ -614,7 +638,7 @@ test('live foreign lease wins the slice; expired lease is taken', async () => {
   // expired lease -> takeover
   const sync2 = await db.loadSync()
   sync2.history_cursor.lease = { owner: 'other-worker', expires: new Date(Date.now() - 1000).toISOString() }
-  const r2 = await run(db, t, { workerId: 'w2', budgetMs: 0 })
+  const r2 = await run(db, t, { workerId: 'w2' })
   assert.notEqual(r2.status, SLICE_STATUS.LOCKED)
 })
 
@@ -623,7 +647,7 @@ test('live foreign lease wins the slice; expired lease is taken', async () => {
 test('invalid durable state takes the fail-closed abandon path', async () => {
   const db = makeMemDb()
   const t = makeTransport({ nodes: [] })
-  await run(db, t, { budgetMs: 0 })
+  await run(db, t)
   // corrupt the cursor: unknown scope id as current
   const sync = await db.loadSync()
   sync.history_cursor.current = { scope_id: '33333333-3333-3333-3333-333333333333', pass: 'accumulate', cursor: null }
@@ -672,7 +696,7 @@ test('gate refuses when the repo is not enabled', async () => {
 test('lease is transient — released on slice exit, carries no provider data', async () => {
   const db = makeMemDb()
   // inject a live foreign lease to capture its persisted shape
-  await run(db, makeTransport({ nodes: syntheticNodes().slice(0, 3) }), { budgetMs: 0 })
+  await run(db, makeTransport({ nodes: syntheticNodes().slice(0, 3) }))
   const sync = await db.loadSync()
   assert.equal(sync.history_cursor.lease, undefined) // released on exit
   sync.history_cursor.lease = { owner: 'other', expires: new Date(Date.now() + 60000).toISOString() }
@@ -681,3 +705,244 @@ test('lease is transient — released on slice exit, carries no provider data', 
   const held = (await db.loadSync()).history_cursor.lease
   assert.deepEqual(Object.keys(held).sort(), ['expires', 'owner'])
 })
+
+// ══ same-page is_bot classification drift ════════════════════════════════
+// One GraphQL page may observe the same node ID under contradictory logins
+// (e.g. 'person' vs 'person[bot]'). Contributor keys derive from the node
+// ID, so both map to one work_key — collapsing them would hide the drift
+// from the DB guard. reducePageDeltas freezes the first classification
+// page-wide; any conflict fails closed before own_checkpoint_page runs.
+
+test('A: same key, same month, same classification groups and sums', () => {
+  const d = reducePageDeltas(REPO, [
+    nd('a1', 'alice', '2025-06-03T10:00:00Z'),
+    nd('a1', 'alice', '2025-06-17T08:00:00Z'),
+    nd('a1', 'alice', '2025-06-09T12:00:00Z'),
+  ])
+  assert.equal(d.length, 1)
+  assert.equal(d[0].work_key, contributorKey(REPO, 'U_a1'))
+  assert.equal(d[0].touches, 3)
+  assert.equal(d[0].is_bot, false)
+})
+
+test('B: same key, same month, classification flip fails closed', () => {
+  assert.throws(
+    () => reducePageDeltas(REPO, [
+      nd('a1', 'person', '2025-06-03T10:00:00Z'),
+      nd('a1', 'person[bot]', '2025-06-04T10:00:00Z'),
+    ]),
+    (e) => {
+      assert.equal(e.name, 'OwnershipIdentityError')
+      // closed error only — no login or node id in the message
+      assert.ok(!e.message.includes('person'))
+      assert.ok(!e.message.includes('a1'))
+      assert.ok(!e.message.includes('U_'))
+      return true
+    },
+  )
+})
+
+test('C: reverse-order flip fails identically — no first-observation bias', () => {
+  assert.throws(
+    () => reducePageDeltas(REPO, [
+      nd('a1', 'person[bot]', '2025-06-03T10:00:00Z'),
+      nd('a1', 'person', '2025-06-04T10:00:00Z'),
+    ]),
+    OwnershipIdentityError,
+  )
+})
+
+test('D: cross-month drift inside one page fails before checkpoint', () => {
+  assert.throws(
+    () => reducePageDeltas(REPO, [
+      nd('a1', 'person', '2025-06-03T10:00:00Z'),
+      nd('a1', 'person[bot]', '2025-07-02T10:00:00Z'),
+    ]),
+    OwnershipIdentityError,
+  )
+})
+
+test('unlinked observations never participate in drift checking', () => {
+  const d = reducePageDeltas(REPO, [
+    node('2025-06-01T00:00:00Z', null),
+    nd('a1', 'alice', '2025-06-03T10:00:00Z'),
+    node('2025-06-02T00:00:00Z', null),
+  ])
+  assert.equal(d.length, 2)
+  const unl = d.find((x) => x.work_key === UNLINKED_KEY)
+  assert.equal(unl.is_bot, false)
+  assert.equal(unl.touches, 2)
+})
+
+test('B-engine: same-page drift — no checkpoint, no cursor move, closed error', async () => {
+  const db = makeMemDb()
+  const t = makeTransport({
+    nodes: [
+      nd('a1', 'person', '2025-06-03T10:00:00Z'),
+      nd('a1', 'person[bot]', '2025-06-04T10:00:00Z'),
+    ],
+  })
+  const r = await run(db, t)
+  assert.equal(r.status, SLICE_STATUS.ERROR)
+  assert.equal(r.code, 'OWNERSHIP_HISTORY_FAILED')
+  assert.equal(db._state.calls.checkpoint, 0) // own_checkpoint_page never called
+  assert.equal(db.workRows().length, 0)       // no partial counters
+  const sync = await db.loadSync()
+  assert.equal(sync.phase, 'error')
+  assert.equal(sync.error, 'OWNERSHIP_HISTORY_FAILED')
+  assert.equal(sync.history_cursor.current.cursor, null) // cursor unmoved
+  const persisted = JSON.stringify({ phase: sync.phase, error: sync.error, cursor: sync.history_cursor })
+  for (const needle of ['person', 'U_a1', 'a1', 'login', 'node']) {
+    assert.ok(!persisted.includes(needle), `error state leaked ${needle}`)
+  }
+})
+
+test('E: cross-page drift — DB rejects page 2, cursor stays at page 1', async () => {
+  // page 1 freezes is_bot=false; page 2 sends is_bot=true for the SAME row —
+  // the stored-row drift guard (app-side page guard + DB guard complement)
+  const db = makeMemDb()
+  const t = makeTransport({
+    nodes: [
+      nd('a1', 'person', '2025-06-03T10:00:00Z'),
+      nd('a1', 'person[bot]', '2025-06-04T10:00:00Z'),
+    ],
+    pageSize: 1,
+    cost: pageCosts(1),
+  })
+  const r1 = await run(db, t, { costBudget: 1 })
+  assert.equal(r1.status, SLICE_STATUS.SLICE_BUDGET) // page 1 committed
+  const r2 = await run(db, t)
+  assert.equal(r2.status, SLICE_STATUS.ERROR)
+  assert.equal(r2.code, 'OWNERSHIP_INTERNAL_ERROR')
+  const sync = await db.loadSync()
+  assert.equal(sync.phase, 'error')
+  assert.equal(sync.error, 'OWNERSHIP_INTERNAL_ERROR')
+  assert.equal(sync.history_cursor.current.cursor, 'idx:1') // unmoved
+  const rows = db.workRows()
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].is_bot, false)
+  assert.equal(rows[0].touch_commits, 1)
+})
+
+// ══ unified slice-budget accounting (F–L) ════════════════════════════════
+// ONE budget state covers the HEAD probe, pin validation, scope-prep pin
+// revalidation, history pages, and the identical retry. Returned rateLimit
+// cost/remaining/resetAt are authoritative — never assume cost=1.
+
+test('F: HEAD probe cost is counted in the slice total', async () => {
+  const db = makeMemDb()
+  const t = makeTransport({
+    nodes: syntheticNodes().slice(0, 2),
+    cost: (q) => (isProbe(q) ? 7 : 0),
+  })
+  const r = await run(db, t)
+  assert.equal(r.status, SLICE_STATUS.RESOLVE_READY)
+  assert.equal(r.cost, 7)
+})
+
+test('G: HEAD + pin-validation costs are cumulative', async () => {
+  const db = makeMemDb()
+  let objectCalls = 0
+  const t = makeTransport({
+    nodes: syntheticNodes().slice(0, 2),
+    cost: (q) => {
+      if (isProbe(q)) return 7
+      if (isObject(q)) return objectCalls++ === 0 ? 5 : 0 // pin validation only
+      return 0
+    },
+  })
+  const r = await run(db, t)
+  assert.equal(r.status, SLICE_STATUS.RESOLVE_READY)
+  assert.equal(r.cost, 12) // 7 (probe) + 5 (pin)
+})
+
+test('H: scope-preparation pinned-object revalidation is counted', async () => {
+  const db = makeMemDb()
+  let objectCalls = 0
+  const t = makeTransport({
+    nodes: syntheticNodes().slice(0, 2),
+    cost: (q) => {
+      if (isObject(q)) return objectCalls++ === 0 ? 0 : 3 // revalidation only
+      return 0
+    },
+  })
+  const r = await run(db, t)
+  assert.equal(r.status, SLICE_STATUS.RESOLVE_READY)
+  assert.equal(r.cost, 3)
+})
+
+test('I: history page costs are counted per page', async () => {
+  const db = makeMemDb()
+  const t = makeTransport({
+    nodes: syntheticNodes().slice(0, 30),
+    pageSize: 10,
+    cost: pageCosts(4),
+  })
+  const r = await run(db, t)
+  assert.equal(r.status, SLICE_STATUS.RESOLVE_READY)
+  assert.equal(r.cost, 12) // 3 pages x 4
+})
+
+test('J: identical retry counts both responses; retry remaining is authoritative', async () => {
+  const db = makeMemDb()
+  const t = makeTransport({ nodes: syntheticNodes().slice(0, 3) })
+  let historyCalls = 0
+  const orig = t.graphql
+  t.graphql = async (q, v) => {
+    if (isHistory(q)) {
+      historyCalls++
+      if (historyCalls === 1) {
+        // first response consumed quota but the pinned object was unusable
+        return { repository: { object: null }, rateLimit: { cost: 7, remaining: 4900, resetAt: 'x1' } }
+      }
+      const ok = await orig(q, v)
+      return { ...ok, rateLimit: { cost: 11, remaining: 4700, resetAt: 'x2' } }
+    }
+    return orig(q, v)
+  }
+  const r = await run(db, t)
+  assert.equal(historyCalls, 2)
+  // probe(1) + pin(1) + scope-prep revalidation(1) + first page(7) + retry(11)
+  assert.equal(r.cost, 21)
+  assert.equal(r.remaining, 4700) // retry telemetry wins, not the failed shape's
+})
+
+test('K: a completed response below the reserve stops the NEXT request', async () => {
+  const db = makeMemDb()
+  const t = makeTransport({
+    nodes: syntheticNodes().slice(0, 3),
+    remaining: (q) => (isProbe(q) ? RATE_LIMIT_RESERVE - 1 : 5000),
+  })
+  const r = await run(db, t)
+  assert.equal(r.status, SLICE_STATUS.RATE_LIMITED)
+  assert.equal(t.calls.length, 1) // the HEAD probe ran — pin validation never issued
+  assert.equal((await db.loadSync()).building_version, null)
+})
+
+test('K2: page response below the reserve commits, then the next page is never issued', async () => {
+  const db = makeMemDb()
+  const t = makeTransport({
+    nodes: syntheticNodes().slice(0, 20),
+    pageSize: 10,
+    remaining: (q) => (isHistory(q) ? RATE_LIMIT_RESERVE - 1 : 5000),
+  })
+  const r = await run(db, t)
+  assert.equal(r.status, SLICE_STATUS.RATE_LIMITED)
+  const pages = t.calls.filter((c) => isHistory(c.query))
+  assert.equal(pages.length, 1) // page 1 committed; page 2 never requested
+  assert.ok(db.workRows().length > 0)
+})
+
+test('L: build-start/pin cost consumption prevents history paging', async () => {
+  const db = makeMemDb()
+  const t = makeTransport({ nodes: syntheticNodes(), cost: () => 3 })
+  const r = await run(db, t, { costBudget: 5 })
+  // probe(3) + pin(3) = 6 >= 5 — the scope-prep revalidation and every
+  // history page are blocked; the initialized build resumes safely next slice
+  assert.equal(r.status, SLICE_STATUS.SLICE_BUDGET)
+  assert.equal(r.cost, 6)
+  const pages = t.calls.filter((c) => isHistory(c.query))
+  assert.equal(pages.length, 0)
+  assert.equal((await db.loadSync()).building_version, 1)
+})
+

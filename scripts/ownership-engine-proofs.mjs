@@ -18,6 +18,8 @@
 //   E8 lease: live foreign wins, expired is taken, released on exit
 //   E9 invalid durable state -> canonical abandon
 //  E10 privacy: zero identity fields anywhere in persisted ownership state
+//  E11 same-page is_bot drift -> app guard fails closed before the RPC
+//  E12 cross-page is_bot drift -> the real stored-row guard rejects page 2
 
 import crypto from 'node:crypto'
 import { runAccumulateSlice, SLICE_STATUS } from '../lib/ownership/accumulate.mjs'
@@ -47,21 +49,23 @@ function syntheticNodes() {
 
 function makeTransport({ nodes = [], tree = [], pinnedOid = OID, pageSize = 100, remaining = 5000, cost = 1 } = {}) {
   const calls = []
-  const rl = () => ({ cost, remaining, resetAt: '2026-01-01T00:00:00Z' })
+  const pick = (v, q, vars) => (typeof v === 'function' ? v(q, vars, calls.length) : v)
+  const rl = (q, vars) => ({ cost: pick(cost, q, vars), remaining: pick(remaining, q, vars), resetAt: '2026-01-01T00:00:00Z' })
   return {
     calls,
     async graphql(query, vars) {
       calls.push({ query, vars })
+      const meta = rl(query, vars)
       if (query.includes('defaultBranchRef')) {
-        return { repository: { defaultBranchRef: { target: { oid: pinnedOid } } }, rateLimit: rl() }
+        return { repository: { defaultBranchRef: { target: { oid: pinnedOid } } }, rateLimit: meta }
       }
       if (query.includes('tree {')) {
         return {
           repository: { object: { __typename: 'Commit', oid: vars.oid, tree: { oid: 'b'.repeat(40) } } },
-          rateLimit: rl(),
+          rateLimit: meta,
         }
       }
-      if (vars.oid !== pinnedOid) return { repository: { object: null }, rateLimit: rl() }
+      if (vars.oid !== pinnedOid) return { repository: { object: null }, rateLimit: meta }
       const start = vars.cursor == null ? 0 : Number(vars.cursor.split(':')[1])
       const end = Math.min(start + pageSize, nodes.length)
       return {
@@ -74,12 +78,16 @@ function makeTransport({ nodes = [], tree = [], pinnedOid = OID, pageSize = 100,
             },
           },
         },
-        rateLimit: rl(),
+        rateLimit: meta,
       }
     },
     async getTree() { return { tree, truncated: false } },
   }
 }
+
+// build-start calls are telemetry-free; history pages cost 1 each — keeps
+// "one committed page per slice" semantics under the unified slice budget
+const PAGE_COST = (q) => (q.includes('history(first') ? 1 : 0)
 
 export async function engineProofs(sql) {
   const problems = []
@@ -185,7 +193,7 @@ export async function engineProofs(sql) {
     await drive(t, makeTransport({ nodes }))
     const p1 = projectWorkToMonthly(await workRows(t))
     await sql`select own_abandon_build(${t.uid}, ${t.repoId}, 1)`
-    const r = await drive(t, makeTransport({ nodes, pageSize: 10 }), { costBudget: 1 })
+    const r = await drive(t, makeTransport({ nodes, pageSize: 10, cost: PAGE_COST }), { costBudget: 1 })
     check(r.status === SLICE_STATUS.RESOLVE_READY, `E3: restarted walk must finish, got ${r.status}`)
     const p2 = projectWorkToMonthly(await workRows(t))
     check(JSON.stringify(p1.months) === JSON.stringify(p2.months),
@@ -195,7 +203,7 @@ export async function engineProofs(sql) {
   // ── E4/E5: stale replay + wrong-version on the real CAS ──────────────────
   {
     const t = await tenant()
-    const transport = makeTransport({ nodes: syntheticNodes().slice(0, 60), pageSize: 20 })
+    const transport = makeTransport({ nodes: syntheticNodes().slice(0, 60), pageSize: 20, cost: PAGE_COST })
     await run(t, transport, { costBudget: 1 }) // exactly one committed page
     const before = await workRows(t)
     const st = await syncRow(t)
@@ -259,7 +267,9 @@ export async function engineProofs(sql) {
   // ── E8: lease CAS on real Postgres ────────────────────────────────────────
   {
     const t = await tenant()
-    await run(t, makeTransport({ nodes: [] }), { budgetMs: 0 })
+    // budget stops the slice mid-build (build initialized, prep not yet run)
+    // so a live history_cursor exists for the lease injection
+    await run(t, makeTransport({ nodes: [] }), { costBudget: 3 })
     const st = await syncRow(t)
     const cur = { ...st.history_cursor, lease: { owner: 'foreign', expires: new Date(Date.now() + 60000).toISOString() } }
     await sql`update ownership_sync_state set history_cursor = ${sql.json(cur)}
@@ -276,7 +286,7 @@ export async function engineProofs(sql) {
   // ── E9: invalid durable state -> canonical abandon ───────────────────────
   {
     const t = await tenant()
-    await run(t, makeTransport({ nodes: [] }), { budgetMs: 0 })
+    await run(t, makeTransport({ nodes: [] }), { costBudget: 3 })
     const st = await syncRow(t)
     const bogus = { ...st.history_cursor, current: { scope_id: crypto.randomUUID(), pass: 'accumulate', cursor: null } }
     await sql`update ownership_sync_state set history_cursor = ${sql.json(bogus)}
@@ -304,6 +314,61 @@ export async function engineProofs(sql) {
     check(leaked[0].c === 0, 'E10: work_key must be opaque — no plaintext identity')
     const bw = await sql`select count(*)::int c from ownership_contributor_build_work where repository_id = ${t.repoId}`
     check(bw[0].c === 0, 'E10: identity staging must be empty during ACCUMULATE')
+  }
+
+  // ── E11: same-page is_bot drift — the app-side page guard fails closed ───
+  // 'person' then 'person[bot]' share one node ID -> one work_key; the
+  // frozen page-wide classification map throws before own_checkpoint_page.
+  {
+    const t = await tenant()
+    const transport = makeTransport({
+      nodes: [
+        nd('drift1', 'person', '2025-10-03T10:00:00Z'),
+        nd('drift1', 'person[bot]', '2025-10-04T10:00:00Z'),
+      ],
+    })
+    const r = await run(t, transport)
+    check(r.status === SLICE_STATUS.ERROR && r.code === 'OWNERSHIP_HISTORY_FAILED',
+      `E11: expected error/OWNERSHIP_HISTORY_FAILED, got ${r.status}/${r.code ?? 'none'}`)
+    const st = await syncRow(t)
+    check(st?.phase === 'error' && st?.error === 'OWNERSHIP_HISTORY_FAILED',
+      'E11: closed taxonomy only — no provider text in the error column')
+    check(st?.history_cursor?.current?.cursor === null,
+      'E11: durable cursor must not advance past the drifting page')
+    check((await workRows(t)).length === 0,
+      'E11: no page counters may commit')
+    const serialized = JSON.stringify({ e: st?.error, c: st?.history_cursor })
+    check(!serialized.includes('person') && !serialized.includes('U_drift1'),
+      'E11: persisted state must carry no login or node id')
+  }
+
+  // ── E12: cross-page drift — the real stored-row guard rejects page 2 ─────
+  // Page 1 freezes is_bot=false; page 2 arrives with is_bot=true for the
+  // same (version, scope, period, work_key). The application-side page
+  // guard cannot see across pages — PostgreSQL's stored-row check is the
+  // complementary barrier and must reject without moving the cursor.
+  {
+    const t = await tenant()
+    const transport = makeTransport({
+      nodes: [
+        nd('drift2', 'person', '2025-10-03T10:00:00Z'),
+        nd('drift2', 'person[bot]', '2025-10-04T10:00:00Z'),
+      ],
+      pageSize: 1,
+      cost: PAGE_COST,
+    })
+    const r1 = await run(t, transport, { costBudget: 1 })
+    check(r1.status === SLICE_STATUS.SLICE_BUDGET,
+      `E12: page 1 must commit then stop, got ${r1.status}`)
+    const r2 = await run(t, transport)
+    check(r2.status === SLICE_STATUS.ERROR && r2.code === 'OWNERSHIP_INTERNAL_ERROR',
+      `E12: stored-row drift guard must fail closed, got ${r2.status}/${r2.code ?? 'none'}`)
+    const st = await syncRow(t)
+    check(st?.history_cursor?.current?.cursor === 'idx:1',
+      'E12: durable cursor must rest at the last good page')
+    const work = await workRows(t)
+    check(work.length === 1 && work[0].is_bot === false && work[0].touch_commits === 1,
+      'E12: page-1 counters stay; the drifting page writes nothing')
   }
 
   // every proof tenant self-destructs — user deletion cascades through
