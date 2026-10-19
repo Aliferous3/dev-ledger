@@ -78,7 +78,7 @@ export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
                 text="DEV LEDGER"
                 className="font-editorial font-light text-[clamp(2.4rem,6.2vw,5.6rem)] leading-none mt-2"
               />
-              <p ref={registerM12} style={m12Delay(3)} className="m12 relative font-editorial italic text-sm text-neutral-400 mt-2">Your GitHub history, made legible.</p>
+              <p ref={registerM12} style={m12Delay(3)} className="m12 relative font-editorial italic text-sm text-neutral-400 mt-2">Open-source GitHub analytics — your development history, made legible.</p>
             </div>
 
             {/* mission line — full content width, 22px single line on desktop,
@@ -161,6 +161,12 @@ export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
                 className="mono-tag text-[8px] tracking-[0.22em] text-neutral-600 hover:text-neutral-300 focus-visible:text-neutral-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40 transition-colors"
               >
                 BLOG <span className="text-neutral-800">—</span> <span className="text-neutral-700">READING YOUR GITHUB HISTORY</span>
+              </a>
+              <a
+                href="/tools/github-analytics"
+                className="mono-tag text-[8px] tracking-[0.22em] text-neutral-600 hover:text-neutral-300 focus-visible:text-neutral-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40 transition-colors"
+              >
+                GITHUB ANALYTICS <span className="text-neutral-800">—</span> <span className="text-neutral-700">WHAT THE TOOL READS</span>
               </a>
             </div>
           </div>
