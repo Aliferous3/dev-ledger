@@ -1226,18 +1226,21 @@ endpoint form, now sha-pinned.
 - Force-push making the oid unresolvable → fail closed
   (`OWNERSHIP_HISTORY_FAILED`), `active_version` kept, next build re-pins.
   Never continue mid-build on a new HEAD — that mixes revisions.
-- GitHub's GraphQL schema does expose `Repository.object(oid:)` — but the
-  **exact ownership query shape is UNMEASURED.** Phase 0.5 used
-  `object(expression:"HEAD")` for blame only.
-- **Gate: Phase 1C-B0.5 non-persisting spike** before implementation —
-  metadata-only queries, no writes — measuring:
-  `object(oid:) → Commit → history(path:)`; multi-page cursor stability;
-  the same pinned oid across repeated requests; public **and** private
-  repos; unreachable-oid behavior (`null` vs `NOT_FOUND` error);
-  force-push/deleted-reference behavior if safely reproducible; GraphQL
-  cost; `tree.oid` from the pinned Commit; the REST recursive tree call
-  with that exact tree sha; and `author.user` resolution behavior under a
-  pinned commit.
+- **B0.5 gate: PASSED** (`docs/ownership-pinned-history-spike-results.md`).
+  Measured behaviors the implementation must honor:
+  - `object(oid:)` returns `null` for nonexistent and foreign-repository
+    oids — **not** a `NOT_FOUND` error. A truly GC'd (force-pushed-away)
+    oid was not manufacturable read-only; per the results doc it can only
+    resolve to `null` or an error. `object == null` is the fail-closed
+    terminal signal either way.
+  - A non-Commit oid (blob, tree) still resolves — `__typename` differs
+    and `... on Commit` fields are absent. Assert `__typename ==
+    "Commit"` (or `history` present) before walking; never treat a
+    resolved non-Commit object as a valid pin.
+  - Per-request `object.oid == pinned_oid` on every page; cursors reused
+    across separate requests are deterministic.
+  - Flat cost of 1 pt/request including 100-node `history` and
+    `history(path:)` pages on public and private repos.
 
 ---
 
