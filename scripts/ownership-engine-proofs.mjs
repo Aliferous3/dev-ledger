@@ -13,13 +13,17 @@
 //   E3 restart-between-every-page resume equivalence
 //   E4 committed-page replay with a stale cursor -> 'stale', no double-count
 //   E5 wrong expected cursor / wrong version -> 'stale', no writes
-//   E6 checkpoint transport/DB failure -> no partial delta, phase='error'
+//   E6 persistent checkpoint failure -> retried once, no partial delta,
+//      position-aware phase='error'
 //   E7 pinned-object vanished -> one retry -> fail closed, pin preserved
 //   E8 lease: live foreign wins, expired is taken, released on exit
 //   E9 invalid durable state -> canonical abandon
 //  E10 privacy: zero identity fields anywhere in persisted ownership state
 //  E11 same-page is_bot drift -> app guard fails closed before the RPC
 //  E12 cross-page is_bot drift -> the real stored-row guard rejects page 2
+//  E13 checkpoint commits but response is lost -> reconcile adopts it
+//  E14 final page commits but response is lost -> reconcile -> resolve-ready
+//  E15 stale worker cannot poison a cursor another worker advanced (real CAS)
 
 import crypto from 'node:crypto'
 import { runAccumulateSlice, SLICE_STATUS } from '../lib/ownership/accumulate.mjs'
@@ -218,14 +222,20 @@ export async function engineProofs(sql) {
     check(r2[0].own_checkpoint_page === 'stale', 'E5: wrong version must return stale')
   }
 
-  // ── E6: checkpoint failure mid-walk — no partial delta ───────────────────
+  // ── E6: persistent checkpoint failure mid-walk — retried once, then the
+  // closed error path; no partial delta, no cursor move ────────────────────
   {
     const t = await tenant()
     const db = makePgOwnershipDb(sql)
-    let n = 0
+    let attempts = 0
     const orig = db.rpc.bind(db)
     db.rpc = async (fn, args) => {
-      if (fn === 'own_checkpoint_page' && n++ === 1) throw new Error('simulated tx abort')
+      // every attempt at the second page dies before commit — durable state
+      // never leaves the attempted position, so the retried call fails too
+      if (fn === 'own_checkpoint_page' && args.p_expected_cursor === 'idx:50') {
+        attempts += 1
+        throw new Error('simulated tx abort')
+      }
       return orig(fn, args)
     }
     const r = await runAccumulateSlice({
@@ -234,6 +244,7 @@ export async function engineProofs(sql) {
     })
     check(r.status === SLICE_STATUS.ERROR && r.code === 'OWNERSHIP_INTERNAL_ERROR',
       `E6: expected error/OWNERSHIP_INTERNAL_ERROR, got ${r.status}/${r.code ?? 'none'}`)
+    check(attempts === 2, `E6: exactly one identical retry expected, got ${attempts}`)
     const st = await syncRow(t)
     check(st?.phase === 'error', 'E6: phase must be error after checkpoint failure')
     const work = await workRows(t)
@@ -369,6 +380,173 @@ export async function engineProofs(sql) {
     const work = await workRows(t)
     check(work.length === 1 && work[0].is_bot === false && work[0].touch_commits === 1,
       'E12: page-1 counters stay; the drifting page writes nothing')
+  }
+
+  // ── E13: unknown commit outcome — page COMMITTED, response lost ──────────
+  // The adapter lets the REAL own_checkpoint_page commit, then throws as if
+  // the PostgREST response were lost. The engine must reconcile the durable
+  // row, adopt the commit, and never replay the page.
+  {
+    const t = await tenant()
+    const nodes = syntheticNodes().slice(0, 120)
+    const db = makePgOwnershipDb(sql)
+    let checkpointCalls = 0
+    let thrown = false
+    const orig = db.rpc.bind(db)
+    db.rpc = async (fn, args) => {
+      const r = await orig(fn, args) // real Postgres transaction commits
+      if (fn === 'own_checkpoint_page') {
+        checkpointCalls += 1
+        if (!thrown && r === 'applied' && args.p_last_page === false) {
+          thrown = true
+          throw new Error('simulated lost response after commit')
+        }
+      }
+      return r
+    }
+    const r = await runAccumulateSlice({
+      db, transport: makeTransport({ nodes, pageSize: 50 }),
+      repositoryId: t.repoId, env: env(t),
+    })
+    check(r.status === SLICE_STATUS.RESOLVE_READY,
+      `E13: expected resolve-ready, got ${r.status}/${r.code ?? 'none'}`)
+    check(checkpointCalls === 3,
+      `E13: exactly one call per page — no replay — expected 3, got ${checkpointCalls}`)
+    const st = await syncRow(t)
+    check(st?.phase === 'history' && st?.error === null,
+      'E13: phase must stay history with error null after a lost response')
+    check(st?.history_cursor?.current?.pass === 'resolve',
+      'E13: the scope must reach the resolve handoff')
+    // touch counters exist exactly once — the accumulated state projects
+    // identically to a never-interrupted run of the canonical reducer
+    const expected = reduceHistoryToMonthly({ repositoryId: t.repoId, scope: { id: 'repo' }, nodes })
+    const projected = projectWorkToMonthly(await workRows(t))
+    check(JSON.stringify(projected.months) === JSON.stringify(expected.months),
+      'E13: counters must equal the single-pass reducer result — no double-apply')
+    // resumable: a fresh slice hands off at the canonical position
+    const again = await runAccumulateSlice({
+      db: makePgOwnershipDb(sql), transport: makeTransport(),
+      repositoryId: t.repoId, env: env(t),
+    })
+    check(again.status === SLICE_STATUS.RESOLVE_READY,
+      `E13: build must remain resumable, got ${again.status}`)
+  }
+
+  // ── E14: unknown commit outcome — FINAL page committed, response lost ────
+  // The commit flips accumulate -> resolve; the thrown adapter leaves the
+  // engine to discover the handoff from durable state alone.
+  {
+    const t = await tenant()
+    const nodes = syntheticNodes().slice(0, 60)
+    const db = makePgOwnershipDb(sql)
+    let checkpointCalls = 0
+    const orig = db.rpc.bind(db)
+    db.rpc = async (fn, args) => {
+      const r = await orig(fn, args) // real commit — pass flips to resolve
+      if (fn === 'own_checkpoint_page') {
+        checkpointCalls += 1
+        if (args.p_last_page === true) {
+          throw new Error('simulated lost response after final commit')
+        }
+      }
+      return r
+    }
+    const r = await runAccumulateSlice({
+      db, transport: makeTransport({ nodes, pageSize: 50 }),
+      repositoryId: t.repoId, env: env(t),
+    })
+    check(r.status === SLICE_STATUS.RESOLVE_READY,
+      `E14: expected resolve-ready, got ${r.status}/${r.code ?? 'none'}`)
+    check(checkpointCalls === 2,
+      `E14: one call per page — no duplicate state — expected 2, got ${checkpointCalls}`)
+    const st = await syncRow(t)
+    check(st?.phase === 'history' && st?.error === null,
+      'E14: phase must stay history with error null')
+    const cur = st?.history_cursor?.current
+    check(cur?.pass === 'resolve' && cur?.accumulate_done === true && (cur?.cursor ?? null) === null,
+      'E14: durable state must show the B1 resolve handoff')
+    const expected = reduceHistoryToMonthly({ repositoryId: t.repoId, scope: { id: 'repo' }, nodes })
+    const projected = projectWorkToMonthly(await workRows(t))
+    check(JSON.stringify(projected.months) === JSON.stringify(expected.months),
+      'E14: counters must equal the single-pass reducer result')
+  }
+
+  // ── E15: a stale worker cannot poison a cursor another worker advanced ────
+  // Worker A's checkpoint request fails while worker B advances the durable
+  // cursor through the REAL CAS. A must defer to canonical state, and its
+  // position-aware error write must be structurally unable to land.
+  {
+    const t = await tenant()
+    const nodes = syntheticNodes().slice(0, 60)
+    const first = await runAccumulateSlice({
+      db: makePgOwnershipDb(sql),
+      transport: makeTransport({ nodes, pageSize: 20, cost: PAGE_COST }),
+      repositoryId: t.repoId, env: env(t), costBudget: 1,
+    })
+    check(first.status === SLICE_STATUS.SLICE_BUDGET,
+      `E15: page 1 must commit then stop, got ${first.status}`)
+    const st1 = await syncRow(t)
+    const scopeId = st1.history_cursor.current.scope_id
+    check(st1.history_cursor.current.cursor === 'idx:20',
+      'E15: durable cursor must rest at idx:20')
+
+    const db = makePgOwnershipDb(sql)
+    const orig = db.rpc.bind(db)
+    let fired = false
+    db.rpc = async (fn, args) => {
+      if (fn !== 'own_checkpoint_page' || fired) return orig(fn, args)
+      fired = true
+      // B takes over mid-flight and advances idx:20 -> idx:60 for real
+      for (const [from, to] of [['idx:20', 'idx:40'], ['idx:40', 'idx:60']]) {
+        await orig('own_checkpoint_page', {
+          p_user: t.uid, p_repository: t.repoId, p_version: 1, p_scope: scopeId,
+          p_pass: 'accumulate', p_expected_cursor: from, p_next_cursor: to,
+          p_deltas: [], p_identities: [], p_last_page: false,
+        })
+      }
+      throw new Error('A: request lost in flight')
+    }
+    const r = await runAccumulateSlice({
+      db, transport: makeTransport({ nodes, pageSize: 20 }),
+      repositoryId: t.repoId, env: env(t),
+    })
+    check(r.status === SLICE_STATUS.STALE,
+      `E15: A must defer to durable state with 'stale', got ${r.status}/${r.code ?? 'none'}`)
+    const st2 = await syncRow(t)
+    check(st2?.phase === 'history' && st2?.error === null,
+      'E15: no error may be written over B\'s progress')
+    check(st2?.history_cursor?.current?.cursor === 'idx:60',
+      'E15: B\'s advanced cursor remains authoritative')
+    // the real position-aware CAS: the CURRENT position matches, A's stale
+    // position cannot — jsonb equality on the full history_cursor
+    const current = st2.history_cursor
+    const dbCas = makePgOwnershipDb(sql)
+    check(await dbCas.casSync({
+      userId: t.uid, repositoryId: t.repoId,
+      match: { building_version: 1, history_cursor: current },
+      patch: { error: null },
+    }) === true, 'E15: positive control — matching position CAS must land')
+    check(await dbCas.casSync({
+      userId: t.uid, repositoryId: t.repoId,
+      match: {
+        building_version: 1,
+        history_cursor: {
+          ...current,
+          current: { scope_id: scopeId, pass: 'accumulate', cursor: 'idx:20' },
+        },
+      },
+      patch: { phase: 'error', error: 'OWNERSHIP_INTERNAL_ERROR' },
+    }) === false, 'E15: stale-position error write must be rejected by the CAS')
+    const st3 = await syncRow(t)
+    check(st3?.phase === 'history' && st3?.error === null,
+      'E15: durable state untouched by the stale write')
+    // resumable: the next slice continues from B's frontier to the handoff
+    const done = await runAccumulateSlice({
+      db: makePgOwnershipDb(sql), transport: makeTransport({ nodes, pageSize: 20 }),
+      repositoryId: t.repoId, env: env(t),
+    })
+    check(done.status === SLICE_STATUS.RESOLVE_READY,
+      `E15: build must resume to resolve-ready, got ${done.status}`)
   }
 
   // every proof tenant self-destructs — user deletion cascades through

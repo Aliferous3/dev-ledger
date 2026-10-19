@@ -147,8 +147,15 @@ function makeMemDb({ repoRow } = {}) {
                   first_seen_at: d.first_seen_at, last_seen_at: d.last_seen_at,
                 })
           }
+          // mirrors the real function's last-page merge: the B1 contract
+          // flips to resolve at a fresh cursor carrying accumulate_done
           if (args.p_last_page) {
-            st.history_cursor.current = { scope_id: args.p_scope, pass: 'resolve', cursor: null }
+            st.history_cursor.current = {
+              ...cur,
+              pass: 'resolve',
+              accumulate_done: true,
+              cursor: null,
+            }
           } else {
             st.history_cursor.current = { ...cur, cursor: args.p_next_cursor }
           }
@@ -495,16 +502,24 @@ test('A: failure before the first request writes nothing', async () => {
   assert.equal((await db.loadSync()).building_version ?? null, null)
 })
 
-test('B: die between fetch and checkpoint — no counters, no cursor move', async () => {
+test('B: checkpoint throws before commit — the identical call is retried once', async () => {
   const db = makeMemDb()
   db.failOnce('own_checkpoint_page', new Error('process died'))
-  const r = await run(db, makeTransport({ nodes: syntheticNodes() }))
-  assert.equal(r.status, SLICE_STATUS.ERROR)
-  assert.equal(r.code, 'OWNERSHIP_INTERNAL_ERROR')
-  assert.equal(db.workRows().length, 0)
-  const cur = (await db.loadSync()).history_cursor.current
-  assert.equal(cur.pass, 'accumulate')
-  assert.equal(cur.cursor, null)
+  const attempts = []
+  const orig = db.rpc.bind(db)
+  db.rpc = async (fn, args) => {
+    if (fn === 'own_checkpoint_page') attempts.push(structuredClone(args))
+    return orig(fn, args)
+  }
+  const r = await run(db, makeTransport({ nodes: syntheticNodes().slice(0, 3) }))
+  // reconciliation saw the expected cursor unchanged -> one retry -> applied
+  assert.equal(r.status, SLICE_STATUS.RESOLVE_READY)
+  assert.equal(attempts.length, 2)
+  assert.deepEqual(attempts[1], attempts[0]) // identical payload on retry
+  assert.ok(db.workRows().length > 0)
+  const sync = await db.loadSync()
+  assert.equal(sync.phase, 'history')
+  assert.equal(sync.error, null)
 })
 
 test('C+D: committed page replayed with the old cursor -> stale, no double-count', async () => {
@@ -582,22 +597,30 @@ test('J: rate-limit reserve stops the slice after a committed page; next slice r
   assert.equal(r2.status, SLICE_STATUS.RESOLVE_READY)
 })
 
-test('K: checkpoint error leaves no partial delta and no cursor move', async () => {
+test('K: both checkpoint attempts fail before commit — then (and only then) error', async () => {
   const db = makeMemDb()
-  let calls = 0
   const origRpc = db.rpc.bind(db)
+  let attempts = 0
   db.rpc = async (fn, args) => {
-    if (fn === 'own_checkpoint_page' && calls++ === 1) throw new Error('tx aborted')
+    // every page-2 attempt dies before commit — the retry cannot help;
+    // durable state never leaves the attempted position
+    if (fn === 'own_checkpoint_page' && args.p_expected_cursor === 'idx:50') {
+      attempts += 1
+      throw new Error('tx aborted')
+    }
     return origRpc(fn, args)
   }
   const r = await run(db, makeTransport({ nodes: syntheticNodes(), pageSize: 50 }))
   assert.equal(r.status, SLICE_STATUS.ERROR)
-  // exactly one page's worth of counters (first applied); the second did not
+  assert.equal(r.code, 'OWNERSHIP_INTERNAL_ERROR')
+  assert.equal(attempts, 2) // exactly one retry, then the closed error path
+  // page-1 counters stay committed; the failed page wrote nothing
   const keys = new Set(db.workRows().map((w) => w.work_key))
   assert.ok(keys.size > 0)
   const sync = await db.loadSync()
   assert.equal(sync.phase, 'error')
   assert.equal(sync.error, 'OWNERSHIP_INTERNAL_ERROR')
+  assert.equal(sync.history_cursor.current.cursor, 'idx:50') // unmoved
 })
 
 // ══ pinned-object failure ════════════════════════════════════════════════
@@ -946,3 +969,188 @@ test('L: build-start/pin cost consumption prevents history paging', async () => 
   assert.equal((await db.loadSync()).building_version, 1)
 })
 
+
+// ══ checkpoint unknown-outcome reconciliation ═══════════════════════════
+// A thrown own_checkpoint_page call may have COMMITTED — only the response
+// was lost. The engine must reconcile the durable sync row before deciding:
+// adopt a proven commit, retry the identical call at the expected position,
+// and never let a stale worker mark phase='error' over newer state.
+// (spec C is covered by crash-matrix test B; spec E by crash-matrix test K)
+
+test('UA: page commits then response is lost — reconcile adopts it, no replay', async () => {
+  const nodes = syntheticNodes().slice(0, 30)
+  const db = makeMemDb()
+  const attempts = []
+  let thrown = false
+  const orig = db.rpc.bind(db)
+  db.rpc = async (fn, args) => {
+    if (fn !== 'own_checkpoint_page') return orig(fn, args)
+    attempts.push(structuredClone(args))
+    const r = await orig(fn, args) // the in-memory commit LANDS
+    if (!thrown) { thrown = true; throw new Error('response lost after commit') }
+    return r
+  }
+  const r = await run(db, makeTransport({ nodes, pageSize: 10 }))
+  assert.equal(r.status, SLICE_STATUS.RESOLVE_READY)
+  // 3 pages -> exactly 3 checkpoint calls: reconciliation recognized the
+  // commit on the first durable read and never retried or replayed
+  assert.equal(attempts.length, 3)
+  const sync = await db.loadSync()
+  assert.equal(sync.phase, 'history')
+  assert.equal(sync.error, null)
+  assert.equal(sync.history_cursor.current.pass, 'resolve')
+  // counted exactly once — the full stream projects to the reducer result
+  const expected = reduceHistoryToMonthly({ repositoryId: REPO, scope: { id: 's' }, nodes })
+  assert.deepEqual(projectWorkToMonthly(db.workRows()).months, expected.months)
+})
+
+test('UB: final page commits then response is lost — reconcile returns resolve-ready', async () => {
+  const nodes = syntheticNodes().slice(0, 15)
+  const db = makeMemDb()
+  const attempts = []
+  const orig = db.rpc.bind(db)
+  db.rpc = async (fn, args) => {
+    if (fn !== 'own_checkpoint_page') return orig(fn, args)
+    attempts.push(structuredClone(args))
+    const r = await orig(fn, args) // commit lands — B1 flips pass -> resolve
+    if (args.p_last_page === true) throw new Error('response lost after commit')
+    return r
+  }
+  const r = await run(db, makeTransport({ nodes, pageSize: 10 }))
+  assert.equal(r.status, SLICE_STATUS.RESOLVE_READY)
+  assert.equal(attempts.length, 2) // one call per page — no replay
+  const cur = (await db.loadSync()).history_cursor.current
+  assert.equal(cur.pass, 'resolve')
+  assert.equal(cur.cursor, null)
+  assert.equal(cur.accumulate_done, true)
+  const sync = await db.loadSync()
+  assert.equal(sync.phase, 'history')
+  assert.equal(sync.error, null)
+  const expected = reduceHistoryToMonthly({ repositoryId: REPO, scope: { id: 's' }, nodes })
+  assert.deepEqual(projectWorkToMonthly(db.workRows()).months, expected.months)
+})
+
+test('UD: commit landed, reconcile read raced it, retry returns stale', async () => {
+  const nodes = syntheticNodes().slice(0, 30)
+  const db = makeMemDb()
+  const attempts = []
+  let preCommit = null
+  const orig = db.rpc.bind(db)
+  db.rpc = async (fn, args) => {
+    if (fn !== 'own_checkpoint_page') return orig(fn, args)
+    attempts.push(structuredClone(args))
+    if (attempts.length === 1) {
+      preCommit = structuredClone(await db.loadSync()) // durable row BEFORE commit
+      await orig(fn, args)                             // commit lands
+      throw new Error('response lost')
+    }
+    return orig(fn, args)
+  }
+  const origLoad = db.loadSync.bind(db)
+  db.loadSync = async () => {
+    // the first reconcile read still shows the pre-commit position, so the
+    // engine retries — and the real CAS answers 'stale' for the replay
+    if (preCommit) { const p = preCommit; preCommit = null; return p }
+    return origLoad()
+  }
+  const r = await run(db, makeTransport({ nodes, pageSize: 10 }))
+  assert.equal(r.status, SLICE_STATUS.RESOLVE_READY)
+  // commit+throw, identical retry -> stale, then the remaining 2 pages
+  assert.equal(attempts.length, 4)
+  assert.deepEqual(attempts[1], attempts[0])
+  const sync = await db.loadSync()
+  assert.equal(sync.phase, 'history')
+  assert.equal(sync.error, null)
+  const expected = reduceHistoryToMonthly({ repositoryId: REPO, scope: { id: 's' }, nodes })
+  assert.deepEqual(projectWorkToMonthly(db.workRows()).months, expected.months)
+})
+
+test('UF: a stalled worker cannot poison a cursor another worker advanced', async () => {
+  const nodes = syntheticNodes().slice(0, 60)
+  const db = makeMemDb()
+  const t1 = makeTransport({ nodes, pageSize: 10, cost: pageCosts(1) })
+  const first = await run(db, t1, { costBudget: 1, workerId: 'A-slice-1' })
+  assert.equal(first.status, SLICE_STATUS.SLICE_BUDGET) // page 1 -> idx:10
+  const st1 = await db.loadSync()
+  const scopeId = st1.history_cursor.current.scope_id
+  assert.equal(st1.history_cursor.current.cursor, 'idx:10')
+
+  // Worker A's next slice: its checkpoint request never reaches the DB —
+  // while it is in flight worker B commits two further pages through the
+  // real CAS
+  const orig = db.rpc.bind(db)
+  let fired = false
+  db.rpc = async (fn, args) => {
+    if (fn !== 'own_checkpoint_page' || fired) return orig(fn, args)
+    fired = true
+    for (const [from, to] of [['idx:10', 'idx:20'], ['idx:20', 'idx:30']]) {
+      await orig(fn, {
+        p_user: USER, p_repository: REPO, p_version: 1, p_scope: scopeId,
+        p_pass: 'accumulate', p_expected_cursor: from, p_next_cursor: to,
+        p_deltas: [], p_identities: [], p_last_page: false,
+      })
+    }
+    throw new Error('A: request lost in flight')
+  }
+  const r = await run(db, makeTransport({ nodes, pageSize: 10 }), { workerId: 'A-stale' })
+  // A defers to the canonical row — never an error from stale knowledge
+  assert.equal(r.status, SLICE_STATUS.STALE)
+  const sync = await db.loadSync()
+  assert.equal(sync.phase, 'history')
+  assert.equal(sync.error, null)
+  assert.equal(sync.history_cursor.current.cursor, 'idx:30')
+  assert.equal(await isResumable(db, sync), true)
+  // position-awareness proof: an error write pinned to A's attempted
+  // position cannot land on the advanced row — while the same write at the
+  // CURRENT position would
+  const current = (await db.loadSync()).history_cursor
+  assert.equal(await db.casSync({
+    userId: USER, repositoryId: REPO,
+    match: { building_version: 1, history_cursor: current },
+    patch: {},
+  }), true)
+  const poisoned = await db.casSync({
+    userId: USER, repositoryId: REPO,
+    match: {
+      building_version: 1,
+      history_cursor: { ...current, current: { scope_id: scopeId, pass: 'accumulate', cursor: 'idx:10' } },
+    },
+    patch: { phase: 'error', error: 'OWNERSHIP_INTERNAL_ERROR' },
+  })
+  assert.equal(poisoned, false)
+  assert.equal((await db.loadSync()).phase, 'history')
+  // B's frontier is authoritative and resumable
+  const done = await driveToTerminal(db, makeTransport({ nodes, pageSize: 10 }))
+  assert.equal(done.status, SLICE_STATUS.RESOLVE_READY)
+})
+
+test('UG: a stalled worker cannot poison the ACCUMULATE -> RESOLVE transition', async () => {
+  const nodes = syntheticNodes().slice(0, 20)
+  const db = makeMemDb()
+  const t1 = makeTransport({ nodes, pageSize: 10, cost: pageCosts(1) })
+  const first = await run(db, t1, { costBudget: 1, workerId: 'A-slice-1' })
+  assert.equal(first.status, SLICE_STATUS.SLICE_BUDGET) // page 1 -> idx:10
+
+  // A attempts the final page; the call commits under another worker's
+  // takeover (pass flips to resolve) before A's failure is handled
+  let calls = 0
+  const orig = db.rpc.bind(db)
+  db.rpc = async (fn, args) => {
+    if (fn !== 'own_checkpoint_page') return orig(fn, args)
+    calls += 1
+    const r = await orig(fn, args) // the final-page commit lands
+    throw new Error('A: response lost')
+  }
+  const r = await run(db, makeTransport({ nodes, pageSize: 10 }), { workerId: 'A-stale' })
+  assert.equal(r.status, SLICE_STATUS.RESOLVE_READY)
+  assert.equal(calls, 1) // committed once, never replayed
+  const sync = await db.loadSync()
+  assert.equal(sync.phase, 'history') // no error overwrite on the handoff
+  assert.equal(sync.error, null)
+  const cur = sync.history_cursor.current
+  assert.equal(cur.pass, 'resolve')
+  assert.equal(cur.accumulate_done, true)
+  // no duplicate counters — the stream still projects to the reducer result
+  const expected = reduceHistoryToMonthly({ repositoryId: REPO, scope: { id: 's' }, nodes })
+  assert.deepEqual(projectWorkToMonthly(db.workRows()).months, expected.months)
+})
