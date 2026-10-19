@@ -821,7 +821,8 @@ async function main() {
     console.log('drill: engine proofs passed — pinned end-to-end ACCUMULATE, reducer differential,')
     console.log('       restart equivalence, stale/replay CAS, checkpoint-failure, pin-loss fail-closed,')
     console.log('       lease CAS, canonical abandon, zero-identity persistence, lost-response')
-    console.log('       reconciliation (commit-adopt, final-page handoff, stale-worker no-poison)')
+    console.log('       reconciliation (commit-adopt, final-page handoff, stale-worker no-poison),')
+    console.log('       and non-progressing-cursor fail-closed before checkpoint')
 
     // same backup path the operator uses
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-drill-'))

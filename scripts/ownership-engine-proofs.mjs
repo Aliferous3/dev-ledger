@@ -24,6 +24,7 @@
 //  E13 checkpoint commits but response is lost -> reconcile adopts it
 //  E14 final page commits but response is lost -> reconcile -> resolve-ready
 //  E15 stale worker cannot poison a cursor another worker advanced (real CAS)
+//  E16 continuing page returning the SAME cursor -> rejected pre-checkpoint
 
 import crypto from 'node:crypto'
 import { runAccumulateSlice, SLICE_STATUS } from '../lib/ownership/accumulate.mjs'
@@ -547,6 +548,65 @@ export async function engineProofs(sql) {
     })
     check(done.status === SLICE_STATUS.RESOLVE_READY,
       `E15: build must resume to resolve-ready, got ${done.status}`)
+  }
+
+  // ── E16: non-progressing cursor on a continuing page — rejected pre-RPC ──
+  // Page 1 commits to 'idx:50'; the next synthetic page claims hasNextPage
+  // yet returns the SAME endCursor. Exactly-once assumes each accepted next
+  // cursor is a strictly new boundary — the engine must fail closed before
+  // own_checkpoint_page: no deltas, no cursor move, closed taxonomy.
+  {
+    const t = await tenant()
+    const nodes = syntheticNodes().slice(0, 80)
+    const db = makePgOwnershipDb(sql)
+    let checkpointCalls = 0
+    const origRpc = db.rpc.bind(db)
+    db.rpc = async (fn, args) => {
+      if (fn === 'own_checkpoint_page') checkpointCalls += 1
+      return origRpc(fn, args)
+    }
+    const transport = makeTransport({ nodes, pageSize: 50 })
+    const origGql = transport.graphql
+    transport.graphql = async (q, v) => {
+      if (q.includes('history(first') && v.cursor === 'idx:50') {
+        // pathological provider page: claims continuation, returns the
+        // request cursor as its own endCursor
+        return {
+          repository: {
+            object: {
+              __typename: 'Commit', oid: v.oid,
+              history: {
+                pageInfo: { hasNextPage: true, endCursor: 'idx:50' },
+                nodes: nodes.slice(50, 80),
+              },
+            },
+          },
+          rateLimit: { cost: 1, remaining: 5000, resetAt: 'x' },
+        }
+      }
+      return origGql(q, v)
+    }
+    const r = await runAccumulateSlice({
+      db, transport, repositoryId: t.repoId, env: env(t),
+    })
+    check(r.status === SLICE_STATUS.ERROR && r.code === 'OWNERSHIP_HISTORY_FAILED',
+      `E16: expected error/OWNERSHIP_HISTORY_FAILED, got ${r.status}/${r.code ?? 'none'}`)
+    check(checkpointCalls === 1,
+      `E16: the malformed page must never reach the RPC — got ${checkpointCalls} checkpoint calls`)
+    const st = await syncRow(t)
+    check(st?.phase === 'error' && st?.error === 'OWNERSHIP_HISTORY_FAILED',
+      'E16: closed taxonomy only — phase=error, error=OWNERSHIP_HISTORY_FAILED')
+    check(st?.history_cursor?.current?.cursor === 'idx:50',
+      'E16: durable cursor must rest at the last valid page')
+    const work = await workRows(t)
+    const expected1 = reduceHistoryToMonthly({
+      repositoryId: t.repoId, scope: { id: 'repo' }, nodes: nodes.slice(0, 50),
+    })
+    const projected = projectWorkToMonthly(work)
+    check(work.length > 0 && JSON.stringify(projected.months) === JSON.stringify(expected1.months),
+      'E16: page-1 counters remain exactly once; the malformed page wrote nothing')
+    check(String(st?.error ?? '').includes('idx') === false,
+      'E16: persisted error must not carry cursor/provider text')
   }
 
   // every proof tenant self-destructs — user deletion cascades through

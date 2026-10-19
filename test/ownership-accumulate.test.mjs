@@ -1154,3 +1154,114 @@ test('UG: a stalled worker cannot poison the ACCUMULATE -> RESOLVE transition', 
   const expected = reduceHistoryToMonthly({ repositoryId: REPO, scope: { id: 's' }, nodes })
   assert.deepEqual(projectWorkToMonthly(db.workRows()).months, expected.months)
 })
+
+// ══ cursor progression guard ═════════════════════════════════════════════
+// A continuing page (hasNextPage=true) must return a strictly advanced,
+// non-empty endCursor — an identical or empty cursor would checkpoint the
+// same boundary and re-page the identical slice forever, double-counting
+// deltas on every commit. The guard fires BEFORE own_checkpoint_page.
+
+// transport wrapper: replace the history response at `atCursor` entirely
+const withMalformedPage = (t, nodes, atCursor, pageInfo) => {
+  const orig = t.graphql
+  t.graphql = async (q, v) => {
+    if (isHistory(q) && v.cursor === atCursor) {
+      return {
+        repository: {
+          object: {
+            __typename: 'Commit', oid: v.oid,
+            history: { pageInfo, nodes },
+          },
+        },
+        rateLimit: { cost: 1, remaining: 5000, resetAt: 'x' },
+      }
+    }
+    return orig(q, v)
+  }
+  return t
+}
+
+test('CA: same cursor on a continuing page fails closed before checkpoint', async () => {
+  const db = makeMemDb()
+  const nodes = syntheticNodes().slice(0, 30)
+  const t = withMalformedPage(
+    makeTransport({ nodes, pageSize: 10 }), nodes.slice(10, 20), 'idx:10',
+    { hasNextPage: true, endCursor: 'idx:10' }, // requests idx:10, returns idx:10
+  )
+  const r = await run(db, t)
+  assert.equal(r.status, SLICE_STATUS.ERROR)
+  assert.equal(r.code, 'OWNERSHIP_HISTORY_FAILED')
+  assert.equal(db._state.calls.checkpoint, 1) // page 1 only — malformed page never reaches the RPC
+  const sync = await db.loadSync()
+  assert.equal(sync.phase, 'error')
+  assert.equal(sync.error, 'OWNERSHIP_HISTORY_FAILED')
+  assert.ok(!String(sync.error).includes('idx')) // closed taxonomy, no cursor/provider text
+  assert.equal(sync.history_cursor.current.cursor, 'idx:10') // last valid boundary
+  // exactly the page-1 counters — the malformed page contributed zero
+  const expected1 = reduceHistoryToMonthly({ repositoryId: REPO, scope: { id: 's' }, nodes: nodes.slice(0, 10) })
+  assert.deepEqual(projectWorkToMonthly(db.workRows()).months, expected1.months)
+})
+
+test('CB: a continuing page can never keep the cursor at null/non-string', async () => {
+  const db = makeMemDb()
+  const nodes = syntheticNodes().slice(0, 20)
+  const t = withMalformedPage(
+    makeTransport({ nodes, pageSize: 10 }), nodes.slice(0, 10), null,
+    { hasNextPage: true, endCursor: null },
+  )
+  const r = await run(db, t)
+  assert.equal(r.status, SLICE_STATUS.ERROR)
+  assert.equal(r.code, 'OWNERSHIP_HISTORY_FAILED')
+  assert.equal(db._state.calls.checkpoint, 0) // no checkpoint at all
+  const sync = await db.loadSync()
+  assert.equal(sync.phase, 'error')
+  assert.equal(sync.history_cursor.current.cursor, null) // unmoved
+  assert.equal(db.workRows().length, 0)
+})
+
+test('CC: empty/whitespace endCursor on a continuing page fails closed', async () => {
+  for (const bad of ['', '   ']) {
+    const db = makeMemDb()
+    const nodes = syntheticNodes().slice(0, 30)
+    const t = withMalformedPage(
+      makeTransport({ nodes, pageSize: 10 }), nodes.slice(10, 20), 'idx:10',
+      { hasNextPage: true, endCursor: bad },
+    )
+    const r = await run(db, t)
+    assert.equal(r.status, SLICE_STATUS.ERROR, `endCursor=${JSON.stringify(bad)}`)
+    assert.equal(r.code, 'OWNERSHIP_HISTORY_FAILED')
+    assert.equal(db._state.calls.checkpoint, 1)
+    assert.equal((await db.loadSync()).history_cursor.current.cursor, 'idx:10')
+  }
+})
+
+test('CD: normal cursor progression is unaffected', async () => {
+  const nodes = syntheticNodes().slice(0, 30)
+  const db = makeMemDb()
+  const r = await run(db, makeTransport({ nodes, pageSize: 10 }))
+  assert.equal(r.status, SLICE_STATUS.RESOLVE_READY)
+  const cursors = db._state.calls.checkpointArgs.map((a) => [a.p_expected_cursor, a.p_next_cursor])
+  assert.deepEqual(cursors, [[null, 'idx:10'], ['idx:10', 'idx:20'], ['idx:20', 'idx:30']])
+})
+
+test('CE: the final page imposes no progression rule — endCursor may be null', async () => {
+  const nodes = syntheticNodes().slice(0, 15)
+  const db = makeMemDb()
+  const t = makeTransport({ nodes, pageSize: 10 })
+  const orig = t.graphql
+  t.graphql = async (q, v) => {
+    const res = await orig(q, v)
+    // terminal page: the provider may return a null endCursor — B1 flips
+    // the pass to resolve regardless of its value
+    if (isHistory(q) && v.cursor === 'idx:10') {
+      res.repository.object.history.pageInfo.endCursor = null
+    }
+    return res
+  }
+  const r = await run(db, t)
+  assert.equal(r.status, SLICE_STATUS.RESOLVE_READY)
+  const cur = (await db.loadSync()).history_cursor.current
+  assert.equal(cur.pass, 'resolve')
+  const expected = reduceHistoryToMonthly({ repositoryId: REPO, scope: { id: 's' }, nodes })
+  assert.deepEqual(projectWorkToMonthly(db.workRows()).months, expected.months)
+})
