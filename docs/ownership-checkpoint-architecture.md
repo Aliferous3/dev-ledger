@@ -1228,9 +1228,11 @@ endpoint form, now sha-pinned.
   Never continue mid-build on a new HEAD — that mixes revisions.
 - **B0.5 gate: PASSED** (`docs/ownership-pinned-history-spike-results.md`).
   Measured behaviors the implementation must honor:
-  - `object(oid:)` returns `null` for nonexistent/foreign/GC'd oids —
-    **not** a `NOT_FOUND` error. `object == null` is the fail-closed
-    terminal signal.
+  - `object(oid:)` returns `null` for nonexistent and foreign-repository
+    oids — **not** a `NOT_FOUND` error. A truly GC'd (force-pushed-away)
+    oid was not manufacturable read-only; per the results doc it can only
+    resolve to `null` or an error. `object == null` is the fail-closed
+    terminal signal either way.
   - A non-Commit oid (blob, tree) still resolves — `__typename` differs
     and `... on Commit` fields are absent. Assert `__typename ==
     "Commit"` (or `history` present) before walking; never treat a
