@@ -73,11 +73,15 @@ test('backup is allowlist-only — explicit --table per resolved table, no exclu
   assert.match(b, /resolved\.map\(.*--table=public\./s, 'must emit --table=public.<t> per resolved allowlisted table');
   assert.match(b, /resolved\.length === 0/, 'must refuse to dump when nothing allowlisted exists');
   assert.doesNotMatch(b, /--exclude-table/, 'exclusion-list model silently backs up unclassified tables');
-  assert.equal(BACKUP_TABLES.length, 14);
+  assert.equal(BACKUP_TABLES.length, 15);
   for (const t of ['users', 'github_installations', 'repositories', 'repository_languages',
     'commits', 'pull_requests', 'repo_coverage', 'repo_sync', 'user_sync', 'feedback',
-    'ownership_scopes', 'ownership_contributors', 'ownership_snapshots', 'ownership_sync_state']) {
+    'ownership_scopes', 'ownership_scope_versions', 'ownership_contributors',
+    'ownership_snapshots', 'ownership_sync_state']) {
     assert.ok(BACKUP_TABLES.includes(t), `BACKUP_TABLES missing ${t}`);
+  }
+  for (const t of ['ownership_history_work', 'ownership_contributor_build_work']) {
+    assert.ok(!BACKUP_TABLES.includes(t), `ephemeral ${t} must never enter the allowlist`);
   }
   // nothing outside the allowlist can enter the archive — no whole-db dump
   assert.doesNotMatch(b, /--schema-only|--format=custom'\s*\]/, 'no unscoped dump args');

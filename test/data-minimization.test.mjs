@@ -365,6 +365,16 @@ test('every user-linked table cascades from users in the migrations', () => {
       `${tbl} must tenant-cascade through repositories(id, user_id)`,
     )
   }
+  // 013 checkpointing tables — retained membership + both ephemeral work
+  // relations — teardown still cascades through the same tenant FK
+  const checkpointing = src('migrations/013_ownership_checkpointing.sql')
+  for (const tbl of ['ownership_scope_versions', 'ownership_history_work', 'ownership_contributor_build_work']) {
+    assert.match(
+      checkpointing,
+      new RegExp(`create table if not exists public\\.${tbl}[\\s\\S]*?foreign key \\(repository_id, user_id\\)[\\s\\S]*?references public\\.repositories \\(id, user_id\\)[\\s\\S]*?on delete cascade`, 'i'),
+      `${tbl} must tenant-cascade through repositories(id, user_id)`,
+    )
+  }
 })
 
 /* ── WS7: backup scope stays allowlist-only ─────────────────────────────── */

@@ -87,9 +87,12 @@ producing a silently partial artifact.
 | `repo_sync` | operational | yes | phase markers; self-healing hints |
 | `user_sync` | operational | yes | stale `syncing`/`locked` rows are taken over by cron's stale-lock logic |
 | `ownership_scopes` | core | yes | ownership scope map — for retained/disconnected repos GitHub may no longer serve the data; irreplaceable |
+| `ownership_scope_versions` | core | yes | per-version scope membership — required to interpret active ownership state (exclusion + which scopes belong to active_version) |
 | `ownership_contributors` | core | yes | repo-scoped contributor identity rows — same irreplaceability |
 | `ownership_snapshots` | core | yes | ownership aggregates — real retained user history, not always reconstructable |
 | `ownership_sync_state` | operational | yes | ownership cursors/version markers; losing it means a re-ingest |
+| `ownership_history_work` | ephemeral | **no** | crash-safe build counters — pseudonymous work keys; loss means the building version is abandoned and restarted, never active user data |
+| `ownership_contributor_build_work` | ephemeral | **no** | build-level identity staging — exists only while a build runs; same discard-and-rebuild recovery |
 | `auth_sessions` | ephemeral | **no** | recovery must force re-auth, never resurrect live sids |
 | `webhook_deliveries` | ephemeral | **no** | dedup history; post-restore deliveries reprocess idempotently |
 | `security_events` | ephemeral | **no** | 30-day operational telemetry |

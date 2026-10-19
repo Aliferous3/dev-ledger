@@ -20,7 +20,14 @@ const sql = postgres(url, { onnotice: () => {} })
 
 async function run() {
   const dir = path.join(root, 'migrations')
-  const files = (await fs.readdir(dir)).filter((f) => f.endsWith('.sql')).sort()
+  // MIGRATE_UP_TO bounds the chain at a migration prefix (e.g. '012') —
+  // used only by the recovery drill's upgrade leg to rehearse an
+  // old-version -> current-version apply. Unset in normal operation.
+  const upTo = process.env.MIGRATE_UP_TO
+  const files = (await fs.readdir(dir))
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .filter((f) => !upTo || f.slice(0, 3) <= upTo)
 
   await sql`
     create table if not exists schema_migrations (

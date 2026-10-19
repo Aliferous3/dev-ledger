@@ -22,6 +22,7 @@ import postgres from 'postgres'
 import { loadOperatorEnv, pgEnv, isLocalHost } from './operator-env.mjs'
 import { runPgTool } from './pg-tools.mjs'
 import { BACKUP_TABLES, EPHEMERAL_TABLES } from './backup-scope.mjs'
+import { checkpointingProofs } from './ownership-checkpoint-proofs.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const BACKED_UP = BACKUP_TABLES
@@ -102,7 +103,8 @@ async function seed(sql) {
   // ── ownership rows (synthetic fixtures — NOT production ingestion) ──
   // Covers every row shape: repo scope, dir scope, linked/unlinked/
   // aggregate contributors, monthly + head contributor and scope-total
-  // snapshots, and sync state at active_version=1.
+  // snapshots, per-version scope membership, a mid-build V2 (building)
+  // version, ephemeral work rows, and sync state at active_version=1.
   const scopeRepo = crypto.randomUUID()
   const scopeDir = crypto.randomUUID()
   const cLinked = crypto.randomUUID()
@@ -118,6 +120,28 @@ async function seed(sql) {
             values (${cUnlinked}, ${uid}, ${repoId}, 'unlinked', 'unlinked')`
   await sql`insert into ownership_contributors (id, user_id, repository_id, contributor_key, identity_kind)
             values (${cOther}, ${uid}, ${repoId}, 'other', 'aggregate')`
+  // version membership precedes snapshots — the composite FK requires it
+  await sql`insert into ownership_scope_versions (user_id, repository_id, scope_id, calculation_version)
+            values (${uid}, ${repoId}, ${scopeRepo}, 1)`
+  await sql`insert into ownership_scope_versions (user_id, repository_id, scope_id, calculation_version)
+            values (${uid}, ${repoId}, ${scopeDir}, 1)`
+  // building V2: committed scope snapshot + membership + ephemeral state —
+  // the backup carries the CORE rows only; restore leaves an abandoned-
+  // candidate building version whose canonical cleanup is proven below
+  await sql`insert into ownership_scope_versions (user_id, repository_id, scope_id, calculation_version)
+            values (${uid}, ${repoId}, ${scopeDir}, 2)`
+  await sql`insert into ownership_snapshots
+            (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start,
+             touch_commits, touch_share, calculation_version)
+            values (${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'month', '2026-10-01T00:00:00Z', 4, 0.4, 2)`
+  await sql`insert into ownership_history_work
+            (user_id, repository_id, scope_id, calculation_version, period_start, work_key, is_bot, touch_commits)
+            values (${uid}, ${repoId}, ${scopeDir}, 2, '2026-10-01T00:00:00Z',
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', false, 4)`
+  await sql`insert into ownership_contributor_build_work
+            (user_id, repository_id, calculation_version, work_key, github_node_id, display_login, is_bot)
+            values (${uid}, ${repoId}, 2,
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'MDQ6VXNlcjExMQ==', 'alice', false)`
   await sql`insert into ownership_snapshots
             (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start,
              touch_commits, touch_share, calculation_version)
@@ -135,8 +159,8 @@ async function seed(sql) {
              human_contributor_count, recent_human_maintainer_count, top_human_contributor_share,
              total_surviving_lines, unlinked_surviving_line_share, calculation_version)
             values (${uid}, ${repoId}, ${scopeDir}, null, 'head', '1970-01-01T00:00:00Z', 4, 2, 0.42, 1613, 0.15, 1)`
-  await sql`insert into ownership_sync_state (user_id, repository_id, phase, active_version)
-            values (${uid}, ${repoId}, 'done', 1)`
+  await sql`insert into ownership_sync_state (user_id, repository_id, phase, active_version, building_version)
+            values (${uid}, ${repoId}, 'done', 1, 2)`
 
   // Sentinel outside the allowlist — proves the dump cannot pick up
   // unrelated schemas/tables (Supabase internals, unclassified app tables).
@@ -364,11 +388,14 @@ async function ownershipProofs(sql, { uid, repoId, scopeDir, cLinked, cOther }) 
   await sql`update ownership_sync_state set error = 'OWNERSHIP_BLAME_FAILED' where user_id = ${uid} and repository_id = ${repoId}`
   await sql`update ownership_sync_state set error = null where user_id = ${uid} and repository_id = ${repoId}`
 
-  // ── version coexistence: v1 and v2 rows may coexist in storage
+  // ── version coexistence: v1 and v3 rows may coexist in storage
+  // (v3 used here so the seeded building-V2 state survives to the backup)
+  await sql`insert into ownership_scope_versions (user_id, repository_id, scope_id, calculation_version)
+            values (${uid}, ${repoId}, ${scopeDir}, 3)`
   await sql`insert into ownership_snapshots
             (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start,
              touch_commits, touch_share, calculation_version)
-            values (${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'month', '2026-09-01T00:00:00Z', 99, 0.9, 2)`
+            values (${uid}, ${repoId}, ${scopeDir}, ${cLinked}, 'month', '2026-09-01T00:00:00Z', 99, 0.9, 3)`
   // RPC must still serve only active v1 (touch_commits 12, not 99)
   const tl = await sql`select touch_commits from dash_ownership_timeline(${uid}, ${repoId}, 'h-src-api')
                        where display_login = 'alice'`
@@ -382,7 +409,8 @@ async function ownershipProofs(sql, { uid, repoId, scopeDir, cLinked, cOther }) 
   const scopes = await sql`select * from dash_ownership_scopes(${uid}, ${repoId})`
   check(scopes.length === 2 && scopes.some((s) => s.display_path === 'src/api' && Number(s.total_surviving_lines) === 1613),
     'dash_ownership_scopes served wrong rows')
-  await sql`delete from ownership_snapshots where calculation_version = 2`
+  await sql`delete from ownership_snapshots where calculation_version = 3`
+  await sql`delete from ownership_scope_versions where repository_id = ${repoId} and calculation_version = 3`
 
   // ── bootstrap + promotion + rebuild lifecycle on a throwaway tenant
   const uidC = crypto.randomUUID()
@@ -396,6 +424,8 @@ async function ownershipProofs(sql, { uid, repoId, scopeDir, cLinked, cOther }) 
             values (${scopeC}, ${uidC}, ${repoC}, 'h-root', 'repo', 0)`
   await sql`insert into ownership_contributors (id, user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login)
             values (${cC}, ${uidC}, ${repoC}, 'k-carol', 'linked', 'MDQ6VXNlcjY2Ng==', 'carol')`
+  await sql`insert into ownership_scope_versions (user_id, repository_id, scope_id, calculation_version)
+            values (${uidC}, ${repoC}, ${scopeC}, 1)`
   await sql`insert into ownership_snapshots
             (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, touch_commits, calculation_version)
             values (${uidC}, ${repoC}, ${scopeC}, ${cC}, 'month', '2026-09-01T00:00:00Z', 7, 1)`
@@ -411,6 +441,8 @@ async function ownershipProofs(sql, { uid, repoId, scopeDir, cLinked, cOther }) 
   check(v1rows.length === 1 && Number(v1rows[0].touch_commits) === 7, 'promoted V1 not visible')
   // RECALC: V2 rows coexist while V1 stays served
   await sql`update ownership_sync_state set building_version = 2 where user_id = ${uidC} and repository_id = ${repoC}`
+  await sql`insert into ownership_scope_versions (user_id, repository_id, scope_id, calculation_version)
+            values (${uidC}, ${repoC}, ${scopeC}, 2)`
   await sql`insert into ownership_snapshots
             (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, touch_commits, calculation_version)
             values (${uidC}, ${repoC}, ${scopeC}, ${cC}, 'month', '2026-09-01T00:00:00Z', 42, 2)`
@@ -421,9 +453,12 @@ async function ownershipProofs(sql, { uid, repoId, scopeDir, cLinked, cOther }) 
             where user_id = ${uidC} and repository_id = ${repoC}`
   const v2rows = await sql`select touch_commits from dash_ownership_timeline(${uidC}, ${repoC}, 'h-root')`
   check(v2rows.length === 1 && Number(v2rows[0].touch_commits) === 42, 'version flip did not change served results')
-  // repo delete cascades every ownership table (D)
+  // repo delete cascades every ownership table — single statement, all
+  // seven relations including retained membership and both work tables
   await sql`delete from repositories where id = ${repoC}`
-  for (const t of ['ownership_scopes', 'ownership_contributors', 'ownership_snapshots', 'ownership_sync_state']) {
+  for (const t of ['ownership_scopes', 'ownership_scope_versions', 'ownership_contributors',
+    'ownership_snapshots', 'ownership_sync_state', 'ownership_history_work',
+    'ownership_contributor_build_work']) {
     const [{ c }] = await sql`select count(*)::int c from ${sql(t)} where repository_id = ${repoC}`
     check(c === 0, `${t} rows survived repository delete (repo cascade broken)`)
   }
@@ -444,13 +479,17 @@ async function ownershipProofs(sql, { uid, repoId, scopeDir, cLinked, cOther }) 
             values (${scopeD}, ${uidD}, ${repoD}, 'h-d', 'repo', 0)`
   await sql`insert into ownership_contributors (id, user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login)
             values (${cD}, ${uidD}, ${repoD}, 'k-dana', 'linked', 'MDQ6VXNlcjc3Nw==', 'dana')`
+  await sql`insert into ownership_scope_versions (user_id, repository_id, scope_id, calculation_version)
+            values (${uidD}, ${repoD}, ${scopeD}, 1)`
   await sql`insert into ownership_snapshots
             (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start, touch_commits, calculation_version)
             values (${uidD}, ${repoD}, ${scopeD}, ${cD}, 'month', '2026-09-01T00:00:00Z', 4, 1)`
   await sql`insert into ownership_sync_state (user_id, repository_id, phase, active_version)
             values (${uidD}, ${repoD}, 'done', 1)`
   await sql`delete from users where id = ${uidD}`   // no repo delete first
-  for (const t of ['ownership_scopes', 'ownership_contributors', 'ownership_snapshots', 'ownership_sync_state']) {
+  for (const t of ['ownership_scopes', 'ownership_scope_versions', 'ownership_contributors',
+    'ownership_snapshots', 'ownership_sync_state', 'ownership_history_work',
+    'ownership_contributor_build_work']) {
     const [{ c }] = await sql`select count(*)::int c from ${sql(t)} where user_id = ${uidD}`
     check(c === 0, `${t} rows survived direct user delete (user cascade broken)`)
   }
@@ -480,6 +519,93 @@ function tocProblems(dumpPath, serverMajor, env) {
   return problems
 }
 
+// ── 012→013 upgrade leg ────────────────────────────────────────────────
+// Runs against drill_upg, which has ONLY the chain through 012 applied.
+// Seeds rows legal under 012 — crucially a snapshot with NO scope-version
+// membership (the relation does not exist yet) — then applies the
+// remaining migrations and proves the deployed-state upgrade contract:
+// data preserved, membership backfilled, FK actions exact, new
+// RLS/grants/functions present, teardown cascades intact.
+async function upgradeProofs(upg, upgUrl) {
+  const problems = []
+  const check = (ok, msg) => { if (!ok) problems.push(msg) }
+
+  const uid = crypto.randomUUID()
+  const repoId = crypto.randomUUID()
+  const scopeId = crypto.randomUUID()
+  const contribId = crypto.randomUUID()
+  await upg`insert into users (id, github_user_id, github_login) values (${uid}, 47474747, 'drill-upgrade')`
+  await upg`insert into repositories (id, user_id, github_repo_id, owner_login, name, full_name)
+            values (${repoId}, ${uid}, 353535, 'drill-upgrade', 'repo-u', 'drill-upgrade/repo-u')`
+  await upg`insert into ownership_scopes (id, user_id, repository_id, scope_path_hash, display_path, scope_type, depth)
+            values (${scopeId}, ${uid}, ${repoId}, 'h-upg', 'pkg', 'dir', 1)`
+  await upg`insert into ownership_contributors (id, user_id, repository_id, contributor_key, identity_kind, github_node_id, display_login)
+            values (${contribId}, ${uid}, ${repoId}, 'k-upg', 'linked', 'MDQ6VXNlcjg4OA==', 'upguser')`
+  // legal under 012 — no membership row can exist
+  await upg`insert into ownership_snapshots
+            (user_id, repository_id, scope_id, contributor_id, period_granularity, period_start,
+             touch_commits, calculation_version)
+            values (${uid}, ${repoId}, ${scopeId}, ${contribId}, 'month', '2026-09-01T00:00:00Z', 6, 1)`
+  await upg`insert into ownership_sync_state (user_id, repository_id, phase, active_version)
+            values (${uid}, ${repoId}, 'done', 1)`
+  const [{ c: preSnap }] = await upg`select count(*)::int c from ownership_snapshots`
+  check(preSnap === 1, 'upgrade seed failed to create a 012-era snapshot')
+
+  // apply the remainder of the chain (013+)
+  run(process.execPath, ['scripts/migrate.mjs'], { DATABASE_URL: upgUrl })
+
+  const [{ c: migC }] = await upg`select count(*)::int c from schema_migrations`
+  check(migC === MIGRATION_COUNT, `upgrade applied ${migC} migrations, expected ${MIGRATION_COUNT}`)
+  const [{ c: postSnap }] = await upg`select count(*)::int c from ownership_snapshots where repository_id = ${repoId}`
+  check(postSnap === 1, '012-era snapshot lost in upgrade')
+  const mem = await upg`select calculation_version, excluded from ownership_scope_versions
+                        where scope_id = ${scopeId}`
+  check(mem.length === 1 && mem[0].calculation_version === 1 && mem[0].excluded === false,
+    `membership backfill wrong (${JSON.stringify(mem)})`)
+
+  // exact FK actions — 'a' is NO ACTION in pg_constraint.confdeltype
+  const fks = await upg`
+    select conname, confdeltype from pg_constraint
+    where conname in ('ownership_snapshots_scope_repo',
+                      'ownership_snapshots_scope_version',
+                      'ownership_scope_versions_scope_repo')`
+  check(fks.length === 3, `expected 3 NO ACTION FKs, found ${JSON.stringify(fks)}`)
+  for (const f of fks) check(f.confdeltype === 'a', `${f.conname} delete action is ${f.confdeltype}, expected 'a'`)
+
+  // new relations exist with RLS + service-role-only grants
+  for (const t of ['ownership_scope_versions', 'ownership_history_work', 'ownership_contributor_build_work']) {
+    const [{ c: rlsC }] = await upg`
+      select count(*)::int c from pg_class cl join pg_namespace n on n.oid = cl.relnamespace
+      where n.nspname = 'public' and cl.relname = ${t} and cl.relrowsecurity`
+    check(rlsC === 1, `${t} missing or RLS disabled after upgrade`)
+  }
+  const newFns = await upg`
+    select proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and proname like 'own\_%'`
+  const fnSet = new Set(newFns.map((f) => f.proname))
+  for (const f of ['own_checkpoint_page', 'own_restart_scope', 'own_promote_build',
+    'own_abandon_build', 'own_build_preflight', 'own_build_init', 'own_sweep_stale_work']) {
+    check(fnSet.has(f), `${f} missing after upgrade`)
+  }
+
+  // updated RPC compiles and serves active-version membership
+  const scopes = await upg`select scope_path_hash, excluded from dash_ownership_scopes(${uid}, ${repoId})`
+  check(scopes.length === 1 && scopes[0].scope_path_hash === 'h-upg',
+    `upgraded dash_ownership_scopes served ${JSON.stringify(scopes)}`)
+
+  // single-statement teardown still cascades the whole ownership graph
+  await upg`delete from repositories where id = ${repoId}`
+  for (const t of ['ownership_scopes', 'ownership_scope_versions', 'ownership_contributors',
+    'ownership_snapshots', 'ownership_sync_state', 'ownership_history_work',
+    'ownership_contributor_build_work']) {
+    const [{ c }] = await upg`select count(*)::int c from ${upg(t)} where repository_id = ${repoId}`
+    check(c === 0, `${t} rows survived repository delete post-upgrade`)
+  }
+  await upg`delete from users where id = ${uid}`
+
+  return problems
+}
+
 async function verify(src, dst, ids, extraProblems = []) {
   const problems = [...extraProblems]
   const check = (ok, msg) => { if (!ok) problems.push(msg) }
@@ -496,8 +622,10 @@ async function verify(src, dst, ids, extraProblems = []) {
     const [b] = await dst`select count(*)::int c from ${dst(t)}`
     check(a.c === b.c && a.c > 0, `${t}: src ${a.c} rows, dst ${b.c} (expected equal, nonzero)`)
   }
-  // ephemeral tables exist but start empty
-  for (const t of ['auth_sessions', 'webhook_deliveries', 'security_events']) {
+  // ephemeral tables exist but start empty — includes both ownership
+  // work relations, which never enter the backup
+  for (const t of ['auth_sessions', 'webhook_deliveries', 'security_events',
+    'ownership_history_work', 'ownership_contributor_build_work']) {
     const [b] = await dst`select count(*)::int c from ${dst(t)}`
     check(b.c === 0, `${t}: expected empty after restore, found ${b.c}`)
   }
@@ -549,9 +677,38 @@ async function verify(src, dst, ids, extraProblems = []) {
     where table_schema = 'public' and table_name = 'ownership_scopes' and grantee = 'service_role'`
   check(sro.some((g) => g.privilege_type === 'SELECT') && sro.some((g) => g.privilege_type === 'INSERT'),
     'service_role missing SELECT/INSERT on ownership_scopes')
-  // restored ownership RPCs still enforce the serve gate
+  // restored ownership RPCs still enforce the serve gate — building-V2
+  // membership is invisible under active V1
   const [orow] = await dst`select count(*)::int c from dash_ownership_scopes(${ids.uid}, ${ids.repoId})`
   check(orow.c === 2, `restored dash_ownership_scopes returned ${orow.c}, expected 2`)
+
+  // The seeded building V2 survives restore as an abandonment candidate
+  // (its EPHEMERAL work rows do not — the backup omits them). Canonical
+  // abandon must cleanly remove the V2 CORE rows without touching V1.
+  {
+    const [{ building_version }] =
+      await dst`select building_version from ownership_sync_state
+                where user_id = ${ids.uid} and repository_id = ${ids.repoId}`
+    check(building_version === 2, `restored building_version expected 2, got ${building_version}`)
+    const [r] = await dst`select own_abandon_build(${ids.uid}, ${ids.repoId}, 2) as r`
+    check(r.r === 'abandoned', `restored-build abandon returned ${r.r}`)
+    const [{ c: v2snap }] = await dst`select count(*)::int c from ownership_snapshots
+                                      where repository_id = ${ids.repoId} and calculation_version = 2`
+    const [{ c: v2mem }] = await dst`select count(*)::int c from ownership_scope_versions
+                                     where repository_id = ${ids.repoId} and calculation_version = 2`
+    const [{ c: v1snap }] = await dst`select count(*)::int c from ownership_snapshots
+                                      where repository_id = ${ids.repoId} and calculation_version = 1`
+    check(v2snap === 0 && v2mem === 0, 'restored building version not cleaned by abandon')
+    check(v1snap === 4, `abandon touched active V1 data (${v1snap} snapshots)`)
+    const [{ active_version, building_version: bAfter, phase }] =
+      await dst`select active_version, building_version, phase from ownership_sync_state
+                where user_id = ${ids.uid} and repository_id = ${ids.repoId}`
+    check(active_version === 1 && bAfter === null && phase === 'done',
+      `post-abandon sync state wrong (active=${active_version}, building=${bAfter}, phase=${phase})`)
+    // active dashboards still serve V1 only after the cleanup
+    const [orow2] = await dst`select count(*)::int c from dash_ownership_scopes(${ids.uid}, ${ids.repoId})`
+    check(orow2.c === 2, `dash_ownership_scopes changed after abandon (${orow2.c} rows)`)
+  }
 
   // Behavioral proof, not just grant inspection: switch into each role the
   // way Supabase's authenticator does and actually read an app table.
@@ -625,7 +782,7 @@ async function main() {
     const [{ exists: srExists }] = await sqlAdmin`select exists(select from pg_roles where rolname = 'service_role')`
     if (!srExists) await sqlAdmin.unsafe('create role service_role nologin bypassrls')
 
-    for (const db of ['drill_src', 'drill_dst']) {
+    for (const db of ['drill_src', 'drill_dst', 'drill_upg']) {
       await sqlAdmin`drop database if exists ${sqlAdmin.unsafe(db)} with (force)`
       await sqlAdmin`create database ${sqlAdmin.unsafe(db)}`
     }
@@ -635,6 +792,7 @@ async function main() {
 
   const srcUrl = dbAt(admin, 'drill_src')
   const dstUrl = dbAt(admin, 'drill_dst')
+  const upgUrl = dbAt(admin, 'drill_upg')
 
   try {
     console.log('drill: applying migrations to drill_src')
@@ -643,14 +801,21 @@ async function main() {
     const seeded = await seed(src)
     Object.assign(ids, seeded)
     const oProblems = await ownershipProofs(src, seeded)
+    const cProblems = oProblems.length ? [] : await checkpointingProofs(src)
     await src.end()
-    if (oProblems.length) {
-      for (const p of oProblems) console.error(`  FAIL ${p}`)
-      fail(`${oProblems.length} ownership schema proof(s) failed`)
+    const schemaProblems = [...oProblems, ...cProblems]
+    if (schemaProblems.length) {
+      for (const p of schemaProblems) console.error(`  FAIL ${p}`)
+      fail(`${schemaProblems.length} ownership schema proof(s) failed`)
     }
     console.log('drill: seeded synthetic rows (user, repo, commit, PR, sync state, ownership, ephemeral rows)')
     console.log('drill: ownership proofs passed — tenant FKs, shape checks, closed error taxonomy,')
     console.log('       identity kinds, version serve-gate (build/promote/coexist/flip), cascades')
+    console.log('drill: checkpointing proofs passed — membership/snapshot composite FK (A–F), NO ACTION')
+    console.log('       scope protection (G–I), single-statement teardown (J–L), active-version dashboard')
+    console.log('       isolation (M–O), canonical abandon (P–Q), restart staging (R–T), exact-set')
+    console.log('       promotion (U–W), retired-version lifecycle gate (X–AA), checkpoint CAS/replay,')
+    console.log('       stale/orphan sweep, work-key domain and privacy shape guards')
 
     // same backup path the operator uses
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-drill-'))
@@ -689,12 +854,31 @@ async function main() {
     console.log('drill: PASS — synthetic backup → migrate → restore round-trip verified')
     console.log('  core/operational rows preserved, FKs intact, uuids stable')
     console.log('  RLS enabled, anon/authenticated denied, service_role scoped')
-    console.log('  auth_sessions/webhook_deliveries/security_events start empty')
+    console.log('  auth_sessions/webhook_deliveries/security_events + ownership work tables start empty')
     console.log('  privacy column (pull_requests.title) absent, sequences live')
+
+    // ── upgrade leg: apply the deployed chain up to 012, seed
+    // 012-era ownership rows (legal without membership), then run the
+    // remaining migrations — proves the real 012→013 upgrade path
+    console.log('drill: upgrade leg — apply chain through 012, seed legacy rows, migrate')
+    run(process.execPath, ['scripts/migrate.mjs'],
+      { DATABASE_URL: upgUrl, MIGRATE_UP_TO: '012' })
+    const upg = postgres(upgUrl, { onnotice: () => {} })
+    try {
+      const uProblems = await upgradeProofs(upg, upgUrl)
+      if (uProblems.length) {
+        for (const p of uProblems) console.error(`  FAIL ${p}`)
+        fail(`${uProblems.length} upgrade proof(s) failed`)
+      }
+    } finally {
+      await upg.end()
+    }
+    console.log('drill: upgrade leg PASS — 012-era data preserved, membership backfilled,')
+    console.log('  NO ACTION FK actions applied, new RLS/grants/functions live')
   } finally {
     const cleanup = postgres(admin, { onnotice: () => {} })
     try {
-      for (const db of ['drill_src', 'drill_dst']) {
+      for (const db of ['drill_src', 'drill_dst', 'drill_upg']) {
         await cleanup`drop database if exists ${cleanup.unsafe(db)} with (force)`
       }
     } finally {

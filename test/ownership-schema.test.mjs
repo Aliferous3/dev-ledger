@@ -34,9 +34,10 @@ test('012 is purely additive — no drops, truncates, or column rewrites', () =>
   const alters = [...MIG.matchAll(/alter\s+table\s+public\.(\w+)/gi)].map((m) => m[1])
   for (const t of alters) assert.ok(TABLES.includes(t), `unexpected ALTER on ${t}`)
   assert.match(MIG, /create unique index if not exists repositories_id_user_key\s+on public\.repositories \(id, user_id\)/)
-  // forward-only file numbering
+  // forward-only file numbering — 013 extends 012, never edits it
   const files = readdirSync(path.join(ROOT, 'migrations')).filter((f) => f.endsWith('.sql')).sort()
-  assert.equal(files[files.length - 1], '012_ownership.sql', '012 must be the latest migration')
+  assert.equal(files[files.length - 1], '013_ownership_checkpointing.sql', '013 must be the latest migration')
+  assert.ok(files.includes('012_ownership.sql'))
 })
 
 /* ── tables, columns, tenant FKs ─────────────────────────────────────── */
