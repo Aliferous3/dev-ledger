@@ -22,6 +22,11 @@ const FORBIDDEN_IDENTIFIERS = [
   'Aliferous3/', // repo path prefix (the author's public profile link is fine)
 ];
 
+// The public source repository is not a fixture identifier — the prefix
+// ban targets private repo paths (Aliferous3/<private-repo>). Public pages
+// legitimately link the open-source repo (e.g. JSON-LD codeRepository).
+const PUBLIC_REPO_URL = 'github.com/Aliferous3/dev-ledger';
+
 // The fictional replacements are dev-only too — they must also be absent
 // from the production artifact (fixtures are aliased to an inert stub).
 const FICTIONAL_FIXTURE_NAMES = [
@@ -85,7 +90,9 @@ test('built production artifact contains zero fixture identifiers', () => {
   const files = distFilesOrSkip();
   if (!files) return;
   for (const f of files) {
-    const content = readFileSync(f, 'utf8');
+    // Mask the allowlisted public repo URL so its path prefix doesn't read
+    // as a private-fixture identifier; other Aliferous3/ paths still fail.
+    const content = readFileSync(f, 'utf8').replaceAll(PUBLIC_REPO_URL, 'github.com/dev-ledger');
     const rel = path.relative(ROOT, f).replace(/\\/g, '/');
     for (const id of [...FORBIDDEN_IDENTIFIERS, ...FICTIONAL_FIXTURE_NAMES]) {
       assert.ok(!content.includes(id), `${rel} contains "${id}"`);
