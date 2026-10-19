@@ -248,7 +248,7 @@ filtered in memory during enumeration and never reach this table (§8).
 | `github_node_id` | text null | durable key for linked accounts only — the GraphQL `User.id` already selected as `author.user.id` (the same value `isAttributedCommit` compares against `users.github_node_id`) |
 | `display_login` | text null | current GitHub login for display — see §6 decision |
 | `is_bot` | boolean | bots excludable in UI per RFC §10.3 |
-| `first_seen_at`, `last_seen_at` | timestamptz | powers "recent maintainer" without scanning snapshots |
+| `first_seen_at`, `last_seen_at` | timestamptz | powers "recent maintainer" without scanning snapshots — bounds accumulate only over scope-periods where the contributor was **individually represented**; overflow-only activity contributes no bounds (§27), so these fields do not claim all-repository-touch coverage |
 | `created_at`, `updated_at` | timestamptz | housekeeping |
 
 **Rejected:** global contributor table; numeric `databaseId` (no concrete
@@ -271,7 +271,7 @@ historical row, once written, never changes meaning.
 |---|---|---|
 | `id` | uuid pk | |
 | `user_id`, `repository_id` | uuid FKs | direct tenant scoping |
-| `scope_id` | uuid → ownership_scopes, cascade | |
+| `scope_id` | uuid → ownership_scopes, cascade (NO ACTION under proposed §27) | |
 | `contributor_id` | uuid → ownership_contributors, cascade, **null = scope-total row** | per-contributor vs scope summary |
 | `period_granularity` | text: `month` \| `head` | `head` = current-state snapshot (HEAD blame + recent-window signals) |
 | `period_start` | timestamptz | month start; fixed sentinel `1970-01-01` for `head` rows |
@@ -599,6 +599,9 @@ composite foreign keys (application-side checks alone are insufficient):
   `foreign key (contributor_id, repository_id) references ownership_contributors(id, repository_id) on delete cascade`
   — a snapshot cannot pair a scope or contributor from one repository with
   another's repository_id, and both parents cascade with the repo.
+  *(Under proposed §27 the `scope_id` FK's delete action becomes `ON
+  DELETE NO ACTION` — a referenced base scope must be undeletable; the
+  contributor FK is unaffected.)*
 - The required supporting uniques (`ownership_scopes(id, repository_id)`,
   `ownership_contributors(id, repository_id)`) are Phase-1B implementation
   detail, as is the exact SQL. The contract is: **the database itself
@@ -609,7 +612,13 @@ PK `id`. Composite FK `(repository_id, user_id) → repositories(id, user_id)`
 cascade. Unique `(repository_id, scope_path_hash)`. Index
 `(repository_id, depth)` for bounded enumeration. Columns per §4.1.
 Write: ownership ingestion. Read: dashboard RPCs join through it for labels.
-Cardinality: ≤500/repo; ~50–200 typical.
+Cardinality: ≤500/repo; ~50–200 typical. *(Under proposed §27 the bound
+is stated per version and per lifecycle phase: ≤500 **directory
+memberships** per `calculation_version`; the base table holds ≤500+repo
+scope idle, the union of active+building sets — ≈≤1000 — during a build,
+and may transiently exceed 500 while retired-version GC is pending after
+promotion; a fresh build is gated on retired-version GC, so a third
+version can never coexist; pruned after abort/GC.)*
 
 ### `ownership_contributors`
 PK `id`. Composite FK `(repository_id, user_id) → repositories(id, user_id)`
@@ -690,6 +699,20 @@ cap and degrades to shallower scope coverage instead of 1.5M rows. Postgres
 handles 300k indexed rows trivially — the cap exists for hygiene and
 per-tenant fairness, not database survival.
 
+*Under proposed §27 the scope bounds decompose precisely — they are four
+different counts, not one "≤500 scopes/repo":* **base scope identities**
+(≤500+repo scope at idle; ≈≤ the union of the active and building
+directory sets, ≈≤1000, during N/N+1 coexistence; transiently >500 only
+while post-promotion retired-version GC is pending — a fresh build is
+gated on that GC completing, so three versions never coexist); **version
+memberships** (≤500 directories per
+`calculation_version`, repo scope separate — directories beyond the hard
+cap are never persisted at all, so membership is never an overflow
+inventory); **analyzed memberships** (the `excluded=false` subset —
+`excluded='cardinality_cap'` marks only in-set scopes omitted on projected
+snapshot volume); **snapshots** (sparse writes, Top-25+Other fan-out,
+~300k/repo cap as above).
+
 ---
 
 ## 12. Historical retention — **decision: full monthly history, no compaction in V1**
@@ -737,7 +760,11 @@ Version bump flow (N → N+1, same machinery):
 4. When every scope validates complete, `active_version` flips to N+1 and
    `building_version` clears — a single-row update, so the flip is atomic.
 5. **Only after the flip** are old N rows garbage-collected. The active
-   version is never deleted during an unfinished rebuild.
+   version is never deleted during an unfinished rebuild. Under proposed
+   §27 the bound is hardened further: retired-version rows may exist
+   only while that GC is pending, and **no fresh build may initialize
+   until retired-version GC completes** — at most one active plus one
+   building version, ever; a third coexisting version is impossible.
 
 Failure/rollback semantics:
 
@@ -1203,3 +1230,183 @@ ownership-cycle budget must be measured during staged rollout before GA
 | 4 | Monthly indefinitely vs compaction? | **Full monthly, no compaction in V1** — sparse writes + top-25/other + 300k/repo cap bound volume; compaction stays a version-gated option |
 | 5 | Separate HEAD table vs mixed? | **One `ownership_snapshots` table**; `period_granularity='head'` + sentinel `period_start` distinguishes HEAD rows |
 | 6 | Global vs repo-scoped contributor identity? | **Repository-scoped** — no global contributor table, no cross-tenant index or join, ever |
+
+---
+
+## 27. PROPOSED amendment — ephemeral build working state (NOT LIVE)
+
+> **Status: proposed only.** Recorded by the Phase 1C-B0 checkpoint design
+> ([ownership-checkpoint-architecture.md](ownership-checkpoint-architecture.md)).
+> Nothing below is implemented, migrated, or approved for production. It
+> becomes contract only if the implementation tranche is approved.
+
+The §9.1 blocker analysis reached a proved conclusion: **exact**
+Top-25/Other membership and `human_contributor_count` require the complete
+per-contributor set of a scope, while a `history(path:)` walk can span many
+invocations — so exact crash-safe accumulation requires *some* durable
+per-contributor intermediate state, and none of the four 012 tables can
+hold it without violating this contract (snapshots require a durable
+contributor FK; the linked-contributor CHECK forces identity fields; the
+sync-state JSONB is backed up, unbounded, and unconstrainable).
+
+Terminology for this amendment is exact: **EPHEMERAL** means short-lived
+*persisted* operational state — written to Postgres, but backup-excluded,
+never browser/API-exposed, never logged or telemetered, deleted at scope
+finalization or on build-abort cleanup, and fully reconstructable by
+restarting the build. **RETAINED** means durable, backed-up, user-visible
+ownership data (`ownership_scopes`, `ownership_scope_versions`,
+`ownership_contributors`, `ownership_snapshots` at `active_version`).
+Persisted ≠ retained.
+
+The proposed amendment is deliberately narrow:
+
+1. **New data class — EPHEMERAL build working state, two relations.** (a)
+   Per (scope × month × work_key) touch counters plus the `is_bot`
+   boolean and min/max `committedDate`, existing only while
+   `building_version` is set for that repository. (b) **Build-level**
+   contributor staging at grain `(repository_id, calculation_version,
+   work_key)` carrying `github_node_id`, `display_login`, frozen
+   `is_bot`, and `first_seen_at`/`last_seen_at`, existing only for
+   contributor keys already proved individually represented, and only
+   while the build lives. `work_key` is the same `contributor_key`
+   defined in §5/§6 — a **deterministic, repository-scoped pseudonymous
+   identifier** derived from GitHub node identity: no plaintext identity,
+   not user-displayable, linkable within the repository, and therefore
+   not anonymous. It may appear in persisted build state only under the
+   EPHEMERAL conditions above — service-role-only, backup-excluded, never
+   logged, cascade-deleted, swept on abandoned builds.
+2. **The §6.4 guarantee is preserved in substance** — the live §6.4 text
+   remains unchanged until this amendment is adopted; it is not "verbatim"
+   because the amendment deliberately persists the pseudonymous
+   `work_key` in EPHEMERAL build state. What is guaranteed exactly as
+   before: overflow-only contributors still get **no retained identity
+   row** and their GitHub identity fields (`github_node_id`,
+   `display_login`) are **never persisted in any table** — only their
+   pseudonymous `work_key` may exist, and only in short-lived EPHEMERAL
+   relations under this amendment's conditions. Two further guarantees
+   are required because `ownership_contributors` is shared across
+   calculation versions while the dashboard RPCs filter only snapshots by
+   `active_version`:
+   **(a) shared contributor rows are never mutated while a
+   `building_version` is incomplete** — mid-build metadata writes would
+   leak into active-version responses; intended building-version metadata
+   lives only in build staging and is applied to shared rows in the same
+   transaction as the `active_version` flip. **(b)** a scope
+   finalization may create a *new* contributor row solely to satisfy
+   building-snapshot foreign keys — no active-version snapshot can
+   reference it, so active output is unchanged — and if the build aborts,
+   the abort transaction deletes the building-version snapshots and
+   ephemeral state, then **prunes `ownership_contributors` rows
+   unreferenced by any snapshot in any version**: active-version-
+   referenced contributors always survive (and were never mutated, so
+   nothing needs restoring); this pruning is part of identity
+   minimization, not housekeeping.
+   **(c) scope version isolation** — `ownership_scopes` is shared/
+   unversioned the same way, and the deployed `dash_ownership_scopes`
+   enumerates base scope rows regardless of version. The amendment splits
+   immutable scope identity (`id`, path hash, display path, type, depth)
+   from **versioned membership**: a retained CORE relation
+   `ownership_scope_versions` at grain `(scope_id, calculation_version)`
+   carrying the per-version `excluded`/`exclusion_reason` cardinality
+   state (a directory may be inside the ≤500 set in N and outside in N+1
+   as the tree changes; `excluded=true` remains permitted only with
+   `'cardinality_cap'`). Building versions may insert new base scope
+   identities and their own membership rows, but the scopes RPC joins
+   membership at `active_version` — a new N+1 scope is invisible in N
+   output and N exclusion state cannot move. The base row's exclusion
+   columns become non-authoritative legacy; a base scope referenced by
+   any snapshot or membership row is **undeletable** — the amendment
+   changes the existing `snapshots → scopes` FK from `ON DELETE CASCADE`
+   to `ON DELETE NO ACTION` and creates `scope_versions → scopes` as
+   `NO ACTION`, so an erroneous direct scope delete is rejected by the
+   database rather than cascade-destroying active data. Abandoned and
+   garbage-collected versions delete their snapshots, then membership
+   rows, then prune base scopes referenced by nothing — the only legal
+   order.
+   **(d) DB-enforced membership integrity** — `ownership_snapshots` gains
+   a composite FK `(scope_id, repository_id, user_id,
+   calculation_version) → ownership_scope_versions`, backed by a
+   supporting unique on the same four columns, with `ON DELETE NO
+   ACTION` (never CASCADE; NO ACTION is the exact named action — it is
+   checked after the statement's referential actions, which is what lets
+   single-statement teardown work): a snapshot can exist only for a
+   scope belonging to its own version/repo/tenant, and deleting a
+   membership row can never destroy snapshots — cleanup order is always
+   snapshots first, membership second. Together with (c), **every
+   retained child→base-scope relation is `NO ACTION`**: repository/
+   account deletion still cascades completely, because the direct
+   `repositories`/`users` FKs on every ownership table remain `CASCADE`
+   — proven against real Postgres during the migration tranche, not
+   assumed.
+   **(e) private-path bound is precise** — the ≤500 cap is a *hard
+   directory-enumeration cap per calculation version*: directories beyond
+   it (`deriveScopeCandidates().overflow`) are never persisted
+   individually — no base scope row, no membership row, no `display_path`
+   in storage/logs/telemetry. `excluded='cardinality_cap'` is reserved
+   for scopes *inside* the bounded persisted set that are omitted from
+   analysis only because the repo snapshot/storage budget would breach —
+   it is never a "repo contained this path" inventory marker, and
+   `ownership_scope_versions` never becomes a full repository path
+   inventory. While N and N+1 coexist, `ownership_scopes` may hold the
+   union of two bounded sets (≈≤1000 base identities worst case,
+   transient); old-only identities are pruned after abort/GC — no
+   unbounded accumulation. The transient bound is enforced by lifecycle,
+   not hope: after promotion a retired version's rows may remain only
+   while its GC is pending, and a fresh build may not initialize until
+   that GC completes — three coexisting versions are impossible, so the
+   ≈≤1000 bound is real.
+3. **Two-pass identity resolution, attribution-frozen.** The accumulate
+   pass fixes every metric — work keys, counts, Top-25, unlinked share,
+   human counts, **and `is_bot` classification** (`human_contributor_count`
+   depends on it; the retained `ownership_contributors.is_bot` is always
+   the frozen pass-1 value, staged at build level and applied at
+   promotion). The resolve pass re-reads `author.user.{id,login}` solely
+   to stage identities for represented keys and cannot mutate metrics —
+   a bot-classification mismatch between passes, **or across scopes of
+   one build**, is identity drift: the scope fails closed and restarts at
+   a fresh accumulate (cross-scope drift restarts the repository build
+   from a new pinned boundary — one contributor cannot be human in one
+   scope and bot in another within one calculation version). A required
+   key that stays unresolvable fails the scope closed the same way —
+   GitHub's account-link resolution can change independently of the
+   pinned commit, and the build succeeds only while selected keys remain
+   resolvable and consistent.
+4. **Build-boundary SHA.** `ownership_sync_state.history_cursor` may carry
+   the build's pinned commit oid in addition to page cursors — a second
+   sanctioned SHA beside `last_processed_sha` (§4.4), required because
+   `defaultBranchRef` resolves at query time and multi-page builds must
+   not straddle pushes.
+5. Rejected within the design: provisional persistence of
+   `github_node_id`/`display_login` for contributors not yet proven
+   represented (optimistic identity maps, provisional contributor rows);
+   JSONB accumulators inside `ownership_sync_state` (backed up,
+   unbounded); and folding pass-1-linked contributors into `unlinked`
+   when they unlink during pass 2 (unimplementable — a null `author.user`
+   carries no node id mapping back to the work key; pass-2 non-resolution
+   instead fails the scope closed).
+6. **Ephemeral loss invalidates the building version only.** The EPHEMERAL
+   relations are intentionally not backed up; their loss never loses
+   `active_version` data. But because build-level staging accumulates
+   across already-finalized scopes, an incomplete build whose ephemeral
+   state is lost, stale, corrupt, or absent after restore is **wholly
+   discarded** through one canonical abandon operation (delete its
+   versioned snapshots **and scope membership** and ephemeral rows, prune
+   its unreferenced contributors **and unreferenced base scopes**,
+   preserve `active_version`) — piecemeal resumption, including
+   restarting only the current scope, is prohibited because the discarded
+   metadata is not reconstructable from snapshots.
+7. **Build staging integrity.** `ownership_contributor_build_work` has no
+   scope provenance, so a scope that fails mid-resolve and restarts at a
+   fresh accumulate first deletes staged keys not referenced by any
+   committed building-version snapshot and preserves keys that are —
+   linkage drift between walks can change the represented set, and stale
+   keys must not survive. Promotion then requires the staged linked key
+   set to *equal* the union of represented linked contributor keys in the
+   building-version snapshots — no missing keys, no extra keys — before
+   any shared `ownership_contributors` row is touched; stale staging can
+   never write retained metadata.
+
+If this amendment is rejected, the honest alternatives are: (a) accept
+per-scope restart-in-single-invocation with no completion guarantee on
+long histories, or (b) accept approximate/page-local folding — both
+rejected in the design document.
