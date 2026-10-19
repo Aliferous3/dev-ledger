@@ -1373,7 +1373,7 @@ The proposed amendment is deliberately narrow:
    resolvable and consistent.
 4. **Build-boundary SHA.** `ownership_sync_state.history_cursor` may carry
    the build's pinned commit oid in addition to page cursors — a second
-   sanctioned SHA beside `last_processed_sha` (§5.12), required because
+   sanctioned SHA beside `last_processed_sha` (§4.4), required because
    `defaultBranchRef` resolves at query time and multi-page builds must
    not straddle pushes.
 5. Rejected within the design: provisional persistence of

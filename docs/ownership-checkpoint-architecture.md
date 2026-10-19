@@ -58,7 +58,7 @@ or hundreds of pages, and a serverless invocation holds memory only for
 ~45–60 s.
 
 - Persist nothing per-contributor → a crash loses the counts; restart must
-  re-walk the prefix → no completion guarantee (Option A fails, §3.1).
+  re-walk the prefix → no completion guarantee (Option A fails, §4.1).
 - Persist every contributor's identity provisionally → overflow GitHub
   identities reach storage → violates §6.4 durable-identity minimization
   and §9 "in memory only".
@@ -83,7 +83,7 @@ Checked against `012_ownership.sql` as deployed:
 |---|---|
 | `ownership_snapshots` | Contributor rows require `contributor_id` → a durable `ownership_contributors` row → requires `github_node_id`/`display_login` non-null (`ownership_contributors_linked` CHECK). Overflow identities would be written. Also no month-keyed accumulation shape without polluting immutable period facts. |
 | `ownership_contributors` | The linked CHECK **forces** `github_node_id` + `display_login` — pseudonym-only provisional rows are impossible by construction, and persisting identities there is exactly what §9.1 forbids. It is also **retained, version-shared reference state** — not scoped to `calculation_version` — so it cannot be used as build scratch space at all (§4.4). |
-| `ownership_sync_state` (`history_cursor`/other jsonb) | Technically possible, rejected in §3.2: it is OPERATIONAL (dumped into backups — provisional pseudonyms would leak into every dump), a single JSONB row is a read-modify-write hotspot with unbounded growth, and it cannot be CHECK-constrained per element. |
+| `ownership_sync_state` (`history_cursor`/other jsonb) | Technically possible, rejected in §4.2: it is OPERATIONAL (dumped into backups — provisional pseudonyms would leak into every dump), a single JSONB row is a read-modify-write hotspot with unbounded growth, and it cannot be CHECK-constrained per element. |
 | `ownership_scopes` | Scope definition only; nothing accumulates there. |
 
 Conclusion: **migration 013 is required.** The delta (§11): one retained
@@ -669,6 +669,8 @@ serving normally and no new build starts.** The gate re-runs the same
 GC on the next build-start attempt (and the scheduled sweep may run it
 too); the GC is idempotent, so a partial earlier attempt is safe to
 retry. This makes the §5.9 bound real rather than aspirational.
+
+### 5.7 Promotion — atomic metadata application + version flip
 
 When `pending_scopes` is empty, ONE transaction under the sync-row lock:
 
