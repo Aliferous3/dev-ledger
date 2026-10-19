@@ -232,8 +232,18 @@ const OWNERSHIP_IDENTIFIERS = /ownership_scopes|ownership_contributors|ownership
 
 // Phase 1C-A: the pure ingestion core may now exist under lib/ownership/,
 // but it must remain unwired — no caller, no DB write, no runtime import.
+// Phase 1C-B2 adds the ACCUMULATE engine: exactly two runtime modules may
+// touch infrastructure — accumulate.mjs (the engine; imports ../github.mjs
+// for error classes only) and accumulate-runtime.mjs (the supabase/octokit
+// adapter + dormant gated entrypoint). Every other lib/ownership file is
+// pure logic and must stay dependency-free.
 const OWNERSHIP_CORE_DIR = 'lib/ownership/'
 const isOwnershipCore = (rel) => rel.startsWith(OWNERSHIP_CORE_DIR)
+const OWNERSHIP_ENGINE_MODULES = new Set([
+  'lib/ownership/accumulate.mjs',
+  'lib/ownership/accumulate-runtime.mjs',
+])
+const isOwnershipEngine = (rel) => OWNERSHIP_ENGINE_MODULES.has(rel)
 
 function sourceFiles(dir) {
   return readdirSync(path.join(ROOT, dir), { recursive: true })
@@ -256,17 +266,29 @@ test('ownership core stays inside lib/ownership — nothing else references it',
   }
 })
 
-test('ownership core is pure — no db, octokit, supabase, fs, or runner imports', () => {
+test('ownership core is pure — engine modules may import only the sanctioned adapters', () => {
   for (const rel of sourceFiles('lib').filter(isOwnershipCore)) {
     const text = src(rel)
-    for (const m of text.matchAll(/(?:import|from|require)\s*\(?\s*['"]([^'"]+)['"]/g)) {
+    // real module specifiers only — .from('table') PostgREST calls in the
+    // engine adapter are not imports
+    for (const m of text.matchAll(/(?:import\s+(?:type\s+)?[\w*{}\s,]+\s+from|import|require\s*\()\s*['"]([^'"]+)['"]/g)) {
       const spec = m[1]
       assert.ok(
         spec.startsWith('node:') || spec.startsWith('./') || spec.startsWith('../'),
         `${rel} imports external module ${spec} — the core must stay dependency-free`,
       )
-      assert.doesNotMatch(spec, /db|github|sync|octokit|supabase|analytics|sessions|require-user/i,
-        `${rel} must not import runtime infrastructure`)
+      if (isOwnershipEngine(rel)) {
+        // the B2 engine surface: only the shared github module (error
+        // classes / installation client) and the db client adapter
+        assert.doesNotMatch(spec, /sync|octokit|supabase|analytics|sessions|require-user/i,
+          `${rel} may not import ${spec} — engine may reach only ../github.mjs and ../db.mjs`)
+        if (rel === 'lib/ownership/accumulate.mjs') {
+          assert.ok(!spec.includes('db'), 'accumulate.mjs is transport/db agnostic — adapters are injected')
+        }
+      } else {
+        assert.doesNotMatch(spec, /db|github|sync|octokit|supabase|analytics|sessions|require-user/i,
+          `${rel} must not import runtime infrastructure`)
+      }
     }
     assert.doesNotMatch(text, /process\.env\.(?!OWNERSHIP_INGEST_ENABLED|OWNERSHIP_CANARY_REPOSITORY_IDS)[A-Z_]+/,
       `${rel} may only read the two documented gate env vars`)
@@ -291,8 +313,11 @@ test('no ownership table write exists anywhere in lib/api/src', () => {
       }
     }
   }
-  // the pure core itself must not construct persistence calls either
+  // the pure core itself must not construct persistence calls — B2's two
+  // engine modules are the ONLY ownership-core files allowed to write, and
+  // only through the adapter surface (rpc + guarded updates)
   for (const rel of sourceFiles('lib').filter(isOwnershipCore)) {
+    if (isOwnershipEngine(rel)) continue
     const text = src(rel)
     assert.doesNotMatch(text, writerRe, `${rel} contains a persistence-shaped call`)
   }

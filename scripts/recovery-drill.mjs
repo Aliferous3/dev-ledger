@@ -23,6 +23,7 @@ import { loadOperatorEnv, pgEnv, isLocalHost } from './operator-env.mjs'
 import { runPgTool } from './pg-tools.mjs'
 import { BACKUP_TABLES, EPHEMERAL_TABLES } from './backup-scope.mjs'
 import { checkpointingProofs } from './ownership-checkpoint-proofs.mjs'
+import { engineProofs } from './ownership-engine-proofs.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const BACKED_UP = BACKUP_TABLES
@@ -802,8 +803,9 @@ async function main() {
     Object.assign(ids, seeded)
     const oProblems = await ownershipProofs(src, seeded)
     const cProblems = oProblems.length ? [] : await checkpointingProofs(src)
+    const eProblems = cProblems.length ? [] : await engineProofs(src)
     await src.end()
-    const schemaProblems = [...oProblems, ...cProblems]
+    const schemaProblems = [...oProblems, ...cProblems, ...eProblems]
     if (schemaProblems.length) {
       for (const p of schemaProblems) console.error(`  FAIL ${p}`)
       fail(`${schemaProblems.length} ownership schema proof(s) failed`)
@@ -816,6 +818,9 @@ async function main() {
     console.log('       isolation (M–O), canonical abandon (P–Q), restart staging (R–T), exact-set')
     console.log('       promotion (U–W), retired-version lifecycle gate (X–AA), checkpoint CAS/replay,')
     console.log('       stale/orphan sweep, work-key domain and privacy shape guards')
+    console.log('drill: engine proofs passed — pinned end-to-end ACCUMULATE, reducer differential,')
+    console.log('       restart equivalence, stale/replay CAS, checkpoint-failure, pin-loss fail-closed,')
+    console.log('       lease CAS, canonical abandon, and zero-identity persistence')
 
     // same backup path the operator uses
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-drill-'))
