@@ -814,7 +814,11 @@ test('B-engine: same-page drift — no checkpoint, no cursor move, closed error'
   assert.equal(sync.phase, 'error')
   assert.equal(sync.error, 'OWNERSHIP_HISTORY_FAILED')
   assert.equal(sync.history_cursor.current.cursor, null) // cursor unmoved
+  // Mask internal UUIDs before the substring scan — scope_id/lease tokens
+  // are server-minted ids, not provider identity, and a hex uuid can itself
+  // contain the two-char 'a1' needle (the login under test).
   const persisted = JSON.stringify({ phase: sync.phase, error: sync.error, cursor: sync.history_cursor })
+    .replaceAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<uuid>')
   for (const needle of ['person', 'U_a1', 'a1', 'login', 'node']) {
     assert.ok(!persisted.includes(needle), `error state leaked ${needle}`)
   }
