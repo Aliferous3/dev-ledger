@@ -1,7 +1,18 @@
 # Ownership Checkpoint Architecture — Phase 1C-B0 Design
 
-> **Status: design only, revision 6. Nothing in this document is implemented
-> or live.** Revision 5→6 hardening — **membership integrity + cardinality
+> **Status: design only, revision 7. Nothing in this document is implemented
+> or live.** Revision 6→7 hardening — **state integrity**: both retained
+> child→base-scope FKs become `ON DELETE NO ACTION` in prospective 013
+> (the existing `ownership_snapshots→ownership_scopes` CASCADE and the
+> new `ownership_scope_versions→ownership_scopes` FK), so a referenced
+> base scope is undeletable while teardown still cascades through the
+> direct repository/user FKs; the FK action is named exactly — `NO
+> ACTION`, checked after the statement's referential actions — never
+> "NO ACTION/RESTRICT"; a retired-version GC gate (§5.6c) makes a third
+> coexisting version impossible and the ≈≤1000 base-identity bound real;
+> scope-restart staging cleanup (§5.3) is defined by committed-V
+> provenance; promotion requires an *exact* staged↔represented key set
+> (§5.7). Revision 5→6 — **membership integrity + cardinality
 > precision**: `ownership_snapshots` gains a DB-enforced composite FK to
 > `ownership_scope_versions` (same scope/repo/tenant/version; `NO ACTION`,
 > so membership deletion can never destroy snapshots); the 500-directory
@@ -78,11 +89,14 @@ Checked against `012_ownership.sql` as deployed:
 Conclusion: **migration 013 is required.** The delta (§11): one retained
 versioned scope-membership table (`ownership_scope_versions`, CORE), two
 ephemeral work relations, a **composite FK added to the existing
-`ownership_snapshots` table** enforcing snapshot→membership integrity, the
+`ownership_snapshots` table** enforcing snapshot→membership integrity,
+**plus** the deployed `ownership_snapshots → ownership_scopes` FK changed
+from CASCADE to `ON DELETE NO ACTION` (§5.9a), the
 checkpoint/abandon/sweep primitives, and an amended
 `dash_ownership_scopes`. Migration 012's file is never edited — 013 alters
-the *deployed* `ownership_snapshots` by adding the membership FK, and the
-base scope exclusion columns become non-authoritative.
+the *deployed* `ownership_snapshots` by adding the membership FK and
+changing the scope FK's delete action, and the base scope exclusion
+columns become non-authoritative.
 
 ---
 
@@ -359,7 +373,7 @@ COMMIT       ONE transaction — the only place retained rows are written:
              1. verify accumulation complete for the scope
              2. verify a staged build-work row exists for EVERY
                 represented linked key (missing → abort → restart
-                scope at fresh ACCUMULATE)
+                scope at fresh ACCUMULATE — restart cleanup below)
              3. merge this scope's contribution into the build-work row:
                 is_bot must equal the staged frozen value (drift →
                 fail closed); first/last seen merge via least/greatest
@@ -422,6 +436,42 @@ mapping. Semantics now:
   the repository build from a new pinned boundary**, not just the scope.
   One contributor cannot be human in one scope and bot in another within
   a single calculation version.
+
+**Scope-restart staging cleanup (required — staging has no scope
+provenance).** `ownership_contributor_build_work` is deliberately
+build-level — `(repository_id, calculation_version, work_key)` — so
+RESOLVE writes represented-key identity into it **before** the current
+scope's COMMIT. If that scope then fails and restarts from a fresh
+ACCUMULATE, staged rows written by the failed attempt can survive. This
+matters: `author.user` linkage is allowed to drift between walks, so the
+fresh accumulate can produce a *different* represented set — a stale
+`work_key` from the failed attempt may no longer belong to any finalized
+result. "Delete staged rows on scope restart" cannot be the rule, because
+the build-grain relation cannot distinguish current-scope rows by scope.
+The safe cleanup is defined by **committed-V provenance, not scope
+provenance.** Before restarting the current scope at a fresh ACCUMULATE,
+in ONE transaction under the repository ownership lock:
+
+1. delete/reset `ownership_history_work` rows for the current scope;
+2. inspect `ownership_contributor_build_work` for `building_version V`;
+3. **preserve** staged keys whose `work_key` maps through
+   `ownership_contributors.contributor_key` to a contributor row
+   referenced by at least one **COMMITTED V snapshot** — i.e. keys
+   already represented by an earlier finalized scope of this build;
+4. **delete** staged keys with no committed-V-snapshot reference —
+   including keys staged only by the uncommitted attempt for
+   contributors new to the repository (no `ownership_contributors` row
+   exists, hence no V snapshot) **and** existing active-N contributors
+   staged only by the failed current scope (they likewise have no V
+   snapshot for V — their retained rows stay; only the staging row is
+   removed);
+5. reset `current.pass`/`current.cursor` to a fresh ACCUMULATE.
+
+The distinction is exact: a key represented by an earlier committed V
+scope must survive (its staging is consumed by promotion); a key staged
+only by the failed/uncommitted current scope must not (the fresh
+accumulate may not represent it, and promotion must never apply stale
+staging — §5.7's exact-set invariant is the second line of defense).
 
 ### 5.4 first_seen_at / last_seen_at — corrected semantics
 
@@ -501,16 +551,19 @@ there is no second cleanup semantics anywhere):
 8. **Prune** `ownership_scopes` base rows now referenced by NO
    `ownership_scope_versions` row AND NO `ownership_snapshots` row —
    V-only base identities are removed; N-referenced scopes always
-   survive. The snapshot FK is `ON DELETE CASCADE`, so this explicit
-   check is what makes the prune safe rather than destructive; a base
-   scope still referenced by active/retained data is never deleted.
+   survive. Prospective 013 sets **both** retained child→base-scope FKs
+   (`snapshots → scopes`, `scope_versions → scopes`) to `ON DELETE NO
+   ACTION`, so a base scope referenced by any retained child
+   **cannot be deleted at all** — the database rejects the delete
+   (§5.9); this explicit unreferenced check is what makes the prune
+   succeed rather than fail.
 9. `active_version` is never touched; phase/error fall back to the state
    implied by whether an active version exists (closed taxonomy only).
    Existing contributor metadata and N scope membership need no
    restoration — they were never mutated.
 
 The ordering is **required, not stylistic**: the prospective
-`snapshots → scope_versions` FK is `NO ACTION`/`RESTRICT` (§5.9), so any
+`snapshots → scope_versions` FK is `ON DELETE NO ACTION` (§5.9), so any
 cleanup that tried membership-first would *fail*, not cascade — and that
 is the point: an incorrect cleanup must be incapable of destroying
 active/retained data rather than merely unlikely to. No operation ever
@@ -534,7 +587,9 @@ them). Therefore:
 A new repository build may not start while `building_version` is set: it
 first **resumes** the existing build if §5.6b validity holds, else runs
 `own_abandon_build`. `building_version` must be null before a fresh build
-initializes — no overlapping building versions, ever.
+initializes — necessary but not sufficient: the §5.6c retired-version
+gate must also pass, so no overlapping building versions and no third
+retained version, ever.
 
 ### 5.6b Required ephemeral-state validity
 
@@ -546,7 +601,7 @@ the mere presence/absence of counter rows:
 | ACCUMULATE mid-scope | `history_work` prefix rows may exist (or be empty pre-first-page); `contributor_build_work` for previously finalized scopes' represented keys | next pages |
 | RESOLVE mid-scope | complete `history_work` counters for the scope; `contributor_build_work` for prior scopes | identity rows not yet observed in pass 2 |
 | Between scopes | `contributor_build_work` for all represented keys of committed scopes; `pending_scopes` non-empty | `history_work` for the just-committed scope (consumed) |
-| Ready to promote | `pending_scopes` empty; complete `contributor_build_work`; zero `history_work` | — |
+| Ready to promote | `pending_scopes` empty; `contributor_build_work` exactly equal to the represented V key set (§5.7); zero `history_work` | — |
 
 Zero `history_work` rows is **not** evidence of loss — it is the legal
 state after each scope COMMIT and before promotion. Validation checks:
@@ -568,20 +623,78 @@ makes a V snapshot without V membership impossible even if validation
 has a bug. Application checks decide "can this build resume?"; the FK
 decides "can this row exist?"
 
-### 5.7 Promotion — atomic metadata application + version flip
+### 5.6c Retired-version lifecycle gate (CANONICAL)
+
+The ≈≤1000 base-identity bound assumes only `active N + building N+1`
+ever coexist — but post-promotion old-version GC currently runs in a
+separate later transaction. Without a build-start gate, "promote N+1 →
+old N awaits GC → start building N+2" leaves **N + N+1 + N+2** in
+retained state and the bound is false. The lifecycle is therefore a
+hard invariant, not housekeeping:
+
+> **A repository may contain at most one `active_version` and,
+> optionally, one `building_version`. No *retired* calculation version —
+> a version whose snapshots/membership remain but which is neither
+> `active_version` nor `building_version` — may exist when a NEW
+> building version is initialized.**
+
+After promotion, the old version may coexist transiently with the new
+active version **only while the mandatory GC is pending**; while such
+retired rows exist a new ownership build MUST NOT start. **No third
+ownership version may coexist with a building version.**
+
+**Fresh-build preflight** — every fresh build starts with, inside ONE
+transaction under the repository ownership lock:
+
+1. `SELECT FOR UPDATE` the `(user_id, repository_id)` sync-state row.
+2. Verify `building_version` is null — a non-null value routes to
+   §5.6b resume-or-abandon instead; fresh init never proceeds past it.
+3. Identify **every** `calculation_version` present in
+   `ownership_snapshots` or `ownership_scope_versions` that is not
+   `active_version` — the retired set (normally the previous version
+   awaiting post-promotion GC; empty in the common case).
+4. Garbage-collect each retired version in the **legal order**:
+   a. `ownership_snapshots` rows for the retired version;
+   b. `ownership_scope_versions` membership rows for the retired version;
+   c. `ownership_contributors` rows referenced by zero snapshots across
+      all versions (anti-join);
+   d. `ownership_scopes` base rows referenced by zero membership rows
+      and zero snapshots (anti-join).
+5. Verify **no retired-version rows remain** — re-check the retired set
+   is empty inside the same transaction.
+6. Only then pin the new revision and initialize `building_version`.
+
+If preflight GC fails or cannot complete: **`active_version` keeps
+serving normally and no new build starts.** The gate re-runs the same
+GC on the next build-start attempt (and the scheduled sweep may run it
+too); the GC is idempotent, so a partial earlier attempt is safe to
+retry. This makes the §5.9 bound real rather than aspirational.
 
 When `pending_scopes` is empty, ONE transaction under the sync-row lock:
 
 1. Verify: `building_version = V`; no `ownership_history_work` rows for V;
-   no unresolved `ownership_contributor_build_work` rows for V (every
-   represented key has a complete staged identity); snapshot cardinality
-   within §11 bounds.
+   snapshot cardinality within §11 bounds; and the **exact-set invariant**
+   — the staged linked key set must *equal* the represented set, in both
+   directions:
+   - every `ownership_contributor_build_work` row for V maps (via
+     `contributor_key = work_key`) to a contributor referenced by at
+     least one building-V snapshot — **no extra staged keys** (a stale
+     row from an abandoned scope attempt must have been removed by the
+     §5.3 restart cleanup; a surviving one fails this check closed);
+   - every linked contributor key represented in V snapshots has a
+     staged build-work row — **no missing keys**.
+   `set(staged work_key) == set(distinct contributor_key over V
+   snapshots)` — synthetic `unlinked`/`other` buckets are excluded from
+   both sides (they never enter contributor staging). Any asymmetry →
+   promotion fails closed; nothing is applied.
 2. Apply staged contributor metadata to retained rows —
    `UPDATE ownership_contributors ... FROM ownership_contributor_build_work`
    setting `github_node_id` (consistency-checked: same `work_key` must
    carry the same node id — mismatch fails closed), `display_login`,
    `is_bot` (the frozen pass-1 value), `first_seen_at`, `last_seen_at`.
-   New contributors inserted at scope COMMITs already carry these values;
+   The update touches exactly the set validated in step 1 — stale
+   staging rows can never write shared retained metadata. New
+   contributors inserted at scope COMMITs already carry these values;
    the update is idempotent over them.
 3. `active_version = V; building_version = null;` clear build cursor state;
    `phase = 'done'` — single row update.
@@ -596,12 +709,15 @@ under read-committed see either fully-pre or fully-post commit. A failed
 promotion leaves active N and all shared contributor metadata unchanged
 and building V retryable. Post-flip garbage collection of old-version
 snapshots is a separate later transaction (spec §13), ordered to match
-the RESTRICT FK: verify the collected version is not `active_version` →
-delete old-version **snapshots** → delete old-version
+the `NO ACTION` child FKs: verify the collected version is not
+`active_version` → delete old-version **snapshots** → delete old-version
 `ownership_scope_versions` membership → prune contributors referenced by
 no remaining snapshot → prune base scopes referenced by no membership
 row and no snapshot. Membership is never deleted before its snapshots,
-and no delete ever relies on cascading membership→snapshot.
+and no delete ever relies on cascading membership→snapshot. Until this
+GC completes the retired version is still present, so the §5.6c gate
+blocks any fresh build start — retired state is transient by
+construction, never a third coexisting version.
 
 ### 5.8 Why this is required — the shared-metadata leak
 
@@ -640,20 +756,29 @@ Three distinct leaks follow:
   metrics);
 - **metadata leak:** mutating `excluded`/`exclusion_reason`/
   `display_path`/`depth` on a shared scope alters active-N output;
-- **deletion hazard:** `ownership_snapshots` FK-references scopes
-  `ON DELETE CASCADE` — deleting a base scope during a build could
-  cascade-destroy **active-N snapshots**.
+- **deletion hazard:** under migration 012, `ownership_snapshots`
+  FK-references scopes `ON DELETE CASCADE` — deleting a base scope
+  during a build could cascade-destroy **active-N snapshots**. The new
+  snapshot→membership FK protects membership integrity, but does not by
+  itself close this path: an erroneous
+  `DELETE FROM ownership_scopes WHERE id = <active scope>` could still
+  remove active scope-version membership *and* active snapshots through
+  cascades. Prospective 013 therefore changes the retained child→scope
+  delete actions to `ON DELETE NO ACTION` (below), so the database
+  itself rejects any base-scope delete while retained/versioned
+  children reference it.
 
 Resolution — split immutable identity from versioned membership:
 
 **`ownership_scopes` stays the immutable repository/path identity
 relation** (`id, user_id, repository_id, scope_path_hash, display_path,
 scope_type, depth, created_at, updated_at`): never mutated merely because
-another version is building; never deleted while any snapshot or
-membership row references it (the FK cascade makes "delete a referenced
-scope" a correctness violation, not a cleanup path). Vendor/generated/
-binary/submodule paths still never get a base row; file scopes remain
-impossible.
+another version is building; **undeletable while any snapshot or
+membership row references it** — under prospective 013 both retained
+child→base-scope FKs are `ON DELETE NO ACTION`, so "delete a referenced
+scope" is rejected by the database, not merely forbidden by contract
+(§5.9a). Vendor/generated/binary/submodule paths still never get a base
+row; file scopes remain impossible.
 
 **`ownership_scope_versions`** — RETAINED, CORE-classified, grain
 `(scope_id, calculation_version)` plus `user_id`/`repository_id` for
@@ -700,15 +825,33 @@ retroactively).
   would breach the repo snapshot budget may be marked
   `excluded='cardinality_cap'` — membership stays; analysis is skipped.
 
-**Bounds, stated honestly:** ≤500 **directory memberships per calculation
-version** (repo scope separate). Because active N and building N+1
-coexist, `ownership_scopes` may temporarily hold the *union* of two
-bounded sets — worst case ≈≤1000 base directory identities during a
-rebuild with zero overlap; normal overlap is far lower. After abort or
-old-version GC, identities referenced by neither retained membership nor
-snapshots are pruned — **no unbounded accumulation of historical
-directory identities.** The lifecycle remains: at most `active + one
-building version`; old-version GC runs after promotion.
+**Bounds, stated honestly — defined per lifecycle phase** (the phases are
+the only states in which base identities exist; the retired-version GC
+gate in §5.6c is what makes them exhaustive):
+
+- **NORMAL IDLE** — only `active_version` membership is retained: ≤500
+  directory memberships; `ownership_scopes` holds ≤500 base directory
+  identities plus the repo scope.
+- **DURING BUILD** — active N (≤500) + building N+1 (≤500) coexist;
+  `ownership_scopes` holds the *union* of two bounded sets — worst case
+  ≈≤1000 base directory identities with zero overlap; normal overlap is
+  far lower.
+- **IMMEDIATELY AFTER PROMOTION** — the previous (retired) version's
+  membership/snapshots may coexist transiently with the new active
+  version **only while the mandatory old-version GC is pending** — and
+  **no new build may start in this state** (§5.6c). This is a
+  GC-pending state, not a third lifecycle phase for serving.
+- **AFTER GC** — identities referenced by neither retained membership
+  nor snapshots are pruned; `ownership_scopes` returns to the
+  active-only bound.
+
+≤500 **directory memberships per calculation version** (repo scope
+separate); ≈≤1000 base identities is the durable worst case during a
+rebuild — never exceeded, because **no third ownership version may
+coexist with a building version** (§5.6c) and a retired version may
+exist only in the GC-pending window after promotion. **No unbounded
+accumulation of historical directory identities** — abort and GC prune
+identities referenced by nothing retained.
 
 **DB-enforced snapshot→membership integrity (hard invariant):**
 application validation alone must not be the only thing preventing a
@@ -717,23 +860,85 @@ Prospective 013 provides a supporting unique key on
 `ownership_scope_versions` over the full tenant boundary —
 `(scope_id, repository_id, user_id, calculation_version)` — and `ALTER
 ownership_snapshots` adds a composite FK on the same four columns
-referencing it, with **`ON DELETE NO ACTION`/`RESTRICT`** (not CASCADE):
-deleting a membership row must never be a path that destroys snapshots —
-cleanup order is always snapshots first, membership second (§5.6, §5.7).
-The composite columns make the DB itself prove same-scope + same-repo +
-same-tenant + same-version; a V snapshot without V membership is
-**impossible**. Repository/account deletion still cascades completely —
-the cascade arrives via the other FKs (`snapshots→repositories`,
-`membership→repositories`), so ordering the *membership* FK as RESTRICT
-adds no teardown hazard; this is verified against real Postgres during
-implementation.
+referencing it, with **`ON DELETE NO ACTION`** (not CASCADE, not left
+unspecified between NO ACTION and RESTRICT — see §5.9a for why the exact
+action is named): deleting a membership row must never be a path that
+destroys snapshots — cleanup order is always snapshots first, membership
+second (§5.6, §5.7). The composite columns make the DB itself prove
+same-scope + same-repo + same-tenant + same-version; a V snapshot
+without V membership is **impossible**. Repository/account deletion
+still cascades completely — the cascade arrives via the other FKs
+(`snapshots→repositories`, `membership→repositories`), so the
+`NO ACTION` membership FK adds no teardown hazard; this is verified
+against real Postgres during implementation (§5.9a proof plan).
 
-**Build flow:** at N+1 init — pin revision → enumerate eligible
-scopes → insert missing base identity rows → insert N+1 membership rows
-→ derive `pending_scopes` from N+1 membership where `excluded=false` →
-walk. New base rows may exist pre-promotion **only because dashboard
-reads will join membership** — without membership for `active_version`
-they are invisible. Existing N membership is never touched.
+### 5.9a Base-scope delete enforcement — `NO ACTION` on both retained child FKs
+
+The membership FK above protects snapshots from *membership* deletion,
+but a second, older destructive path remains: `DELETE FROM
+ownership_scopes` directly. Under 012, `ownership_snapshots →
+ownership_scopes` is `ON DELETE CASCADE`, and a cascading
+`ownership_scope_versions → ownership_scopes` FK would give an erroneous
+direct scope delete the power to remove **active membership and active
+snapshots in one statement** — contradicting the invariant that deleting
+a referenced base scope is forbidden. Prospective 013 therefore sets:
+
+| Child → `ownership_scopes` FK | Action |
+|---|---|
+| `ownership_snapshots(scope_id, repository_id) → ownership_scopes(id, repository_id)` — **existing 012 constraint, altered by 013** | `ON DELETE NO ACTION` |
+| `ownership_scope_versions(scope_id, repository_id) → ownership_scopes(id, repository_id)` — new in 013 | `ON DELETE NO ACTION` |
+
+**No retained child→base-scope relation uses CASCADE.** A base-scope
+prune (§5.6 step 8, §5.7 GC, §5.6c preflight GC) succeeds **only after**
+snapshots *and* scope-version memberships no longer reference it —
+the legal order is snapshots → membership → then the base row, enforced
+by the database rather than by convention. The ephemeral
+`ownership_history_work → ownership_scopes` FK stays `CASCADE` (it is
+not retained child state and plays no part in the protected graph); the
+direct `(repository_id, user_id)` and `user_id` FKs on every ownership
+table stay `CASCADE`, so repository/account teardown still removes the
+entire graph in one statement.
+
+**Why `NO ACTION`, exactly — not "NO ACTION/RESTRICT":** repository or
+account deletion is *one* statement whose referential actions remove
+snapshots, memberships, and scopes through their direct
+repository/user cascade FKs. `NO ACTION` checks referential validity
+**after** the statement's referential actions have occurred — a parent
+scope deleted in the same statement as its (already cascade-removed)
+children passes. `RESTRICT` checks eagerly and can reject that same
+teardown depending on the order the engine walks the constraint graph.
+The architecture names **`ON DELETE NO ACTION`** as the exact intended
+action for every retained ownership child FK; implementation changes it
+only if the real-Postgres migration test proves otherwise.
+
+**Required real-Postgres proof plan (migration/drill tests, not
+mocks):**
+
+- direct `DELETE FROM ownership_scopes` on a base scope referenced by
+  **active membership** → rejected;
+- direct delete on a base scope referenced by **active snapshots** →
+  rejected;
+- delete the version's snapshots, then its membership, then the base
+  scope → **succeeds** (the legal prune order);
+- `DELETE FROM repositories` → the complete ownership graph (scopes,
+  scope versions, contributors, snapshots, sync state, both work
+  relations) cascades away in one statement;
+- `DELETE FROM users` → same.
+
+The last two are the teardown contract §14 requires — they exist to
+prove the `NO ACTION` choice does not degrade repository/account
+deletion under the real engine, not as theory.
+
+**Build flow:** at N+1 init — **fresh-build preflight (§5.6c):** lock
+the sync-state row → verify `building_version` is null → garbage-collect
+every calculation version other than `active_version` in legal order →
+verify no retired-version rows remain — **then** pin revision →
+enumerate eligible scopes → insert missing base identity rows → insert
+N+1 membership rows → derive `pending_scopes` from N+1 membership where
+`excluded=false` → walk. New base rows may exist pre-promotion **only
+because dashboard reads will join membership** — without membership for
+`active_version` they are invisible. Existing N membership is never
+touched.
 
 **RPC:** `dash_ownership_scopes` must be amended to join
 `ownership_scope_versions` on `calculation_version = st.active_version`
@@ -745,12 +950,16 @@ explicit version-consistency audit at implementation.
 
 **Promotion:** membership needs no rewrite — the flip swaps which
 version's membership the RPC joins, atomically with the contributor
-metadata application (§5.7). **GC:** when old version N is collected:
-delete N's membership rows → then prune base scopes referenced by no
-membership row *and* no snapshot — in that order, never cascading away
-referenced/active data. **Abandon** (§5.6) additionally deletes V's
-membership rows and prunes V-only base scopes that are then referenced
-by nothing.
+metadata application (§5.7). **GC:** when old version N is collected,
+the order is fixed — delete N's **snapshots** → delete N's
+**membership rows** → prune contributors referenced by no remaining
+snapshot → prune base scopes referenced by no membership row *and* no
+snapshot. `NO ACTION` on both retained child→base-scope FKs (§5.9a)
+makes any other order *fail* rather than cascade away referenced/active
+data. The GC may run after promotion, but a **fresh build may not start
+until it completes** (§5.6c). **Abandon** (§5.6) additionally deletes
+V's membership rows and prunes V-only base scopes that are then
+referenced by nothing.
 
 ---
 
@@ -829,7 +1038,7 @@ COMMIT deletes them before the next scope starts.
 | Bound | Limit | Rationale |
 |---|---|---|
 | Directory memberships per version | 500 | hard enumeration cap from `deriveScopeCandidates`; overflow paths get no base row, no membership row, no persisted `display_path` (§5.9) |
-| Base scope identities per repo | ≈≤1000 transient | union of active N + building N+1 bounded sets; pruned on abort/GC — never unbounded accumulation |
+| Base scope identities per repo | ≤500 idle; ≈≤1000 during build; transient while retired-version GC is pending | union of active N + building N+1 bounded sets; a third version can never coexist — the §5.6c gate blocks new builds until retired GC completes; pruned on abort/GC — never unbounded accumulation |
 | Distinct `work_key` per scope | 10,000 | ~5× facebook/react's repo-wide contributor count for a *single* scope |
 | Accumulation rows per scope | 100,000 | keys × active months; ~10 MB transient worst case |
 | Build-work rows per build | ≤ represented keys, ≤10,000 | one row per represented key across the whole build — the narrowest possible set |
@@ -860,7 +1069,8 @@ silently partial; an over-cap scope is an error, not a folded result.
   by definition not stale — the threshold only fires on genuinely dead
   state.
 - **Sweep triggers:** (a) at every build start for that repo — validity
-  check §5.6b → resume or `own_abandon_build`; (b) a periodic sweep
+  check §5.6b → resume or `own_abandon_build`, plus the §5.6c
+  retired-version GC gate before any fresh init; (b) a periodic sweep
   function (`own_sweep_stale_work`, proposed in 013) invoked by whatever
   scheduler the implementation tranche wires — so cleanup eventually runs
   even if the repo never builds again; (c) unconditional FK cascade on
@@ -905,7 +1115,15 @@ implementation tranche is approved:
    only `active_version` membership — a new N+1 scope is invisible and N
    exclusion state cannot move. The base row's exclusion columns become
    non-authoritative after 013; base scopes referenced by any snapshot or
-   membership row are never deleted.
+   membership row are **undeletable** — both retained child→scope FKs
+   become `ON DELETE NO ACTION` (§5.9a), and a no-longer-referenced base
+   scope is removed only by the explicit prune.
+   **Lifecycle bound (§5.6c):** at most one `active_version` plus one
+   `building_version` may exist; a retired version's rows may remain only
+   while post-promotion GC is pending, and no fresh build may initialize
+   until retired-version GC completes — a third coexisting version is
+   impossible, which is what makes the ≈≤1000 base-identity bound a real
+   bound.
    **Version isolation:** shared `ownership_contributors` rows are never
    mutated while a `building_version` is incomplete — the dashboard RPCs
    join contributor metadata unversioned, so any mid-build metadata write
@@ -919,11 +1137,13 @@ implementation tranche is approved:
    counts; pass 2 verifies rather than re-derives it, and a mismatch —
    between passes *or across scopes of one build* — fails the build
    closed rather than silently reclassifying.
-   **Abort cleanup:** abandoned builds delete their versioned snapshots
-   and ephemeral state, then prune `ownership_contributors` rows
-   unreferenced by any snapshot in any version — retained-version
-   contributors always survive (§5.6); their metadata was never mutated,
-   so nothing needs restoration.
+   **Abort cleanup:** abandoned builds delete their versioned snapshots,
+   their `ownership_scope_versions` membership, and ephemeral state, then
+   prune `ownership_contributors` rows unreferenced by any snapshot in
+   any version and base scopes referenced by no membership row and no
+   snapshot — retained-version contributors and scopes always survive
+   (§5.6); contributor metadata was never mutated, so nothing needs
+   restoration.
    **Seen-at semantics:** retained `first_seen_at`/`last_seen_at`
    accumulate only across finalized scopes where the contributor was
    individually represented (§5.4) — no all-repository-touch claim.
@@ -1026,9 +1246,11 @@ endpoint form, now sha-pinned.
 **RETAINED (CORE):**
 
 - `create table public.ownership_scope_versions` — §5.9: composite
-  tenant/scope FKs `(repository_id, user_id) → repositories` and
-  `(scope_id, repository_id) → ownership_scopes(id, repository_id)`, all
-  `on delete cascade` (repository/account teardown unchanged); unique
+  tenant FK `(repository_id, user_id) → repositories` `on delete
+  cascade` (repository/account teardown unchanged) **plus** scope FK
+  `(scope_id, repository_id) → ownership_scopes(id, repository_id)` `on
+  delete no action` (§5.9a — a base scope referenced by membership
+  cannot be deleted); unique
   `(scope_id, calculation_version)` for membership uniqueness **plus** the
   supporting unique `(scope_id, repository_id, user_id,
   calculation_version)` that the snapshot FK targets — the four-column
@@ -1047,7 +1269,9 @@ endpoint form, now sha-pinned.
   only by a later explicitly justified migration — 012 is never edited
   retroactively.
 
-**EXISTING TABLE CHANGE:**
+**EXISTING TABLE CHANGES (both on 012-deployed `ownership_snapshots`;
+migration 012's file itself is never touched — 013 alters the deployed
+constraints):**
 
 - `alter table public.ownership_snapshots add foreign key
   (scope_id, repository_id, user_id, calculation_version) references
@@ -1055,19 +1279,34 @@ endpoint form, now sha-pinned.
   calculation_version) on delete no action` — the DB-enforced
   membership invariant (§5.9): a snapshot can exist only for a scope
   that belongs to the snapshot's own calculation version, repository,
-  and tenant. `NO ACTION`/`RESTRICT` — **not** CASCADE — so deleting a
+  and tenant. `ON DELETE NO ACTION` — **not** CASCADE — so deleting a
   membership row can never destroy snapshots; abort/GC ordering is
-  snapshots first, membership second (§5.6, §5.7). This is the one
-  change to a 012-deployed table; migration 012's file itself is never
-  touched. The exact FK action is verified against real Postgres in the
-  implementation tranche.
+  snapshots first, membership second (§5.6, §5.7).
+- `alter table public.ownership_snapshots drop constraint
+  ownership_snapshots_scope_repo, add foreign key
+  (scope_id, repository_id) references ownership_scopes
+  (id, repository_id) on delete no action` — the §5.9a base-scope
+  invariant: the existing `ON DELETE CASCADE` lets an erroneous direct
+  scope delete destroy active snapshots and membership; `NO ACTION`
+  makes the delete fail while any snapshot references the scope. The
+  constraint is re-created under the same name/keys; only the delete
+  action changes.
+
+The exact action is **`ON DELETE NO ACTION`** for all three retained
+child→scope/membership relations (§5.9a explains why NO ACTION rather
+than RESTRICT or CASCADE); the real-Postgres migration test in §5.9a is
+the required proof that the choice is correct, including that single-
+statement repository/account teardown still cascades the complete
+ownership graph.
 
 **EPHEMERAL:**
 
 - `create table public.ownership_history_work` — §4.4 columns; composite
   FKs `(repository_id, user_id) → repositories` and
   `(scope_id, repository_id) → ownership_scopes(id, repository_id)`, all
-  `on delete cascade`; unique `(scope_id, calculation_version,
+  `on delete cascade` (EPHEMERAL rows are not retained children — the
+  §5.9a NO ACTION rule applies to the two retained child→scope
+  relations only); unique `(scope_id, calculation_version,
   period_start, work_key)`; CHECKs on work_key shape, non-negative
   counts, `calculation_version > 0`, first ≤ last seen.
 - `create table public.ownership_contributor_build_work` — §4.4 columns:
@@ -1081,9 +1320,11 @@ endpoint form, now sha-pinned.
   only — on **both**.
 - `own_checkpoint_page(...)` — §6.1; `security invoker`, `EXECUTE →
   service_role`, all other grants revoked. The same transactional pattern
-  covers scope-COMMIT (§5.3) and promotion (§5.7) — whether as additional
-  functions or a client-managed multi-statement tx is an implementation
-  detail of 1C-B.
+  covers scope-COMMIT (§5.3), the §5.3 scope-restart staging cleanup
+  (committed-V-provenance-preserving deletion before fresh ACCUMULATE),
+  promotion (§5.7), and the §5.6c fresh-build preflight GC gate —
+  whether as additional functions or a client-managed multi-statement tx
+  is an implementation detail of 1C-B.
 - `own_abandon_build(p_user, p_repository, p_version)` — **the canonical
   build-abandonment primitive** (§5.6): locks the sync-state row,
   validates the expected `building_version`, deletes the version's
@@ -1114,14 +1355,19 @@ endpoint form, now sha-pinned.
   `ownership_scope_versions` **is present** in dumps and restores; the
   snapshot→membership FK is enforced (a snapshot without membership is
   rejected); the legal abort/GC delete ordering works (snapshots, then
-  membership); repository and account deletion still cascade the complete
-  ownership graph.
-- **One existing-table change**: the `ownership_snapshots` composite FK
-  above. Otherwise `phase` enum already contains `history`; resolve is
-  cursor-jsonb state, not a new phase; the error taxonomy already covers
-  every failure mode in §13; and the only existing-object change is
-  `create or replace` on `dash_ownership_scopes` — same signature, same
-  grants, version-correct semantics.
+  membership); **the §5.9a base-scope enforcement is proven** — direct
+  delete of a scope referenced by active membership or snapshots is
+  rejected, while the legal snapshots→membership→scope order succeeds;
+  repository and account deletion still cascade the complete ownership
+  graph **in a single statement** after the FK action changes.
+- **Two existing-table changes**: the `ownership_snapshots` composite
+  membership FK above, and the `ownership_snapshots_scope_repo` FK
+  action change CASCADE → NO ACTION. Otherwise `phase` enum already
+  contains `history`; resolve is cursor-jsonb state, not a new phase;
+  the error taxonomy already covers every failure mode in §13; and the
+  only existing-object change is `create or replace` on
+  `dash_ownership_scopes` — same signature, same grants, version-correct
+  semantics.
 
 ---
 
@@ -1206,8 +1452,9 @@ endpoint form, now sha-pinned.
     point, then base scopes referenced by nothing pruned — active
     scopes/snapshots never cascade away;
   - a delete attempt on a base scope still referenced by active-version
-    membership or snapshots is rejected/blocked by the implementation
-    contract — never a cleanup path.
+    membership or snapshots is **rejected by the database** — both
+    retained child→scope FKs are `NO ACTION` (§5.9a); never a cleanup
+    path.
 - **DB-integrity tests — real Postgres (drill/migration tests, not
   mocks):**
   - membership S/V exists → snapshot S/V succeeds;
@@ -1217,10 +1464,20 @@ endpoint form, now sha-pinned.
   - membership under user A → snapshot under user B **rejected**
     (cross-tenant);
   - delete membership while a snapshot references it → **rejected** by
-    the RESTRICT/NO ACTION FK;
+    the `NO ACTION` FK;
   - delete V snapshots first, then V membership → succeeds;
-  - repository delete → full ownership graph cascades; account delete →
-    same.
+  - **direct `DELETE FROM ownership_scopes` on a base scope referenced
+    by active membership → rejected** (`scope_versions → scopes` is
+    `NO ACTION`);
+  - **direct delete on a base scope referenced by active snapshots →
+    rejected** (`snapshots → scopes` is `NO ACTION` after the 013
+    constraint change — an erroneous direct scope delete cannot
+    cascade-destroy active data);
+  - delete the version's snapshots → its membership → then the base
+    scope → **succeeds** (the only legal base-scope prune order);
+  - repository delete → full ownership graph cascades **in one
+    statement** (proves `NO ACTION` child FKs do not degrade teardown);
+    account delete → same.
 - **Cardinality tests:**
   - ≤500 selected directory candidates → ≤500 V membership rows (repo
     scope separate);
@@ -1234,6 +1491,47 @@ endpoint form, now sha-pinned.
     the union, no unbounded accumulation;
   - abort N+1 → N+1-only base identities pruned; promote N+1 + GC N →
     N-only base identities pruned.
+- **Scope-restart staging tests (§5.3):**
+  - *current scope RESOLVE partially stages then fails:* prior committed
+    V scopes exist; current scope stages new key X; a later represented
+    key fails resolution → scope restarts → X's staged row is removed
+    (no committed V snapshot references it); prior committed staging is
+    preserved;
+  - *existing active-N contributor staged only by the failed V scope:*
+    contributor row already exists from active N; failed N+1 scope
+    stages its key; no committed N+1 snapshot references it → restart
+    removes its build-work row; the retained row itself is untouched and
+    promotion cannot update it accidentally;
+  - *key shared with an earlier committed V scope:* the failed current
+    scope stages a key an earlier V scope already finalized → the
+    earlier V snapshot references the contributor → restart preserves
+    the build-work row;
+  - *represented set changes after fresh ACCUMULATE:* linkage drift
+    produces a different represented set on restart → stale keys from
+    the previous attempt survive only if referenced by committed V
+    snapshots; all others are gone before the new accumulate begins;
+  - *ready-to-promote with an extra build-work key:* a staged key with
+    no represented V snapshot → promotion validation rejects/fails
+    closed (exact-set invariant);
+  - *ready-to-promote with a missing build-work key:* a represented V
+    key with no staged row → promotion rejects/fails closed;
+  - *exact set:* staged linked keys exactly equal the union of
+    represented linked keys in V snapshots → promotion succeeds and
+    applies metadata to exactly that set.
+- **Lifecycle / GC-gate tests (§5.6c):**
+  - *no third version:* N promoted over by N+1, retired N rows still
+    present (GC pending) → a request to initialize N+2 **does not start
+    a build** — `building_version` stays null;
+  - *gate completes then builds:* same state → preflight GC removes
+    retired N rows in legal order (snapshots → membership → unreferenced
+    contributors → unreferenced base scopes) → only then does the fresh
+    build initialize `building_version`;
+  - *retired-version GC failure:* forced GC error mid-preflight →
+    `active_version` N+1 keeps serving, no `building_version` is set,
+    next attempt retries the same GC (idempotent partial GC safe);
+  - *no retired state:* `active_version` only, `building_version` null,
+    zero retired rows → preflight is a no-op and the build initializes
+    immediately.
 
 ---
 
@@ -1263,8 +1561,8 @@ endpoint form, now sha-pinned.
 | Repo deleted mid-build | FK cascade removes work+staging+sync rows | n/a | — | — | cascade is total |
 | Installation revoked | state intact | fails at next fetch | CAS | — | `GITHUB_ACCESS_REVOKED` |
 | Pinned revision disappears | pages error; cursor=C | retry once → fail closed | partial scope state never served (building_version) | — | `OWNERSHIP_HISTORY_FAILED`; next build re-pins |
-| Represented key unresolvable in pass 2 | staging incomplete | bounded retry → restart scope at fresh ACCUMULATE → `OWNERSHIP_HISTORY_FAILED` | — | — | scope restarts; stale staged rows deleted on restart/sweep |
-| Pass-2 bot-classification drift | staging not written for that key | same fail-closed restart at fresh ACCUMULATE | frozen pass-1 `is_bot` is the only authority | — | scope restarts; staged rows deleted |
+| Represented key unresolvable in pass 2 | staging incomplete | bounded retry → restart scope at fresh ACCUMULATE → `OWNERSHIP_HISTORY_FAILED` | — | — | scope restarts; §5.3 cleanup preserves staging referenced by committed V snapshots, deletes the rest |
+| Pass-2 bot-classification drift | staging not written for that key | same fail-closed restart at fresh ACCUMULATE | frozen pass-1 `is_bot` is the only authority | — | scope restarts; §5.3 cleanup deletes uncommitted staging |
 | Build abort after ≥1 scope COMMITs | committed scope snapshots + contributor rows for `building_version` | abandon tx (§5.6) | — | — | single tx: delete versioned snapshots + both work relations + clear build state |
 | Abort cleanup, N active + N+1 building | N rows are served data | n/a — cleanup only touches N+1 | — | — | N snapshots and N-referenced contributors preserved; N+1 artifacts deleted |
 | Orphan contributor pruning | contributor rows unreferenced by every version | part of abandon tx | — | — | anti-join delete — only rows unreferenced by ANY snapshot version are removed |
@@ -1279,11 +1577,16 @@ endpoint form, now sha-pinned.
 | Shared contributor metadata mutate attempt during build | **none — design forbids it** | n/a | retained rows are read-only during build | — | nothing to roll back (§5.8) |
 | N+1 inserts new base scope + membership | N+1-only membership + base identity | n/a | dashboard joins only active-version membership — new scope invisible in N output | — | abort/GC prunes unreferenced base scope (§5.9) |
 | N+1 changes cardinality-cap selection | per-version exclusion state on N+1 membership | n/a | N's `excluded`/`exclusion_reason` on its membership rows unchanged | — | shared base row never mutated; abort removes N+1 membership |
-| Delete of base scope referenced by active data | forbidden by contract — snapshot FK cascade would destroy active rows | n/a | — | — | prune only deletes scopes referenced by NO membership AND NO snapshot (§5.6) |
+| Direct delete of base scope referenced by active data | **rejected by the database** — `snapshots→scopes` and `scope_versions→scopes` are `NO ACTION` (§5.9a) | n/a | active membership/snapshots cannot be cascade-destroyed | — | prune only deletes scopes referenced by NO membership AND NO snapshot (§5.6) |
 | Restore: V membership + V snapshots restored, work absent | sync claims building V; CORE rows present, EPHEMERAL absent | never piecemeal-resume | — | — | `own_abandon_build` deletes restored V membership + snapshots too |
 | Snapshot insert without V membership | impossible — composite FK `(scope, repo, user, version)` → `ownership_scope_versions` rejects it | n/a | DB-enforced, not app-only | — | row cannot exist |
-| Delete membership while snapshot references it | rejected — FK is NO ACTION/RESTRICT | n/a | incorrect cleanup cannot destroy snapshots | — | ordering enforced by the constraint |
+| Delete membership while snapshot references it | rejected — FK is `ON DELETE NO ACTION` | n/a | incorrect cleanup cannot destroy snapshots | — | ordering enforced by the constraint |
 | Hard-cap overflow directory path | no base row, no membership row | n/a | `display_path` never persisted | — | nothing to clean — never written |
+| Fresh build requested while retired version rows remain | previous version awaiting post-promotion GC | preflight GC runs first — build does not initialize while retired rows exist | no third version can coexist (§5.6c) | — | GC in legal order: snapshots → membership → unreferenced contributors → unreferenced base scopes |
+| Retired-version GC fails mid-preflight | partial GC progress (idempotent) | retry on next build-start/sweep — never a build start | `active_version` keeps serving normally | — | `building_version` stays null; GC re-runs until retired set is empty |
+| Resolve fails after partial build staging | `contributor_build_work` may hold keys staged only by the uncommitted scope | scope restart at fresh ACCUMULATE | restart cleanup preserves only keys referenced by committed V snapshots | — | uncommitted-only staging deleted in the restart transaction (§5.3) |
+| Promotion validation finds an extra staged key | staging set ⊋ represented V key set | promotion rejected — fails closed | no shared contributor metadata written | — | exact-set invariant (§5.7): stale staging can never apply |
+| Promotion validation finds a missing staged key | staging set ⊊ represented V key set | promotion rejected — fails closed | no shared contributor metadata written | — | same exact-set invariant |
 
 ---
 
@@ -1330,6 +1633,9 @@ endpoint form, now sha-pinned.
 | I. Every page transition exactly-once? | **YES** | §6.2 — single-transaction CAS, proven |
 | J. Work state backup-excludable safely? | **YES** | §9/§5.6a — loss = discarded *building* version (canonical abandon + fresh rebuild), never active user data |
 | K. Scope membership versioned + DB-enforced? | **YES** | §5.9 — retained `ownership_scope_versions` (CORE) + composite snapshot→membership FK (NO ACTION); `dash_ownership_scopes` joins membership at `active_version` |
+| L. Referenced base scope undeletable? | **YES** | §5.9a — both retained child→scope FKs `ON DELETE NO ACTION`; repo/account teardown still cascades via the direct repository/user FKs |
+| M. Third version coexistence impossible? | **YES** | §5.6c — fresh-build preflight GCs every retired version before `building_version` initializes; GC failure = no new build |
+| N. Stale staging cannot reach promotion? | **YES** | §5.3 — restart cleanup keeps only committed-V-referenced keys; §5.7 — promotion requires the staged set to *equal* the represented set |
 
 ## 17. Readiness verdict
 

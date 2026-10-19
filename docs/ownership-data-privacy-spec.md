@@ -271,7 +271,7 @@ historical row, once written, never changes meaning.
 |---|---|---|
 | `id` | uuid pk | |
 | `user_id`, `repository_id` | uuid FKs | direct tenant scoping |
-| `scope_id` | uuid → ownership_scopes, cascade | |
+| `scope_id` | uuid → ownership_scopes, cascade (NO ACTION under proposed §27) | |
 | `contributor_id` | uuid → ownership_contributors, cascade, **null = scope-total row** | per-contributor vs scope summary |
 | `period_granularity` | text: `month` \| `head` | `head` = current-state snapshot (HEAD blame + recent-window signals) |
 | `period_start` | timestamptz | month start; fixed sentinel `1970-01-01` for `head` rows |
@@ -599,6 +599,9 @@ composite foreign keys (application-side checks alone are insufficient):
   `foreign key (contributor_id, repository_id) references ownership_contributors(id, repository_id) on delete cascade`
   — a snapshot cannot pair a scope or contributor from one repository with
   another's repository_id, and both parents cascade with the repo.
+  *(Under proposed §27 the `scope_id` FK's delete action becomes `ON
+  DELETE NO ACTION` — a referenced base scope must be undeletable; the
+  contributor FK is unaffected.)*
 - The required supporting uniques (`ownership_scopes(id, repository_id)`,
   `ownership_contributors(id, repository_id)`) are Phase-1B implementation
   detail, as is the exact SQL. The contract is: **the database itself
@@ -610,9 +613,12 @@ cascade. Unique `(repository_id, scope_path_hash)`. Index
 `(repository_id, depth)` for bounded enumeration. Columns per §4.1.
 Write: ownership ingestion. Read: dashboard RPCs join through it for labels.
 Cardinality: ≤500/repo; ~50–200 typical. *(Under proposed §27 the bound
-is stated per version: ≤500 **directory memberships** per
-`calculation_version`; the base table may transiently hold the union of
-active+building sets — ≈≤1000 worst case, pruned after abort/GC.)*
+is stated per version and per lifecycle phase: ≤500 **directory
+memberships** per `calculation_version`; the base table holds ≤500+repo
+scope idle, the union of active+building sets — ≈≤1000 — during a build,
+and may transiently exceed 500 while retired-version GC is pending after
+promotion; a fresh build is gated on retired-version GC, so a third
+version can never coexist; pruned after abort/GC.)*
 
 ### `ownership_contributors`
 PK `id`. Composite FK `(repository_id, user_id) → repositories(id, user_id)`
@@ -695,8 +701,11 @@ per-tenant fairness, not database survival.
 
 *Under proposed §27 the scope bounds decompose precisely — they are four
 different counts, not one "≤500 scopes/repo":* **base scope identities**
-(≈≤ the union of the active and building directory sets; ≈≤1000 transient
-during N/N+1 coexistence); **version memberships** (≤500 directories per
+(≤500+repo scope at idle; ≈≤ the union of the active and building
+directory sets, ≈≤1000, during N/N+1 coexistence; transiently >500 only
+while post-promotion retired-version GC is pending — a fresh build is
+gated on that GC completing, so three versions never coexist); **version
+memberships** (≤500 directories per
 `calculation_version`, repo scope separate — directories beyond the hard
 cap are never persisted at all, so membership is never an overflow
 inventory); **analyzed memberships** (the `excluded=false` subset —
@@ -751,7 +760,11 @@ Version bump flow (N → N+1, same machinery):
 4. When every scope validates complete, `active_version` flips to N+1 and
    `building_version` clears — a single-row update, so the flip is atomic.
 5. **Only after the flip** are old N rows garbage-collected. The active
-   version is never deleted during an unfinished rebuild.
+   version is never deleted during an unfinished rebuild. Under proposed
+   §27 the bound is hardened further: retired-version rows may exist
+   only while that GC is pending, and **no fresh build may initialize
+   until retired-version GC completes** — at most one active plus one
+   building version, ever; a third coexisting version is impossible.
 
 Failure/rollback semantics:
 
@@ -1302,19 +1315,29 @@ The proposed amendment is deliberately narrow:
    membership at `active_version` — a new N+1 scope is invisible in N
    output and N exclusion state cannot move. The base row's exclusion
    columns become non-authoritative legacy; a base scope referenced by
-   any snapshot or membership row is never deleted (the snapshot FK is
-   `ON DELETE CASCADE` — deletion would destroy active data). Abandoned
-   and garbage-collected versions delete their membership rows and then
-   prune base scopes referenced by nothing.
+   any snapshot or membership row is **undeletable** — the amendment
+   changes the existing `snapshots → scopes` FK from `ON DELETE CASCADE`
+   to `ON DELETE NO ACTION` and creates `scope_versions → scopes` as
+   `NO ACTION`, so an erroneous direct scope delete is rejected by the
+   database rather than cascade-destroying active data. Abandoned and
+   garbage-collected versions delete their snapshots, then membership
+   rows, then prune base scopes referenced by nothing — the only legal
+   order.
    **(d) DB-enforced membership integrity** — `ownership_snapshots` gains
    a composite FK `(scope_id, repository_id, user_id,
    calculation_version) → ownership_scope_versions`, backed by a
    supporting unique on the same four columns, with `ON DELETE NO
-   ACTION`/`RESTRICT` (never CASCADE): a snapshot can exist only for a
+   ACTION` (never CASCADE; NO ACTION is the exact named action — it is
+   checked after the statement's referential actions, which is what lets
+   single-statement teardown work): a snapshot can exist only for a
    scope belonging to its own version/repo/tenant, and deleting a
    membership row can never destroy snapshots — cleanup order is always
-   snapshots first, membership second. Repository/account deletion still
-   cascades completely through the other FKs.
+   snapshots first, membership second. Together with (c), **every
+   retained child→base-scope relation is `NO ACTION`**: repository/
+   account deletion still cascades completely, because the direct
+   `repositories`/`users` FKs on every ownership table remain `CASCADE`
+   — proven against real Postgres during the migration tranche, not
+   assumed.
    **(e) private-path bound is precise** — the ≤500 cap is a *hard
    directory-enumeration cap per calculation version*: directories beyond
    it (`deriveScopeCandidates().overflow`) are never persisted
@@ -1327,7 +1350,11 @@ The proposed amendment is deliberately narrow:
    inventory. While N and N+1 coexist, `ownership_scopes` may hold the
    union of two bounded sets (≈≤1000 base identities worst case,
    transient); old-only identities are pruned after abort/GC — no
-   unbounded accumulation.
+   unbounded accumulation. The transient bound is enforced by lifecycle,
+   not hope: after promotion a retired version's rows may remain only
+   while its GC is pending, and a fresh build may not initialize until
+   that GC completes — three coexisting versions are impossible, so the
+   ≈≤1000 bound is real.
 3. **Two-pass identity resolution, attribution-frozen.** The accumulate
    pass fixes every metric — work keys, counts, Top-25, unlinked share,
    human counts, **and `is_bot` classification** (`human_contributor_count`
@@ -1368,6 +1395,16 @@ The proposed amendment is deliberately narrow:
    preserve `active_version`) — piecemeal resumption, including
    restarting only the current scope, is prohibited because the discarded
    metadata is not reconstructable from snapshots.
+7. **Build staging integrity.** `ownership_contributor_build_work` has no
+   scope provenance, so a scope that fails mid-resolve and restarts at a
+   fresh accumulate first deletes staged keys not referenced by any
+   committed building-version snapshot and preserves keys that are —
+   linkage drift between walks can change the represented set, and stale
+   keys must not survive. Promotion then requires the staged linked key
+   set to *equal* the union of represented linked contributor keys in the
+   building-version snapshots — no missing keys, no extra keys — before
+   any shared `ownership_contributors` row is touched; stale staging can
+   never write retained metadata.
 
 If this amendment is rejected, the honest alternatives are: (a) accept
 per-scope restart-in-single-invocation with no completion guarantee on
