@@ -92,7 +92,10 @@ test('homepage JSON-LD declares the app and site entities with stable ids', () =
   assert.equal(site['@type'], 'WebSite');
   assert.equal(site.name, 'Dev Ledger');
   assert.equal(site.url, 'https://devledger.site');
-  assert.equal(site.publisher?.['@id'], 'https://devledger.site/#app');
+  // Site relates to the app via `about` — `publisher` requires an
+  // Organization or Person and the graph declares neither.
+  assert.equal(site.about?.['@id'], 'https://devledger.site/#app');
+  assert.ok(!('publisher' in site), 'WebSite must not publish a WebApplication');
   // No fabricated claims may ever land in the entity graph.
   const blob = JSON.stringify(graph).toLowerCase();
   for (const banned of [
