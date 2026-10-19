@@ -13,6 +13,14 @@ import {
   assertResponseMetadataOnly,
   FORBIDDEN_FIELD_RE,
 } from '../scripts/spikes/ownership/queries.mjs'
+import {
+  probeQuery,
+  objectLookupQuery,
+  pinnedHistoryQuery,
+  headHistoryQuery,
+  branchesQuery,
+  closedPrHeadsQuery,
+} from '../scripts/spikes/ownership/pinned-queries.mjs'
 import { makeRepoLabeler, sanitizeText, summarizeBlameRanges } from '../scripts/spikes/ownership/sanitize.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -22,6 +30,21 @@ describe('ownership spike — query source-exposure audit', () => {
     for (const q of [historyPathQuery(), blameQuery(), batchedBlameQuery(['a', 'b']), repoProbeQuery(), tagsQuery()]) {
       assert.doesNotMatch(q, FORBIDDEN_FIELD_RE)
     }
+  })
+
+  it('pinned-revision queries select no forbidden source fields', () => {
+    for (const q of [probeQuery(), objectLookupQuery(), pinnedHistoryQuery(), headHistoryQuery(), branchesQuery(), closedPrHeadsQuery()]) {
+      assert.doesNotMatch(q, FORBIDDEN_FIELD_RE)
+    }
+  })
+
+  it('pinned history query anchors on object(oid:) with commit spread', () => {
+    const q = pinnedHistoryQuery()
+    assert.match(q, /object\(oid: \$oid\)/)
+    assert.match(q, /\.\.\. on Commit/)
+    assert.match(q, /history\(first: 100, path: \$path, after: \$cursor\)/)
+    assert.match(q, /author \{ user \{ id login \} \}/)
+    assert.doesNotMatch(q, /defaultBranchRef|expression/)
   })
 
   it('assertNoSourceFields rejects source-bearing queries', () => {
@@ -94,7 +117,9 @@ describe('ownership spike — isolation invariants', () => {
   it('spike modules do not import the database or persistence layer', () => {
     for (const f of [
       '../scripts/spikes/ownership-graphql-spike.mjs',
+      '../scripts/spikes/ownership-pinned-history-spike.mjs',
       '../scripts/spikes/ownership/queries.mjs',
+      '../scripts/spikes/ownership/pinned-queries.mjs',
       '../scripts/spikes/ownership/sanitize.mjs',
     ]) {
       const src = fs.readFileSync(path.join(__dirname, f), 'utf8')
@@ -104,7 +129,12 @@ describe('ownership spike — isolation invariants', () => {
   })
 
   it('spike entry carries the no-persistence banner', () => {
-    const src = fs.readFileSync(path.join(__dirname, '../scripts/spikes/ownership-graphql-spike.mjs'), 'utf8')
-    assert.match(src, /THIS SPIKE MUST NOT PERSIST OWNERSHIP DATA/)
+    for (const f of [
+      '../scripts/spikes/ownership-graphql-spike.mjs',
+      '../scripts/spikes/ownership-pinned-history-spike.mjs',
+    ]) {
+      const src = fs.readFileSync(path.join(__dirname, f), 'utf8')
+      assert.match(src, /THIS SPIKE MUST NOT PERSIST OWNERSHIP DATA/)
+    }
   })
 })
