@@ -1,10 +1,10 @@
 // Schema-aware backup resolution — unit tests for
 // scripts/backup-scope.mjs resolveBackupTables(). Covers the transition
-// window where repository main has migration 012 but a target database has
+// window where repository main has migration 013 but a target database has
 // not applied it yet: the backup must request only the tables the applied
 // schema actually created, and fail closed on any broken/inconsistent
 // schema state. The live end-to-end path (real Postgres) is exercised by
-// scripts/recovery-drill.mjs, whose target is post-012 and therefore backs
+// scripts/recovery-drill.mjs, whose target is post-013 and therefore backs
 // up all allowlisted tables.
 
 import { test } from 'node:test'
@@ -41,16 +41,20 @@ const expected = (applied) => {
   return out
 }
 const allCreated = expected(files)
-const pre012Files = files.filter((f) => !f.startsWith('012'))
+const pre012Files = files.filter((f) => f < '012')
 const pre012Created = expected(pre012Files)
-const OWNERSHIP = ['ownership_scopes', 'ownership_contributors', 'ownership_snapshots', 'ownership_sync_state']
+const OWNERSHIP = ['ownership_scopes', 'ownership_contributors', 'ownership_snapshots', 'ownership_sync_state', 'ownership_scope_versions']
+const WORK = ['ownership_history_work', 'ownership_contributor_build_work']
 
 /* ── mapping sanity ──────────────────────────────────────────────────── */
 
-test('migrationTables maps 001..012 to their created/dropped tables', () => {
-  assert.ok(files.length >= 12, `expected >=12 migration files, got ${files.length}`)
-  assert.deepEqual(files.at(-1), '012_ownership.sql')
-  for (const t of OWNERSHIP) assert.ok(byMig.get('012_ownership.sql').created.has(t), `012 must create ${t}`)
+test('migrationTables maps 001..013 to their created/dropped tables', () => {
+  assert.ok(files.length >= 13, `expected >=13 migration files, got ${files.length}`)
+  assert.deepEqual(files.at(-1), '013_ownership_checkpointing.sql')
+  for (const t of OWNERSHIP.slice(0, 4)) assert.ok(byMig.get('012_ownership.sql').created.has(t), `012 must create ${t}`)
+  for (const t of [...WORK, 'ownership_scope_versions']) {
+    assert.ok(byMig.get('013_ownership_checkpointing.sql').created.has(t), `013 must create ${t}`)
+  }
   assert.ok(byMig.get('001_initial.sql').created.has('users'))
   assert.ok(byMig.get('001_initial.sql').created.has('repositories'))
   // 001-era tables dropped by 002 must not remain expected
@@ -66,30 +70,34 @@ test('PRE-012 target: resolves the 10 pre-012 tables, excludes ownership + unkno
   const existing = new Set([...pre012Created, 'drill_internal', 'pg_stat_statements_info'])
   const resolved = resolveBackupTables({ applied: pre012Files, existing })
   assert.equal(resolved.length, BACKUP_TABLES.length - OWNERSHIP.length)
-  for (const t of OWNERSHIP) assert.ok(!resolved.includes(t), `${t} must not be requested pre-012`)
+  for (const t of [...OWNERSHIP, ...WORK]) assert.ok(!resolved.includes(t), `${t} must not be requested pre-012`)
   assert.ok(resolved.includes('commits') && resolved.includes('users'), 'old core tables must be included')
   assert.ok(!resolved.includes('drill_internal'), 'unknown table must never be requested')
   assert.deepEqual(resolved, BACKUP_TABLES.filter((t) => !OWNERSHIP.includes(t)),
     'resolution must preserve allowlist ordering')
 })
 
-/* ── B. post-012 target ──────────────────────────────────────────────── */
+/* ── B. post-013 target ──────────────────────────────────────────────── */
 
-test('POST-012 target: all 14 allowlisted tables resolve', () => {
+test('POST-013 target: all 15 allowlisted tables resolve, work tables excluded', () => {
   const resolved = resolveBackupTables({ applied: files, existing: allCreated })
   assert.deepEqual(resolved, BACKUP_TABLES)
-  assert.equal(resolved.length, 14)
+  assert.equal(resolved.length, 15)
+  assert.ok(resolved.includes('ownership_scope_versions'), 'CORE membership must resolve')
+  for (const t of WORK) assert.ok(!resolved.includes(t), `ephemeral ${t} must never be backed up`)
 })
 
-/* ── C. broken post-012 target fails closed ──────────────────────────── */
+/* ── C. broken post-013 target fails closed ──────────────────────────── */
 
-test('BROKEN post-012: recorded 012 + missing ownership table fails closed', () => {
-  for (const t of OWNERSHIP) {
+test('BROKEN post-013: recorded 013 + missing migration-created table fails closed', () => {
+  // every migration-created table — including the EPHEMERAL work tables,
+  // which must exist even though they are never backed up
+  for (const t of [...OWNERSHIP, ...WORK]) {
     const existing = new Set([...allCreated].filter((x) => x !== t))
     assert.throws(
       () => resolveBackupTables({ applied: files, existing }),
       new RegExp(t),
-      `missing ${t} with 012 applied must fail`,
+      `missing ${t} with 013 applied must fail`,
     )
   }
 })
@@ -198,10 +206,10 @@ test('the exact production transition: pre-012 then post-012', () => {
   const pre = resolveBackupTables({ applied: pre012Files, existing: pre012Created })
   assert.deepEqual(pre, BACKUP_TABLES.filter((t) => !OWNERSHIP.includes(t)))
   assert.equal(pre.length, 10)
-  // after 012 is applied, all 14 resolve
+  // after 012+013 are applied, all 15 resolve
   assert.equal(validateAppliedMigrationPrefix(files), true)
   const post = resolveBackupTables({ applied: files, existing: allCreated })
-  assert.equal(post.length, 14)
+  assert.equal(post.length, 15)
 })
 
 /* ── integration surface ─────────────────────────────────────────────── */

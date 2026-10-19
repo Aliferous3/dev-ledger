@@ -29,6 +29,10 @@ export const CORE_TABLES = [
   'ownership_scopes',      // ownership scope map — irreplaceable for
                            // retained/disconnected repos GitHub can no
                            // longer serve
+  'ownership_scope_versions', // retained per-version scope membership —
+                           // required to interpret active ownership state
+                           // (exclusion state + which scopes belong to
+                           // active_version); backed up like snapshots
   'ownership_contributors',// repo-scoped contributor identity rows
   'ownership_snapshots',   // ownership aggregates — same irreplaceability
 ]
@@ -54,6 +58,13 @@ export const EPHEMERAL_TABLES = [
                            // reprocess idempotently — safe to start empty
   'security_events',       // operational telemetry, 30-day retention anyway
   'schema_migrations',     // rebuilt by the migration runner, not restored
+  'ownership_history_work',        // crash-safe build counters — pseudonymous
+                                   // work keys; loss = discard the building
+                                   // version via canonical abandon, never
+                                   // active user data (architecture §9)
+  'ownership_contributor_build_work', // build-level identity staging — exists
+                                   // only while a building_version exists;
+                                   // same discard-and-rebuild recovery
 ]
 
 // The canonical dump allowlist — the ONLY tables pg_dump may ever be asked
