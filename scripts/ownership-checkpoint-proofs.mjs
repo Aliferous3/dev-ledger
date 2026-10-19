@@ -21,6 +21,8 @@
 //   own_sweep_stale_work: orphan sweep + stale-build abandon routing
 
 import crypto from 'node:crypto'
+import { reduceHistoryToMonthly } from '../lib/ownership/history-reducer.mjs'
+import { contributorKey } from '../lib/ownership/contributors.mjs'
 
 const HEX = (n) => n.toString(16).padStart(64, '0')
 const MONTH = '2026-09-01T00:00:00Z'
@@ -539,6 +541,153 @@ export async function checkpointingProofs(sql) {
     check(r8 === 'applied', `pass2-only key call returned ${r8}`)
     check(await count(t, 'ownership_contributor_build_work') === 1,
       'pass-2-only key was staged')
+    await sql`delete from users where id = ${t.uid}`
+  }
+
+  /* ── represented-set authorization — durable-identity minimization ─── */
+  // §6.4: existence in ownership_history_work is NOT sufficient
+  // authorization to persist contributor identity — only membership in
+  // the deterministic per-period Top-25 union (touch_commits DESC,
+  // work_key ASC; 'unlinked' excluded) is. The SAME synthetic population
+  // is pushed through the canonical reducer and through the resolve path;
+  // the staged key set must equal the reducer's individually represented
+  // linked set EXACTLY — not merely in cardinality.
+  {
+    const t = await tenant()
+    const s = await scope(t)
+    await membership(t, s, 1)
+    // reducer-side repository id — only feeds contributorKey derivation
+    const probeRepo = `R_ckpt_${t.repoId}`
+    const P1 = '2026-01-01T00:00:00Z'
+    const P2 = '2026-02-01T00:00:00Z'
+    const isBot = (login) => /\[bot\]$/i.test(login)
+    const mk = (node, login, touches) => ({
+      node, login, touches, key: contributorKey(probeRepo, node),
+    })
+
+    // P1: a01..a24 ranks 1..24 (touches 47..24); tie pair both at 20 →
+    // ranks 25/26 decided by work_key ASC; oExtra 15 → rank 27;
+    // dKey 12 → rank 28.
+    const aKeys = Array.from({ length: 24 }, (_, i) =>
+      mk(`U_a_${String(i + 1).padStart(2, '0')}`,
+         i === 0 ? 'a-01[bot]' : `a-${i + 1}`, { [P1]: 47 - i }))
+    const tieA = mk('U_tie_a', 'tie-a', { [P1]: 20 })
+    const tieB = mk('U_tie_b', 'tie-b', { [P1]: 20 })
+    const [tieWin, tieLose] = tieA.key < tieB.key ? [tieA, tieB] : [tieB, tieA]
+    const oExtra = mk('U_overflow', 'always-overflow', { [P1]: 15, [P2]: 2 })
+    const dKey = mk('U_union', 'union-peek', { [P1]: 12, [P2]: 30 })
+    // P2: dKey rank 1 (30); c01..c24 ranks 2..25 (touches 27..4);
+    // oExtra rank 26 (2) → overflow in EVERY month.
+    const cKeys = Array.from({ length: 24 }, (_, i) =>
+      mk(`U_c_${String(i + 1).padStart(2, '0')}`,
+         i === 0 ? 'c-01[bot]' : `c-${i + 1}`, { [P2]: 27 - i }))
+    const fKey = mk('U_pass2only', 'pass2-only', {})   // no counters at all
+    const all = [...aKeys, tieA, tieB, oExtra, dKey, ...cKeys]
+
+    // pass-1 counters exactly as ACCUMULATE would have written them
+    for (const c of all) {
+      for (const [period, n] of Object.entries(c.touches)) {
+        await sql`insert into ownership_history_work
+          (user_id, repository_id, scope_id, calculation_version,
+           period_start, work_key, is_bot, touch_commits)
+          values (${t.uid}, ${t.repoId}, ${s}, 1, ${period}, ${c.key},
+                  ${isBot(c.login)}, ${n})`
+      }
+    }
+    // unlinked bucket rows — never participate in linked ranking
+    await sql`insert into ownership_history_work
+      (user_id, repository_id, scope_id, calculation_version,
+       period_start, work_key, is_bot, touch_commits)
+      values (${t.uid}, ${t.repoId}, ${s}, 1, ${P1}, 'unlinked', false, 7),
+             (${t.uid}, ${t.repoId}, ${s}, 1, ${P2}, 'unlinked', false, 3)`
+
+    // the same population through the canonical reducer
+    const nodes = []
+    for (const c of all) {
+      for (const [period, n] of Object.entries(c.touches)) {
+        for (let i = 0; i < n; i++) {
+          nodes.push({ committedDate: `${period.slice(0, 7)}-15T00:00:00Z`,
+                       author: { user: { id: c.node, login: c.login } } })
+        }
+      }
+    }
+    for (const [period, n] of [[P1, 7], [P2, 3]]) {
+      for (let i = 0; i < n; i++) {
+        nodes.push({ committedDate: `${period.slice(0, 7)}-15T00:00:00Z`,
+                     author: { user: null } })
+      }
+    }
+    const reduced = reduceHistoryToMonthly({
+      repositoryId: probeRepo,
+      scope: { scope_path_hash: 'h', display_path: 'src' },
+      nodes,
+    })
+    const expected = new Map()
+    for (const c of reduced.contributor_candidates) {
+      if (c.identity_kind === 'linked') expected.set(c.contributor_key, c)
+    }
+    check(expected.has(tieWin.key) && !expected.has(tieLose.key)
+          && expected.has(dKey.key) && !expected.has(oExtra.key),
+      'test fixture: reducer represented set does not match intended ranks')
+
+    // RESOLVE with identities for every counter-backed key + the
+    // pass-2-only key — a caller that filters NOTHING.
+    await sync(t, 'history', null, 1,
+      sql`jsonb_build_object('current', jsonb_build_object(
+        'scope_id', ${s}::text, 'pass', 'resolve',
+        'accumulate_done', true, 'cursor', null))`,
+      sql`jsonb_build_array(${s}::text)`)
+    const identities = [...all, fKey].map((c) => ({
+      work_key: c.key, github_node_id: c.node, display_login: c.login,
+      observed_is_bot: isBot(c.login),
+    }))
+    const r = await call('own_checkpoint_page', t.uid, t.repoId, 1, s,
+      'resolve', null, 'r-done', [], identities)
+    check(r === 'applied', `represented-set resolve returned ${r}`)
+
+    const stagedRows = await sql`select work_key, github_node_id,
+        display_login, is_bot from ownership_contributor_build_work
+      where repository_id = ${t.repoId}`
+    const stagedKeys = new Set(stagedRows.map((x) => x.work_key))
+    // differential: DB staged set == reducer individually represented set
+    check(stagedKeys.size === expected.size
+          && [...stagedKeys].every((k) => expected.has(k)),
+      `staged set != reducer represented set (staged=${stagedKeys.size}, expected=${expected.size})`)
+    for (const row of stagedRows) {
+      const c = expected.get(row.work_key)
+      if (!c || c.github_node_id !== row.github_node_id
+          || c.display_login !== row.display_login || c.is_bot !== row.is_bot) {
+        problems.push(`staged identity fields wrong for ${row.work_key.slice(0, 12)} (${JSON.stringify(row)})`)
+      }
+    }
+    // A/C: rank-25 = the tie winner chosen by work_key ASC → staged
+    check(stagedKeys.has(tieWin.key), 'A/C: rank-25 tie winner not staged')
+    // B/C: rank-26 = the tie loser → NEVER persisted anywhere
+    check(!stagedKeys.has(tieLose.key), 'B/C: rank-26 tie loser staged')
+    const [{ c: bWork }] = await sql`select count(*)::int c
+      from ownership_contributor_build_work
+      where repository_id = ${t.repoId}
+        and (work_key = ${tieLose.key} or github_node_id = ${tieLose.node}
+             or display_login = ${tieLose.login})`
+    check(bWork === 0, 'B: rank-26 identity persisted in build staging')
+    const [{ c: bDurable }] = await sql`select count(*)::int c
+      from ownership_contributors
+      where repository_id = ${t.repoId}
+        and (contributor_key = ${tieLose.key} or github_node_id = ${tieLose.node}
+             or display_login = ${tieLose.login})`
+    check(bDurable === 0, 'B: rank-26 identity persisted in retained contributors')
+    // D: outside Top-25 in P1 but inside in P2 → union member → staged
+    check(stagedKeys.has(dKey.key), 'D: multi-month union key not staged')
+    // E: outside Top-25 in EVERY month → never stageable despite counters
+    check(!stagedKeys.has(oExtra.key), 'E: overflow-every-month key staged')
+    // F: pass-2-only key → ignored
+    check(!stagedKeys.has(fKey.key), 'F: pass-2-only key staged')
+    // 'unlinked' bucket is never staged as a linked identity either
+    check(!stagedKeys.has('unlinked'), 'unlinked bucket staged as identity')
+    // normal checkpoint semantics preserved — cursor advanced
+    const [{ cursor: repCur }] = await sql`select history_cursor #>> '{current,cursor}' as cursor
+      from ownership_sync_state where repository_id = ${t.repoId}`
+    check(repCur === 'r-done', `resolve cursor did not advance (${repCur})`)
     await sql`delete from users where id = ${t.uid}`
   }
 

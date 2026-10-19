@@ -280,6 +280,7 @@ declare
   v_cur jsonb;
   v_keys int;
   v_rows int;
+  v_represented text[];
 begin
   -- 1. serialize all ownership work for the repo
   select * into st
@@ -397,14 +398,42 @@ begin
     end if;
   end if;
 
-  -- 4. resolve: stage represented-key identities — frozen is_bot only
+  -- 4. resolve: stage represented-key identities — frozen is_bot only.
+  -- Identity persistence is authorized ONLY by deterministic
+  -- represented-set membership (§6.4 durable-identity minimization):
+  -- pass-1 counter existence is NOT sufficient. The set is the canonical
+  -- reducer's rule (lib/ownership/history-reducer.mjs,
+  -- TOP_LINKED_PER_PERIOD = 25) made durable: per period, rank linked
+  -- work_keys by touch_commits DESC, work_key ASC ('unlinked' never
+  -- ranks); a key is represented iff it lands in the Top-25 of at least
+  -- one period. Overflow-only contributors fold into synthetic 'other'
+  -- and their identity fields may never reach persisted state, so a
+  -- non-represented submission is ignored BEFORE any pass-2 check or
+  -- write — its attribution metrics are already frozen by pass 1.
   if p_pass = 'resolve'
      and jsonb_array_length(coalesce(p_identities, '[]'::jsonb)) > 0 then
-    -- a conflicting stored node id for the same work_key is impossible
-    -- by construction and fails closed if ever seen (within the batch
-    -- or against stored staging)
+    select array_agg(work_key) into v_represented
+    from (
+      select distinct work_key
+      from (
+        select work_key,
+               row_number() over (
+                 partition by period_start
+                 order by touch_commits desc, work_key asc
+               ) as rnk
+        from public.ownership_history_work
+        where scope_id = p_scope and calculation_version = p_version
+          and work_key <> 'unlinked'
+      ) ranked
+      where rnk <= 25
+    ) rep;
+
+    -- a conflicting stored node id for the same REPRESENTED work_key is
+    -- impossible by construction and fails closed if ever seen (within
+    -- the batch or against stored staging)
     if exists (
       select 1 from jsonb_array_elements(p_identities) i
+      where i->>'work_key' = any(v_represented)
       group by i->>'work_key'
       having count(distinct i->>'github_node_id') > 1
     ) then
@@ -416,13 +445,15 @@ begin
       join public.ownership_contributor_build_work b
         on b.repository_id = p_repository and b.calculation_version = p_version
        and b.work_key = i->>'work_key'
-      where b.github_node_id <> i->>'github_node_id'
+      where i->>'work_key' = any(v_represented)
+        and b.github_node_id <> i->>'github_node_id'
     ) then
       raise exception 'OWNERSHIP_INTERNAL_ERROR';
     end if;
     -- observed_is_bot must equal the frozen build value: the staged row
     -- when the key was already represented by a committed scope, else the
-    -- current scope's pass-1 counters — and the two must already agree
+    -- current scope's pass-1 counters — and the two must already agree.
+    -- checks apply only to represented keys; anything else is ignored.
     if exists (
       select 1
       from jsonb_array_elements(p_identities) i
@@ -432,7 +463,8 @@ begin
       join public.ownership_history_work w
         on w.scope_id = p_scope and w.calculation_version = p_version
        and w.work_key = i->>'work_key'
-      where w.is_bot <> b.is_bot
+      where i->>'work_key' = any(v_represented)
+        and w.is_bot <> b.is_bot
     ) then
       raise exception 'OWNERSHIP_INTERNAL_ERROR';
     end if;
@@ -447,16 +479,16 @@ begin
         from public.ownership_history_work
         where scope_id = p_scope and calculation_version = p_version
       ) f on f.work_key = i->>'work_key'
-      where coalesce(b.is_bot, f.is_bot) is not null
+      where i->>'work_key' = any(v_represented)
         and (i->>'observed_is_bot')::boolean
             is distinct from coalesce(b.is_bot, f.is_bot)
     ) then
       raise exception 'OWNERSHIP_INTERNAL_ERROR';
     end if;
 
-    -- only keys with a frozen pass-1 source are staged: a key never
-    -- counted in pass 1 (new linkage seen only in resolve) is ignored —
-    -- it has no frozen classification and nothing legitimate to stage.
+    -- staging is the represented set ONLY: represented ⊆ this scope's
+    -- pass-1 counters, so coalesce(b.is_bot, f.is_bot) is never null for
+    -- a member — overflow-only and pass-2-only keys never stage.
     insert into public.ownership_contributor_build_work
       (user_id, repository_id, calculation_version, work_key,
        github_node_id, display_login, is_bot)
@@ -472,7 +504,7 @@ begin
       from public.ownership_history_work
       where scope_id = p_scope and calculation_version = p_version
     ) f on f.work_key = i->>'work_key'
-    where coalesce(b.is_bot, f.is_bot) is not null
+    where i->>'work_key' = any(v_represented)
     on conflict (repository_id, calculation_version, work_key)
     do update set
       display_login = excluded.display_login,

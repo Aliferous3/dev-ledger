@@ -192,6 +192,41 @@ test('own_checkpoint_page: CAS envelope returns stale, single-tx cursor advance'
   assert.match(body, /greatest\(public\.ownership_history_work\.last_seen_at/i)
 })
 
+// §6.4 durable-identity minimization, enforced in the database itself:
+// existence in ownership_history_work is NOT sufficient authorization to
+// persist contributor identity — only membership in the deterministic
+// per-period Top-25 union (touch_commits DESC, work_key ASC, 'unlinked'
+// excluded) may stage github_node_id/display_login.
+test('own_checkpoint_page: resolve gates staging on the represented Top-25 union', () => {
+  const i = MIG.indexOf('function public.own_checkpoint_page(')
+  const body = MIG.slice(i, MIG.indexOf('$$;', i))
+  const resolve = body.slice(body.indexOf("p_pass = 'resolve'"))
+  // the represented set is computed from THIS scope's frozen pass-1
+  // counters with the reducer's ranking semantics
+  assert.match(resolve, /row_number\(\) over \(\s*partition by period_start\s+order by touch_commits desc, work_key asc\s*\)/i,
+    'represented set must rank per period by touch_commits DESC, work_key ASC')
+  assert.match(resolve, /rnk <= 25/i, 'only ranks 1..25 are represented (TOP_LINKED_PER_PERIOD)')
+  assert.match(resolve, /work_key <> 'unlinked'/i, 'unlinked bucket must not rank as linked')
+  assert.match(resolve, /scope_id = p_scope and calculation_version = p_version/i,
+    'represented set is scoped to the current scope+version counters')
+  // the staging insert must be gated on set membership — counter
+  // existence alone never authorizes identity persistence
+  const insert = resolve.indexOf('insert into public.ownership_contributor_build_work')
+  assert.notEqual(insert, -1, 'resolve staging insert missing')
+  const insertTail = resolve.slice(insert)
+  assert.match(insertTail, /where i->>'work_key' = any\(v_represented\)/i,
+    'staging insert must require represented-set membership')
+  // pass-2 identity checks apply only to represented keys — an overflow
+  // observation is ignored, never validated or persisted into state
+  const checks = resolve.slice(0, insert)
+  const checkCount = (checks.match(/= any\(v_represented\)/g) || []).length
+  assert.ok(checkCount >= 4,
+    `all resolve-time checks must restrict to represented keys (${checkCount}/4 found)`)
+  // the reducer constant must appear verbatim so drift is visible
+  const reducer = src('lib/ownership/history-reducer.mjs')
+  assert.match(reducer, /TOP_LINKED_PER_PERIOD = 25/, 'reducer Top-25 constant missing')
+})
+
 test('abandon deletes in the NO ACTION order and preserves active_version', () => {
   const i = MIG.indexOf('function public.own_abandon_build(')
   const body = MIG.slice(i, MIG.indexOf('$$;', i))
