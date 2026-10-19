@@ -4,10 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>Dev Ledger — Code Metrics</title>
+    <title>Dev Ledger — Open-Source GitHub Analytics for Developers</title>
     <meta
       name="description"
-      content="A private, read-only view of your GitHub development history — commits, source growth, activity patterns, languages, and projects over time."
+      content="Open-source GitHub analytics for developers — commits, source growth, churn, languages, activity, projects, and releases across your repositories. Read-only."
     />
     <meta name="robots" content="index,follow" />
     <meta name="theme-color" content="#0a0a0a" />
@@ -17,10 +17,10 @@
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Dev Ledger" />
-    <meta property="og:title" content="Dev Ledger — Code Metrics" />
+    <meta property="og:title" content="Dev Ledger — Open-Source GitHub Analytics for Developers" />
     <meta
       property="og:description"
-      content="A private, read-only view of your GitHub development history — commits, source growth, activity patterns, languages, and projects over time."
+      content="Open-source GitHub analytics for developers — commits, source growth, churn, languages, activity, projects, and releases across your repositories. Read-only."
     />
     <meta property="og:url" content="https://devledger.site/" />
     <meta property="og:image" content="https://devledger.site/og/dev-ledger.png" />
@@ -33,10 +33,10 @@
     />
 
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Dev Ledger — Code Metrics" />
+    <meta name="twitter:title" content="Dev Ledger — Open-Source GitHub Analytics for Developers" />
     <meta
       name="twitter:description"
-      content="A private, read-only view of your GitHub development history — commits, source growth, activity patterns, languages, and projects over time."
+      content="Open-source GitHub analytics for developers — commits, source growth, churn, languages, activity, projects, and releases across your repositories. Read-only."
     />
     <meta name="twitter:image" content="https://devledger.site/og/dev-ledger.png" />
     <meta
@@ -44,6 +44,45 @@
       content="Dev Ledger — open-source GitHub developer analytics."
     />
 
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebApplication",
+            "@id": "https://devledger.site/#app",
+            "name": "Dev Ledger",
+            "url": "https://devledger.site",
+            "applicationCategory": "DeveloperApplication",
+            "operatingSystem": "Web browser",
+            "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+            "isAccessibleForFree": true,
+            "codeRepository": "https://github.com/Aliferous3/dev-ledger",
+            "sameAs": ["https://github.com/Aliferous3/dev-ledger"],
+            "description": "Dev Ledger is an open-source web application for understanding development history across GitHub repositories.",
+            "featureList": [
+              "Longitudinal commit and repository activity history",
+              "Net source growth, additions, deletions, and churn over time",
+              "Repository lifecycle states: active, dormant, revived",
+              "Programming language composition across repositories",
+              "Time-range comparison (7D, 30D, 90D, YTD, 1Y)",
+              "Commit frequency and commit-size distributions",
+              "Active days, streaks, and time-of-day activity patterns",
+              "Release and shipping cadence history",
+              "Range-aware shareable development records"
+            ],
+            "isPartOf": { "@id": "https://devledger.site/#website" }
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://devledger.site/#website",
+            "name": "Dev Ledger",
+            "url": "https://devledger.site",
+            "about": { "@id": "https://devledger.site/#app" }
+          }
+        ]
+      }
+    </script>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230a0a0a'/%3E%3Crect x='5' y='5' width='6' height='6' fill='%23d6ff3e'/%3E%3C/svg%3E" />
   </head>
   <body>

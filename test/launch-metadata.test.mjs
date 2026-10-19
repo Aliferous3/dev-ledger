@@ -22,7 +22,7 @@ const OG_PAGES = [
     height: '941',
     alt: 'Dev Ledger — open-source GitHub developer analytics.',
     canonical: 'https://devledger.site/',
-    title: 'Dev Ledger — Code Metrics',
+    title: 'Dev Ledger — Open-Source GitHub Analytics for Developers',
   },
   {
     html: 'security.html',
@@ -60,13 +60,51 @@ test('launch metadata exposes canonical Open Graph and Twitter cards', () => {
   const html = src('index.html');
 
   assert.match(html, /<link rel="canonical" href="https:\/\/devledger\.site\/" \/>/);
-  assert.match(html, /property="og:title" content="Dev Ledger — Code Metrics"/);
+  assert.match(html, /property="og:title" content="Dev Ledger — Open-Source GitHub Analytics for Developers"/);
   assert.match(html, /property="og:image" content="https:\/\/devledger\.site\/og\/dev-ledger\.png"/);
   assert.match(html, /property="og:image:width" content="1672"/);
   assert.match(html, /property="og:image:height" content="941"/);
   assert.match(html, /name="twitter:card" content="summary_large_image"/);
   assert.match(html, /name="twitter:image" content="https:\/\/devledger\.site\/og\/dev-ledger\.png"/);
   assert.match(html, /name="theme-color" content="#0a0a0a"/);
+});
+
+test('homepage JSON-LD declares the app and site entities with stable ids', () => {
+  const html = src('index.html');
+  const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
+    .map((m) => JSON.parse(m[1]));
+  assert.equal(blocks.length, 1, 'homepage emits exactly one JSON-LD block');
+  const graph = blocks[0]['@graph'] || [];
+  const app = graph.find((n) => n['@id'] === 'https://devledger.site/#app');
+  const site = graph.find((n) => n['@id'] === 'https://devledger.site/#website');
+  assert.ok(app, 'app entity missing');
+  assert.ok(site, 'website entity missing');
+  // SoftwareApplication is the required family — the publishing layer uses
+  // its WebApplication subtype, so the homepage reuses that identity scheme.
+  assert.equal(app['@type'], 'WebApplication');
+  assert.equal(app.name, 'Dev Ledger');
+  assert.equal(app.url, 'https://devledger.site');
+  assert.equal(app.applicationCategory, 'DeveloperApplication');
+  assert.equal(app.isAccessibleForFree, true);
+  assert.ok(app.sameAs.includes('https://github.com/Aliferous3/dev-ledger'));
+  assert.equal(app.license, 'https://www.gnu.org/licenses/agpl-3.0.html');
+  assert.equal(app.isPartOf?.['@id'], 'https://devledger.site/#website');
+  assert.equal(site['@type'], 'WebSite');
+  assert.equal(site.name, 'Dev Ledger');
+  assert.equal(site.url, 'https://devledger.site');
+  // Site relates to the app via `about` — `publisher` requires an
+  // Organization or Person and the graph declares neither.
+  assert.equal(site.about?.['@id'], 'https://devledger.site/#app');
+  assert.ok(!('publisher' in site), 'WebSite must not publish a WebApplication');
+  // No fabricated claims may ever land in the entity graph.
+  const blob = JSON.stringify(graph).toLowerCase();
+  for (const banned of [
+    'aggregaterating', '"review"', 'usercount', 'award',
+    'productivity score', 'employee monitoring', 'leaderboard',
+    'code ownership', 'bus factor', 'codeowners',
+  ]) {
+    assert.ok(!blob.includes(banned), 'entity graph must not claim: ' + banned);
+  }
 });
 
 test('every public route ships its own page-specific OG image', () => {
