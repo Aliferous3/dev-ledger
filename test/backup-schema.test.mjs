@@ -48,9 +48,12 @@ const WORK = ['ownership_history_work', 'ownership_contributor_build_work']
 
 /* ── mapping sanity ──────────────────────────────────────────────────── */
 
-test('migrationTables maps 001..013 to their created/dropped tables', () => {
-  assert.ok(files.length >= 13, `expected >=13 migration files, got ${files.length}`)
-  assert.deepEqual(files.at(-1), '013_ownership_checkpointing.sql')
+test('migrationTables maps 001..014 to their created/dropped tables', () => {
+  assert.ok(files.length >= 14, `expected >=14 migration files, got ${files.length}`)
+  assert.deepEqual(files.at(-1), '014_desktop_auth.sql')
+  for (const t of ['desktop_auth_codes', 'desktop_tokens']) {
+    assert.ok(byMig.get('014_desktop_auth.sql').created.has(t), `014 must create ${t}`)
+  }
   for (const t of OWNERSHIP.slice(0, 4)) assert.ok(byMig.get('012_ownership.sql').created.has(t), `012 must create ${t}`)
   for (const t of [...WORK, 'ownership_scope_versions']) {
     assert.ok(byMig.get('013_ownership_checkpointing.sql').created.has(t), `013 must create ${t}`)

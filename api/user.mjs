@@ -1,6 +1,8 @@
 import { getSession } from '../lib/auth.mjs'
 import { github } from '../lib/config.mjs'
 import { supabase } from '../lib/db.mjs'
+import { authenticateBearer } from '../lib/desktop-auth.mjs'
+import { handleDesktopEndpoint } from '../lib/desktop-endpoint.mjs'
 import { getUserSync } from '../lib/sync.mjs'
 import { syncErrorMessage } from '../lib/sync-errors.mjs'
 import { revokeAllSessions, isSessionLive } from '../lib/sessions.mjs'
@@ -31,10 +33,23 @@ export default async function handler(req, res) {
     return
   }
 
-  const session = await getSession(req, res)
+  // The desktop app authenticates every call with its bearer token instead
+  // of the sealed cookie — resolve both to the same principal shape:
+  // { userId, sid, persistent }. Bearer tokens are session-bound and
+  // already validated (token row + auth_sessions liveness); the cookie
+  // path below does its own sid check. A bearer principal reports
+  // persistent: true — desktop tokens live in the OS keychain and carry
+  // no inactivity lease, so the heartbeat must stay quiet.
+  const bearer = await authenticateBearer(req)
+  const session = bearer ? null : await getSession(req, res)
+  const principal = bearer
+    ? { userId: bearer.userId, sid: bearer.sid, persistent: true }
+    : session?.userId
+      ? { userId: session.userId, sid: session.sid, persistent: session.persistent === true }
+      : null
 
   if (req.method === 'DELETE') {
-    if (!session?.userId || !supabase || !(await isSessionLive(session.sid))) {
+    if (!principal || !supabase || !(await isSessionLive(principal.sid))) {
       if (session?.userId && supabase) sessionDenied(req, session)
       res.status(401).json({ error: 'Unauthenticated' })
       return
@@ -44,14 +59,16 @@ export default async function handler(req, res) {
       return
     }
     // Revoke every session server-side first — any other live copies of
-    // this user's cookies die immediately, even before the cascade lands.
-    await revokeAllSessions(session.userId)
+    // this user's cookies and desktop tokens die immediately (the token
+    // rows cascade with their bound sessions), even before the users-row
+    // cascade lands.
+    await revokeAllSessions(principal.userId)
     // users row cascades: installations, repositories (+languages), commits,
-    // pull requests, repo_sync, user_sync, auth_sessions.
-    await supabase.from('users').delete().eq('id', session.userId)
+    // pull requests, repo_sync, user_sync, auth_sessions, desktop tokens.
+    await supabase.from('users').delete().eq('id', principal.userId)
     // destroy() clears session.userId — capture the actor first.
-    const actorId = session.userId
-    await session.destroy()
+    const actorId = principal.userId
+    if (session) await session.destroy()
     securityEvent('account_deleted', { req, actorId })
     res.status(200).json({ ok: true, deleted: true })
     return
@@ -59,8 +76,16 @@ export default async function handler(req, res) {
 
 
   if (req.method === 'POST') {
-    // Repository disconnect/keep/delete — mutations stay same-origin only.
-    if (!session?.userId || !supabase || !(await isSessionLive(session.sid))) {
+    // Desktop auth endpoint — /api/auth/desktop rewrites here so the
+    // serverless function budget stays untouched (same precedent as
+    // /api/feedback). Exchange is unauthenticated-by-design (the one-time
+    // code is the credential); logout re-verifies the bearer itself.
+    if (requestQuery(req).action === 'desktop') {
+      return await handleDesktopEndpoint(req, res)
+    }
+    // Repository disconnect/keep/delete — mutations stay same-origin only
+    // for cookie callers; bearer clients carry no ambient credential.
+    if (!principal || !supabase || !(await isSessionLive(principal.sid))) {
       if (session?.userId && supabase) sessionDenied(req, session)
       res.status(401).json({ error: 'Unauthenticated' })
       return
@@ -72,7 +97,7 @@ export default async function handler(req, res) {
     }
 
     if (requestQuery(req).action === 'feedback') {
-      return await handleFeedback(res, session.userId, body)
+      return await handleFeedback(res, principal.userId, body)
     }
 
     const repositoryId = body?.repositoryId
@@ -82,7 +107,7 @@ export default async function handler(req, res) {
       return
     }
 
-    const userId = session.userId
+    const userId = principal.userId
     const { data: repo } = await supabase
       .from('repositories')
       .select('id, full_name, disconnected_at')
@@ -128,8 +153,9 @@ export default async function handler(req, res) {
 
   // A revoked/unknown sid must not authenticate — the boot gate reads this
   // endpoint, so a stolen cookie has to die here too. When no DB is present
-  // there is nothing to check (dev bypass path).
-  if (!session?.userId || (supabase && !(await isSessionLive(session.sid)))) {
+  // there is nothing to check (dev bypass path). Bearer principals arrived
+  // pre-validated (live token row + live session).
+  if (!principal || (supabase && !(await isSessionLive(principal.sid)))) {
     if (session?.userId) sessionDenied(req, session)
     res.status(401).json({ authenticated: false })
     return
@@ -140,21 +166,23 @@ export default async function handler(req, res) {
   let sync = null
   if (supabase) {
     const [{ data: u }, { data: i }] = await Promise.all([
-      supabase.from('users').select('*').eq('id', session.userId).single(),
-      supabase.from('github_installations').select('*').eq('user_id', session.userId),
+      supabase.from('users').select('*').eq('id', principal.userId).single(),
+      supabase.from('github_installations').select('*').eq('user_id', principal.userId),
     ])
     user = u
     installs = i || []
-    sync = await getUserSync(session.userId)
+    sync = await getUserSync(principal.userId)
   } else {
-    user = { github_login: session.githubLogin }
+    user = { github_login: session?.githubLogin }
   }
 
   res.status(200).json({
     authenticated: true,
     // Lets the frontend run the inactivity heartbeat only for
-    // non-persistent sessions; remembered sessions need none.
-    persistent: session.persistent === true,
+    // non-persistent sessions; remembered sessions need none. Bearer
+    // principals always report persistent — the token itself is the
+    // long-lived credential.
+    persistent: principal.persistent,
     user: user
       ? {
           githubLogin: user.github_login,

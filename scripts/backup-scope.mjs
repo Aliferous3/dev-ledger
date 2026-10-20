@@ -65,6 +65,10 @@ export const EPHEMERAL_TABLES = [
   'ownership_contributor_build_work', // build-level identity staging — exists
                                    // only while a building_version exists;
                                    // same discard-and-rebuild recovery
+  'desktop_auth_codes',    // one-time OAuth handoff codes — live credential
+                           // state; recovery must force re-login
+  'desktop_tokens',        // hashed bearer tokens — same ephemeral posture
+                           // as auth_sessions: never resurrect credentials
 ]
 
 // The canonical dump allowlist — the ONLY tables pg_dump may ever be asked

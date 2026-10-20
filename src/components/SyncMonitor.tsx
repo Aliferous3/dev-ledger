@@ -3,6 +3,7 @@ import { useIdentity, useLedger } from '../store/live';
 import { useIsNarrow } from '../ledger/useMediaQuery';
 import { isSyncBlocked } from '../ledger/syncModel.mjs';
 import { manageReposUrl, reconnectUrl } from '../ledger/accountModel.mjs';
+import { isDesktop, startDesktopLogin } from '../desktop';
 import { Num, NumGrouped } from '../ledger/Num';
 import {
   COLLAPSE_HOLD_MS,
@@ -422,7 +423,7 @@ export function SyncMonitor() {
       <div className="px-3 pb-2.5">
         {status === 'revoked' ? (
           <>
-            <Act onClick={() => { window.location.href = reconnectUrl(); }}>RECONNECT GITHUB</Act>
+            <Act onClick={() => { isDesktop() ? startDesktopLogin(false) : window.location.href = reconnectUrl(); }}>RECONNECT GITHUB</Act>
             <Act onClick={() => openExternal(installsUrl)}>MANAGE ACCESS</Act>
           </>
         ) : status === 'error' ? (

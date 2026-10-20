@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { getSession } from '../../lib/auth.mjs'
 import { github, appUrl } from '../../lib/config.mjs'
+import { isDesktopFlowId, isDesktopChallenge } from '../../lib/desktop-auth.mjs'
 import { requestQuery } from '../../lib/request-query.mjs'
 
 export default async function handler(req, res) {
@@ -19,6 +20,19 @@ export default async function handler(req, res) {
   // OAuth round-trip without weakening state validation.
   session.remember = remember
   session.persistent = remember
+  // Desktop handoff: the app generated a flow id and opened this URL in the
+  // system browser. Sealed inside the session so the callback knows to
+  // return the session through a dev-ledger:// deep link instead of '/'.
+  // Anything that is not a well-formed UUID is ignored — the web flow is
+  // unchanged when the parameter is absent or malformed.
+  // The flow is honored only as a complete pair: the UUID binds the
+  // handoff to this app instance's login intent, and the challenge (sha256
+  // of a verifier held only in app memory) makes an intercepted
+  // dev-ledger:// URL unexchangeable — PKCE discipline for custom schemes.
+  if (isDesktopFlowId(query.desktop_flow) && isDesktopChallenge(query.desktop_challenge)) {
+    session.desktopFlow = query.desktop_flow.toLowerCase()
+    session.desktopChallenge = query.desktop_challenge.toLowerCase()
+  }
   await session.save()
   const redirectUri = `${appUrl}/api/auth/callback`
   const url = new URL('https://github.com/login/oauth/authorize')

@@ -1,0 +1,135 @@
+name: desktop
+
+# Desktop build matrix. PR/main pushes produce CI artifacts only; an
+# explicit `v*` tag produces the same artifacts and a DRAFT GitHub Release
+# (never auto-published) with SHA-256 checksums for the package-manager
+# manifests in distribution/.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis,msi
+            label: windows-x64
+            artifact-glob: 'src-tauri/target/**/release/bundle/{nsis,msi}/*'
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg,app
+            label: macos-arm64
+            artifact-glob: 'src-tauri/target/**/release/bundle/{dmg,macos}/*'
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: dmg,app
+            label: macos-x64
+            artifact-glob: 'src-tauri/target/**/release/bundle/{dmg,macos}/*'
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+            label: linux-x64
+            artifact-glob: 'src-tauri/target/**/release/bundle/{deb,appimage}/*'
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Linux build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file patchelf \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build desktop bundles
+        env:
+          # Signing is intentionally not configured — artifacts are unsigned
+          # until the secrets documented in docs/desktop.md are provided.
+          TAURI_SIGNING_PRIVATE_KEY: ''
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p dist-artifacts
+          find src-tauri/target -type f \( \
+              -name '*.exe' -o -name '*.msi' -o \
+              -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \) \
+            -path '*/bundle/*' -exec cp {} dist-artifacts/ \;
+          ls -la dist-artifacts/
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-${{ matrix.label }}
+          path: dist-artifacts/
+          if-no-files-found: error
+
+  release:
+    name: draft-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: desktop-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: SHA-256 checksums
+        working-directory: artifacts
+        run: |
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --draft \
+            --title "Dev Ledger ${GITHUB_REF_NAME}" \
+            --notes "Desktop builds for Windows, macOS and Linux. See SHA256SUMS.txt for checksums. Artifacts are unsigned — do not publish before signing/notarization is configured." \
+            artifacts/*
+
+# NOTE: release is a DRAFT — a human verifies artifacts + checksums before
+# publishing. Never publish unsigned artifacts as a stable release.

@@ -69,6 +69,7 @@ The frontend is React + Vite. API routes run as Vercel Functions. GitHub App ing
 <tr><td><code>Data</code></td><td><code>Supabase Postgres</code></td></tr>
 <tr><td><code>Product analytics</code></td><td><code>PostHog</code> · <code>custom-event-only</code></td></tr>
 <tr><td><code>Traffic analytics</code></td><td><code>Vercel Web Analytics</code></td></tr>
+<tr><td><code>Desktop</code></td><td><code>Tauri 2</code> · <a href="docs/desktop.md">docs/desktop.md</a></td></tr>
 <tr><td><code>CI</code></td><td><code>GitHub Actions</code></td></tr>
 <tr><td><code>Security checks</code></td><td><code>Typecheck</code> · <code>tests</code> · <code>npm audit</code> · <code>gitleaks</code> · <code>artifact scan</code> · <code>recovery drill</code></td></tr>
 </table>

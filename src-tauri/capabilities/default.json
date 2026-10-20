@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Least-privilege set: core window/event defaults, deep-link events, outbound http limited to the hosted API, and opener limited to https/mailto URLs in the SYSTEM browser. No fs, no shell execution, no clipboard, no os.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "deep-link:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://**" },
+        { "url": "mailto:*" }
+      ]
+    },
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://devledger.site" },
+        { "url": "https://devledger.site/**" }
+      ]
+    }
+  ]
+}

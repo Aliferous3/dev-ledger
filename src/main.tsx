@@ -24,6 +24,12 @@ import { PrivacyPolicyPage } from "./legal/PrivacyPolicyPage";
 import { TermsOfServicePage } from "./legal/TermsOfServicePage";
 import { LoginScreen } from "./ledger/LoginScreen";
 import { BootLogOverlay, BootLogPreloader } from "./transitions/BootLog";
+import {
+  initDesktop,
+  isDesktop,
+  onDesktopAuthNotice,
+  startDesktopLogin,
+} from "./desktop";
 import type { Identity } from "./store/live";
 
 import {
@@ -34,6 +40,13 @@ import {
 } from "./ledger/heartbeatModel.mjs";
 
 type AuthState = "loading" | "out" | "in";
+
+// Inside the Tauri shell this installs the native transport shim, link
+// handling, shortcuts and the deep-link listener; in a browser it is a
+// no-op. Started BEFORE the first render so the auth gate's /api/user
+// probe already rides the bearer-token transport.
+const DESKTOP = isDesktop();
+const desktopReady = DESKTOP ? initDesktop() : Promise.resolve();
 
 function Gate() {
   const [auth, setAuth] = useState<AuthState>("loading");
@@ -52,10 +65,19 @@ function Gate() {
   // The authenticated identity payload — safe presentation data only
   // (login, avatar, installations, sync). Feeds App via IdentityContext.
   const [me, setMe] = useState<Identity | null>(null);
+  // Desktop sign-in status line — a rejected/expired handoff surfaces here
+  // on the login screen instead of failing silently.
+  const [deskNotice, setDeskNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!DESKTOP) return;
+    return onDesktopAuthNotice(setDeskNotice);
+  }, []);
 
   useEffect(() => {
     let live = true;
-    fetch("/api/user", { credentials: "same-origin" })
+    void desktopReady.then(() =>
+      fetch("/api/user", { credentials: "same-origin" })
       .then(async (res) => {
         // A real backend always answers /api/user with JSON. The only
         // non-JSON 200 is the vite static fallback (no API → preview bypass
@@ -77,7 +99,8 @@ function Gate() {
           captureGoogleEvent("login", { method: "github" });
         }
       })
-      .catch(() => live && setAuth("out"));
+      .catch(() => live && setAuth("out"))
+    );
     return () => {
       live = false;
     };
@@ -124,7 +147,8 @@ function Gate() {
   if (auth === "out") {
     return (
       <LoginScreen
-        onLogin={import.meta.env.DEV && !apiPresent ? () => {
+        notice={DESKTOP ? deskNotice : null}
+        onLogin={DESKTOP ? (remember) => startDesktopLogin(remember === true) : import.meta.env.DEV && !apiPresent ? () => {
           // API-less dev preview: present a clearly synthetic identity so
           // surfaces that read IdentityContext (account menu, share record)
           // render the real UI instead of the no-session placeholder.
@@ -177,28 +201,36 @@ function Root() {
 // useRoute, deduped on pathname. The boot-level popstate listener covers
 // back/forward for anonymous sessions too (useRoute only mounts inside the
 // authenticated App) — pathname dedupe collapses the overlap.
-void initAnalytics()
-  .then(() => {
-    capturePageview();
-    window.addEventListener('popstate', () => capturePageview());
-  })
-  .catch(() => {});
+// The desktop build ships no analytics: the /rly proxy and GA4 acquisition
+// funnel are web-deployment plumbing (acquisition + Core Web Vitals), and
+// the tauri:// origin satisfies neither system's production-host gate.
+if (!DESKTOP) {
+  void initAnalytics()
+    .then(() => {
+      capturePageview();
+      window.addEventListener('popstate', () => capturePageview());
+    })
+    .catch(() => {});
+}
 
 // GA4 acquisition analytics — separate system, same discipline: silent
 // no-op without VITE_GA_MEASUREMENT_ID, emits only on devledger.site
 // (localhost debug mode), manual sanitized page_view only.
-initGoogleAnalytics();
-captureGooglePageview();
-window.addEventListener('popstate', () => captureGooglePageview());
+if (!DESKTOP) {
+  initGoogleAnalytics();
+  captureGooglePageview();
+  window.addEventListener('popstate', () => captureGooglePageview());
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <Root />
     {/* Vercel Web Analytics — one instance at the true root so it covers
         /security, /privacy, the login gate, and every authenticated page.
-        Same-origin /_vercel/insights/* — fits the existing CSP. */}
-    <Analytics />
+        Same-origin /_vercel/insights/* — fits the existing CSP. Desktop
+        (tauri://) has no insights endpoint — the components stay unmounted. */}
+    {!DESKTOP && <Analytics />}
     {/* Vercel Speed Insights — captures real-user Core Web Vitals in production. */}
-    <SpeedInsights />
+    {!DESKTOP && <SpeedInsights />}
   </StrictMode>
 );

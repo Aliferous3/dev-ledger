@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Dev Ledger
+Comment=Open-source GitHub analytics for developers
+Exec=dev-ledger %u
+Icon=site.devledger.desktop
+Type=Application
+Terminal=false
+Categories=Development;Utility;
+StartupWMClass=dev-ledger
+MimeType=x-scheme-handler/dev-ledger;
+Keywords=github;analytics;metrics;developer;dashboard;

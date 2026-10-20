@@ -27,7 +27,7 @@ function tableSql(name) {
 
 test('013 is the latest migration; 012 untouched by the file', () => {
   const files = readdirSync(path.join(ROOT, 'migrations')).filter((f) => f.endsWith('.sql')).sort()
-  assert.equal(files[files.length - 1], '013_ownership_checkpointing.sql')
+  assert.equal(files[files.length - 1], '014_desktop_auth.sql')
   assert.ok(files.includes('012_ownership.sql'))
   // no drops/truncates — only the sanctioned constraint replacement on
   // ownership_snapshots (drop constraint + re-add, same name/keys)
