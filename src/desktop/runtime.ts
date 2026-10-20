@@ -19,8 +19,11 @@ export function isDesktop(): boolean {
 // per-user bearer token it obtained through the OAuth handoff.
 // VITE_DESKTOP_API_BASE exists for desktop development against `vercel dev`
 // (e.g. http://localhost:3000); production builds leave it unset.
+// `import.meta.env` exists only inside the Vite bundle — optional
+// chaining keeps this module importable in plain Node (the transport
+// tests exercise the real shim outside the webview).
 export const API_BASE: string = (
-  import.meta.env.VITE_DESKTOP_API_BASE || 'https://devledger.site'
+  import.meta.env?.VITE_DESKTOP_API_BASE || 'https://devledger.site'
 ).replace(/\/+$/, '');
 
 // Custom URI scheme the installers register (see lib/desktop-auth.mjs,
