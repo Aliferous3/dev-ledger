@@ -46,6 +46,11 @@ const upd = (rel, re, repl) => {
 upd('src-tauri/Cargo.toml', /^version = ".*"$/m, `version = "${VERSION}"`);
 
 // --- WinGet -----------------------------------------------------------------
+// Templates carry {{VERSION}} / {{TAG}} / {{DATE}} placeholders; stamped
+// manifests carry real versions — the patterns below accept both so the
+// script is idempotent across release preparations.
+const PH_TAG = '(?:\\{\\{TAG\\}\\}|v[0-9]+\\.[0-9]+\\.[0-9]+)';
+const PH_VER = '(?:\\{\\{VERSION\\}\\}|[0-9]+\\.[0-9]+\\.[0-9]+)';
 for (const f of [
   'distribution/winget/NoamanAli.DevLedger.yaml',
   'distribution/winget/NoamanAli.DevLedger.installer.yaml',
@@ -55,7 +60,12 @@ for (const f of [
 }
 upd(
   'distribution/winget/NoamanAli.DevLedger.installer.yaml',
-  /releases\/download\/v[0-9]+\.[0-9]+\.[0-9]+\/Dev-Ledger_[0-9]+\.[0-9]+\.[0-9]+_x64-setup\.exe/,
+  /^ReleaseDate: .*$/m,
+  `ReleaseDate: ${new Date().toISOString().slice(0, 10)}`,
+);
+upd(
+  'distribution/winget/NoamanAli.DevLedger.installer.yaml',
+  new RegExp(`releases/download/${PH_TAG}/Dev-Ledger_${PH_VER}_x64-setup\\.exe`),
   `releases/download/${TAG}/Dev-Ledger_${VERSION}_x64-setup.exe`,
 );
 
@@ -65,7 +75,7 @@ upd('distribution/homebrew/dev-ledger.rb', /^  version ".*"$/m, `  version "${VE
 // --- Flatpak ----------------------------------------------------------------
 upd(
   'distribution/flatpak/site.devledger.desktop.yml',
-  /releases\/download\/v[0-9]+\.[0-9]+\.[0-9]+\/dev-ledger_[0-9]+\.[0-9]+\.[0-9]+_amd64\.deb/,
+  new RegExp(`releases/download/${PH_TAG}/dev-ledger_${PH_VER}_amd64\\.deb`),
   `releases/download/${TAG}/dev-ledger_${VERSION}_amd64.deb`,
 );
 upd(

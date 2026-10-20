@@ -3,7 +3,7 @@ import { useIdentity, useLedger } from '../store/live';
 import { useIsNarrow } from '../ledger/useMediaQuery';
 import { isSyncBlocked } from '../ledger/syncModel.mjs';
 import { manageReposUrl, reconnectUrl } from '../ledger/accountModel.mjs';
-import { isDesktop, startDesktopLogin } from '../desktop';
+import { isDesktop, openExternalUrl, startDesktopLogin } from '../desktop';
 import { Num, NumGrouped } from '../ledger/Num';
 import {
   COLLAPSE_HOLD_MS,
@@ -209,7 +209,7 @@ export function SyncMonitor() {
   const installsUrl =
     manageReposUrl(me) ?? 'https://github.com/settings/installations';
   const openExternal = (url: string | null) => {
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    if (url) openExternalUrl(url);
   };
 
   const opacity = occluded

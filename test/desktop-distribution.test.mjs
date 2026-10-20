@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { canonicalReleaseName, expectedReleaseAssets } from '../scripts/release-assets.mjs'
 
 // Desktop distribution invariant tests — pure file-level checks, no
 // toolchain required. They pin the cross-file contract: one application
@@ -19,8 +20,8 @@ const capabilities = JSON.parse(read('src-tauri/capabilities/default.json'))
 
 const APP_ID = 'site.devledger.desktop'
 const SCHEME = 'dev-ledger'
-const ZERO_SHA = '0'.repeat(64)
-const SHA_OR_ZERO = /^([0-9a-f]{64})$/
+const SHA_OR_PLACEHOLDER = /^([0-9a-f]{64}|\{\{SHA256(_[A-Z0-9_]+)?\}\})$/
+const VERSION_OR_PLACEHOLDER = /^([0-9]+\.[0-9]+\.[0-9]+|\{\{VERSION\}\})$/
 
 /* ── Tauri config ───────────────────────────────────────────────────── */
 
@@ -134,46 +135,117 @@ test('all required icon formats exist', () => {
 
 /* ── version consistency across distribution metadata ───────────────── */
 
-test('every distribution manifest carries the package.json version', () => {
+test('unreleased manifests carry placeholders or the synced version — never a stale real version', () => {
+  // Templates must never point at the already-published v1.3.0 release as
+  // though desktop assets existed there. Placeholders ({{VERSION}}/{{TAG}})
+  // are the honest state until `npm run desktop:version` stamps a real,
+  // NEWER version during release preparation.
   const wingetFiles = [
     'distribution/winget/NoamanAli.DevLedger.yaml',
     'distribution/winget/NoamanAli.DevLedger.installer.yaml',
     'distribution/winget/NoamanAli.DevLedger.locale.en-US.yaml',
   ]
   for (const f of wingetFiles) {
-    assert.match(read(f), new RegExp(`^PackageVersion: ${pkg.version}$`, 'm'), f)
+    const v = read(f).match(/^PackageVersion: "?([^"\s]+)"?$/m)[1]
+    assert.match(v, VERSION_OR_PLACEHOLDER, f)
+    if (v !== '{{VERSION}}') {
+      assert.ok(v > '1.3.0', `stamped version must exceed released v1.3.0: ${v} in ${f}`)
+    }
   }
-  assert.match(read('distribution/homebrew/dev-ledger.rb'),
-    new RegExp(`^  version "${pkg.version}"`, 'm'))
+  const caskV = read('distribution/homebrew/dev-ledger.rb')
+    .match(/^  version "([^"]+)"$/m)[1]
+  assert.match(caskV, VERSION_OR_PLACEHOLDER)
+  // AppStream release history describes real app releases — it tracks
+  // package.json, not a package-manager template placeholder.
   assert.match(read('distribution/flatpak/site.devledger.desktop.metainfo.xml'),
     new RegExp(`<release version="${pkg.version}"`))
 })
 
-test('all release URLs are HTTPS and point at the GitHub release for this version', () => {
+test('all release URLs are HTTPS, placeholder-tagged, and canonically named', () => {
   const sources = [
     read('distribution/winget/NoamanAli.DevLedger.installer.yaml'),
     read('distribution/homebrew/dev-ledger.rb'),
     read('distribution/flatpak/site.devledger.desktop.yml'),
-  ].join('\n').replaceAll('#{version}', pkg.version) // Ruby interpolation
+  ].join('\n')
   const urls = sources.match(/https?:\/\/[^\s"']+/g) || []
   for (const u of urls) {
     assert.ok(u.startsWith('https://'), `non-HTTPS URL: ${u}`)
   }
   const releaseUrls = urls.filter((u) => u.includes('/releases/download/'))
   assert.ok(releaseUrls.length >= 2, 'installer + cask + flatpak URLs present')
+  // Tag segment must be a {{TAG}}/v#{version} placeholder or a stamped
+  // version that is NEWER than the already-published v1.3.0 — never v1.3.0.
+  // Filename skeletons (version+arch stripped) must appear in the shared
+  // canonical contract — filename drift between CI and manifests fails here.
+  const canonicalSkeletons = new Set(
+    Object.values(expectedReleaseAssets('X.Y.Z')).flat().map((n) =>
+      n.replace('X.Y.Z', '').replace(/x64|aarch64|amd64/, '')))
   for (const u of releaseUrls) {
-    assert.ok(u.includes(`download/v${pkg.version}/`), `URL must target v${pkg.version}: ${u}`)
+    assert.doesNotMatch(u, /download\/v1\.3\.0\//, `must not target released v1.3.0: ${u}`)
+    const filename = u.split('/').pop()
+    const skeleton = filename
+      .replace(/\{\{VERSION\}\}|#\{version\}|[0-9]+\.[0-9]+\.[0-9]+/g, '')
+      .replace(/#\{arch\}|x64|aarch64|amd64/g, '')
+    assert.ok(canonicalSkeletons.has(skeleton), `non-canonical asset name: ${filename}`)
+    const tag = u.match(/download\/([^/]+)\//)[1]
+    assert.ok(tag === '{{TAG}}' || tag === 'v#{version}' || /^v\d+\.\d+\.\d+$/.test(tag),
+      `unexpected release tag segment: ${tag}`)
   }
 })
 
-test('hash fields are either placeholders or valid SHA-256 — never anything else', () => {
+test('hash fields are placeholders or valid SHA-256 — never anything else', () => {
   const installer = read('distribution/winget/NoamanAli.DevLedger.installer.yaml')
-  const sha = installer.match(/InstallerSha256: ([0-9a-f]+)/)[1]
-  assert.match(sha, SHA_OR_ZERO)
+  const sha = installer.match(/InstallerSha256: "?([^"\s]+)"?/)[1]
+  assert.match(sha, SHA_OR_PLACEHOLDER)
   const cask = read('distribution/homebrew/dev-ledger.rb')
-  for (const m of cask.matchAll(/"([0-9a-f]{64})"/g)) assert.match(m[1], SHA_OR_ZERO)
+  const caskShas = [...cask.matchAll(/"([0-9a-f]{64}|\{\{SHA256_[A-Z0-9_]+\}\})"/g)]
+  assert.equal(caskShas.length, 2, 'cask carries arm+intel sha256 placeholders')
   const flatpak = read('distribution/flatpak/site.devledger.desktop.yml')
-  assert.match(flatpak.match(/sha256: "([0-9a-f]{64})"/)[1], SHA_OR_ZERO)
+  assert.match(flatpak.match(/sha256: "([^"]+)"/)[1], SHA_OR_PLACEHOLDER)
+})
+
+/* ── canonical release-asset filename contract ──────────────────────── */
+
+test('canonicalReleaseName maps every Tauri output to the release contract', () => {
+  const v = '9.9.9'
+  const cases = {
+    [`Dev Ledger_${v}_x64-setup.exe`]: `Dev-Ledger_${v}_x64-setup.exe`,
+    [`Dev Ledger_${v}_x64_en-US.msi`]: `Dev-Ledger_${v}_x64_en-US.msi`,
+    [`Dev Ledger_${v}_aarch64.dmg`]: `Dev-Ledger_${v}_aarch64.dmg`,
+    [`Dev Ledger_${v}_x64.dmg`]: `Dev-Ledger_${v}_x64.dmg`,
+    [`Dev Ledger_${v}_amd64.deb`]: `dev-ledger_${v}_amd64.deb`,
+    [`Dev Ledger_${v}_amd64.AppImage`]: `Dev-Ledger_${v}_amd64.AppImage`,
+  }
+  for (const [input, want] of Object.entries(cases)) {
+    assert.equal(canonicalReleaseName(input), want, input)
+  }
+  // Surprises fail loudly — never pass through to a release.
+  for (const bad of [
+    'dev-ledger_9.9.9_amd64.deb',          // already normalized — wrong prefix
+    'Dev Ledger_9.9.9_arm64.deb',          // unproduced arch
+    'Dev Ledger_9.9.9_x64-setup.exe.sig',  // updater signature, not an asset
+    'Dev Ledger.exe',
+    'random.txt',
+  ]) {
+    assert.equal(canonicalReleaseName(bad), null, bad)
+  }
+})
+
+test('expectedReleaseAssets enumerates the full release set for a tag', () => {
+  const assets = expectedReleaseAssets('1.4.0')
+  assert.deepEqual(assets.windows.sort(), [
+    'Dev-Ledger_1.4.0_x64-setup.exe', 'Dev-Ledger_1.4.0_x64_en-US.msi',
+  ])
+  assert.deepEqual(assets['macos-arm64'], ['Dev-Ledger_1.4.0_aarch64.dmg'])
+  assert.deepEqual(assets['macos-x64'], ['Dev-Ledger_1.4.0_x64.dmg'])
+  assert.deepEqual(assets.linux.sort(), [
+    'Dev-Ledger_1.4.0_amd64.AppImage', 'dev-ledger_1.4.0_amd64.deb',
+  ])
+})
+
+test('the CI collect step normalizes through the shared contract script', () => {
+  const wf = read('.github/workflows/desktop.yml')
+  assert.match(wf, /node scripts\/release-assets\.mjs dist-artifacts/)
 })
 
 test('winget manifest names the expected installer type and identifier', () => {
@@ -244,4 +316,79 @@ test('migration creates the two desktop tables with hash-only storage + RLS', ()
   // service_role is the only data path; browsers get zero policies.
   assert.match(sql, /revoke all on public\.desktop_auth_codes from public, anon, authenticated/)
   assert.match(sql, /revoke all on public\.desktop_tokens from public, anon, authenticated/)
+})
+
+/* ── workflow hardening ─────────────────────────────────────────────── */
+
+test('desktop workflow gates the matrix and draft release on quality checks', () => {
+  const wf = read('.github/workflows/desktop.yml')
+  // Every checkout drops the ambient credential — the release job writes
+  // via GH_TOKEN env, not git credentials.
+  const checkouts = wf.match(/uses: actions\/checkout@[0-9a-f]+/g) || []
+  assert.ok(checkouts.length >= 2, 'checkout used in multiple jobs')
+  const persistCount = (wf.match(/persist-credentials: false/g) || []).length
+  assert.equal(persistCount, checkouts.length, 'every checkout must unset persist-credentials')
+  assert.match(wf, /verify:/, 'quality-gates job exists')
+  assert.match(wf, /needs: verify/, 'matrix waits on verification')
+  assert.match(wf, /needs: \[verify, build\]/, 'draft release waits on both')
+  assert.match(wf, /npm ci --ignore-scripts/)
+  assert.doesNotMatch(wf, /npm ci\n/, 'bare npm ci must not survive')
+  const verifyBlock = wf.slice(wf.indexOf('  verify:'), wf.indexOf('  build:'))
+  for (const gate of ['npm run build', 'npm run typecheck', 'npm test', 'npm audit --audit-level=moderate']) {
+    assert.ok(verifyBlock.includes(gate), `verify job runs ${gate}`)
+  }
+})
+
+/* ── flatpak source strategy ────────────────────────────────────────── */
+
+test('flatpak uses a normal pinned file source, never extra-data', () => {
+  const manifest = read('distribution/flatpak/site.devledger.desktop.yml')
+  assert.doesNotMatch(manifest, /type: extra-data/,
+    'extra-data is for non-redistributable binaries — wrong for first-party AGPL')
+  assert.match(manifest, /type: file\n[\s\S]*?dest-filename: dev-ledger_amd64\.deb/)
+  assert.match(manifest, /only-arches: \[x86_64\]/, 'deb source restricted to produced arch')
+  assert.match(read('distribution/flatpak/flathub.json'), /"only-arches": \["x86_64"\]/,
+    'flathub.json keeps aarch64 builders from attempting the amd64 deb')
+})
+
+/* ── keep-signed-in persistence contract ────────────────────────────── */
+
+test('remember choice survives from login start to token storage', () => {
+  const auth = read('src/desktop/auth.ts')
+  assert.match(auth, /let pendingRemember/)
+  assert.match(auth, /pendingRemember = remember/)
+  assert.match(auth, /storeToken\(body\.token, \{ persistent: remember \}\)/)
+  const keys = read('src/desktop/keys.ts')
+  assert.match(keys, /persistent/, 'storeToken takes a persistence flag')
+  // Non-persistent storage MUST clear any stale keychain entry so an old
+  // remembered session cannot resurrect after an unchecked login.
+  assert.match(keys, /keyring_delete/)
+  assert.doesNotMatch(keys, /localStorage\.|sessionStorage\./)
+})
+
+/* ── external-link hygiene ──────────────────────────────────────────── */
+
+test('programmatic external navigation routes through the desktop-safe helper', () => {
+  const links = read('src/desktop/links.ts')
+  assert.match(links, /export function openExternalUrl/)
+  // One helper is the only place allowed to open windows/URLs outside the
+  // webview — everything else funnels through it.
+  const scanned = [
+    'src/main.tsx',
+    ...readdirSync(path.join(ROOT, 'src/components')).map((f) => `src/components/${f}`),
+    ...readdirSync(path.join(ROOT, 'src/ledger')).map((f) => `src/ledger/${f}`),
+    ...readdirSync(path.join(ROOT, 'src/desktop')).map((f) => `src/desktop/${f}`),
+  ]
+  for (const f of scanned) {
+    const s = read(f)
+    if (f === 'src/desktop/links.ts') continue // the helper itself
+    assert.doesNotMatch(s, /window\.open\(/, `${f} must use openExternalUrl`)
+    // location assignment is only permitted to internal (root-relative) paths
+    const assigns = s.match(/window\.location\.(?:href|assign|replace)\s*=\s*[^;]+|location\.(?:assign|replace)\([^)]*\)/g) || []
+    for (const a of assigns) {
+      assert.doesNotMatch(a, /https?:\/\//, `${f}: external URL must not navigate the webview — ${a.trim()}`)
+    }
+  }
+  assert.match(read('src/components/SyncMonitor.tsx'), /openExternalUrl/,
+    'SyncMonitor GitHub/manage links must use the helper')
 })

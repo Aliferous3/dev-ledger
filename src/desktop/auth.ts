@@ -8,7 +8,10 @@
    3. The server redirects to dev-ledger://auth?flow=<uuid>&code=<code>,
       delivered to the app by tauri-plugin-deep-link.
    4. The app exchanges the single-use code for a bearer token and stores
-      it in the OS keychain.
+      it according to the KEEP ME SIGNED IN checkbox — OS keychain when
+      checked (survives restart), memory only when unchecked (the user
+      signs in again next launch). Server-side expiry/revocation is
+      identical either way.
 
    The app never sees credentials, OAuth codes, or session cookies —
    only its own flow id and a single-use exchange code. */
@@ -23,8 +26,11 @@ import { clearToken, loadToken, storeToken } from './keys';
 // restarts mid-login the in-flight handoff is rejected and the user
 // simply starts again. The verifier never leaves the app except in the
 // exchange POST — the dev-ledger:// URL only ever carries flow+code.
+// pendingRemember carries the "keep me signed in" choice across the
+// browser round-trip so the exchange can honor it when storing the token.
 let pendingFlow: string | null = null;
 let pendingVerifier: string | null = null;
+let pendingRemember = false;
 let noticeHandler: ((msg: string | null) => void) | null = null;
 
 export function onDesktopAuthNotice(cb: (msg: string | null) => void): () => void {
@@ -45,6 +51,7 @@ function notice(msg: string | null) {
 export function startDesktopLogin(remember: boolean): void {
   notice(null);
   pendingFlow = crypto.randomUUID();
+  pendingRemember = remember;
   // 64 hex chars of CSPRNG entropy — the PKCE verifier. The server only
   // ever sees sha256(verifier), stored inside the code row, so a
   // dev-ledger:// URL grabbed by a hostile scheme-handler cannot be
@@ -64,6 +71,7 @@ export function startDesktopLogin(remember: boolean): void {
     .catch(() => {
       pendingFlow = null;
       pendingVerifier = null;
+      pendingRemember = false;
       notice('Could not open the system browser — sign-in was not started.');
     });
 }
@@ -89,8 +97,10 @@ async function handleAuthUrl(url: string): Promise<void> {
     return;
   }
   const verifier = pendingVerifier;
+  const remember = pendingRemember;
   pendingFlow = null;
   pendingVerifier = null;
+  pendingRemember = false;
   try {
     // Relative path — routed through the transport shim (plugin-http), so
     // the exchange needs no CORS accommodation on the server.
@@ -108,7 +118,9 @@ async function handleAuthUrl(url: string): Promise<void> {
       notice('Sign-in handoff failed — the server returned no credential.');
       return;
     }
-    await storeToken(body.token);
+    // KEEP ME SIGNED IN: checked → OS keychain (restored on next launch);
+    // unchecked → memory only for this app session (keychain cleared).
+    await storeToken(body.token, { persistent: remember });
     // Authenticated — a reload re-runs the standard boot gate, which now
     // resolves through the bearer token exactly like a cookie session.
     window.location.reload();

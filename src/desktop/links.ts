@@ -15,7 +15,7 @@
    login flow so the handoff returns to the app. */
 
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { API_BASE } from './runtime';
+import { API_BASE, isDesktop } from './runtime';
 import { startDesktopLogin } from './auth';
 
 const CONTENT_PREFIXES = [
@@ -31,8 +31,16 @@ const CONTENT_PREFIXES = [
   '/llms.txt',
 ];
 
-function openExternal(url: string): void {
-  void openUrl(url).catch(() => {});
+// The ONE sanctioned way to send the user to an external URL. On the web
+// it is a normal new-tab open; in the desktop shell it MUST go through the
+// opener plugin so the system browser handles it — the Tauri webview is
+// never allowed to navigate to an external origin.
+export function openExternalUrl(url: string): void {
+  if (isDesktop()) {
+    void openUrl(url).catch(() => {});
+    return;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 export function installLinkHandling(): void {
@@ -49,12 +57,12 @@ export function installLinkHandling(): void {
     }
     if (/^https?:\/\//i.test(href)) {
       e.preventDefault();
-      openExternal(href);
+      openExternalUrl(href);
       return;
     }
     if (CONTENT_PREFIXES.some((p) => href === p || href.startsWith(`${p}/`))) {
       e.preventDefault();
-      openExternal(`${API_BASE}${href}`);
+      openExternalUrl(`${API_BASE}${href}`);
     }
   });
 }

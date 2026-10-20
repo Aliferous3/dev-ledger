@@ -12,6 +12,7 @@ import { installShortcuts } from './shortcuts';
 import { initDesktopAuth } from './auth';
 
 export { isDesktop, API_BASE, DESKTOP_SCHEME } from './runtime';
+export { openExternalUrl } from './links';
 export { startDesktopLogin, desktopLogout, onDesktopAuthNotice } from './auth';
 
 export async function initDesktop(): Promise<void> {

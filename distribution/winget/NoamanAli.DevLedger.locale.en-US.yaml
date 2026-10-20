@@ -1,6 +1,6 @@
 # WinGet default-locale manifest.
 PackageIdentifier: NoamanAli.DevLedger
-PackageVersion: 1.3.0
+PackageVersion: "{{VERSION}}"
 PackageLocale: en-US
 Publisher: Noaman Ali
 PublisherUrl: https://devledger.site

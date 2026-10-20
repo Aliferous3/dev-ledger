@@ -1,14 +1,20 @@
 # Flatpak manifest for Dev Ledger (site.devledger.desktop).
 #
-# Strategy: repackage the .deb published on GitHub Releases (extra-data).
-# We are the upstream that produces that .deb in CI, so the binary is
-# first-party — the same model Flathub accepts for other apps that ship
-# upstream-built debs. If Flathub reviewers prefer a source build, the
-# alternative is flatpak-node-generator + cargo vendoring against
-# src-tauri/ (documented in docs/desktop.md).
+# Strategy: repackage the .deb published on GitHub Releases as a NORMAL
+# remote file source — NOT extra-data. extra-data is for proprietary,
+# non-redistributable binaries downloaded at install time on the user
+# machine; Dev Ledger is first-party AGPL-3.0 software built by our own
+# CI, so the deb is fetched at flatpak-builder time like any pinned
+# source and installed during build-commands.
 #
-# Per release: `npm run desktop:version` refreshes the URL below; fill the
-# sha256 + size from the release's SHA256SUMS.txt.
+# If Flathub reviewers prefer a full source build, the alternative is
+# flatpak-node-generator + cargo vendoring against src-tauri/
+# (documented in docs/desktop.md). flathub.json restricts to x86_64 —
+# the only deb architecture produced today.
+#
+# THIS IS A TEMPLATE: {{TAG}}, {{VERSION}} and the sha256 below are
+# filled by `npm run desktop:version` + the release's SHA256SUMS.txt when
+# a real desktop release is prepared (see distribution/README.md).
 id: site.devledger.desktop
 runtime: org.gnome.Platform
 runtime-version: "48"
@@ -34,11 +40,11 @@ modules:
   - name: dev-ledger
     buildsystem: simple
     sources:
-      - type: extra-data
-        filename: dev-ledger_amd64.deb
-        url: https://github.com/Aliferous3/dev-ledger/releases/download/v1.3.0/dev-ledger_1.3.0_amd64.deb
-        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
-        size: 0
+      - type: file
+        url: https://github.com/Aliferous3/dev-ledger/releases/download/{{TAG}}/dev-ledger_{{VERSION}}_amd64.deb
+        sha256: "{{SHA256_AMD64_DEB}}"
+        dest-filename: dev-ledger_amd64.deb
+        only-arches: [x86_64]
       - type: file
         path: site.devledger.desktop.desktop
       - type: file

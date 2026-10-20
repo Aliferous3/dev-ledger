@@ -35,10 +35,12 @@ never replaces it.
   `Origin: https://devledger.site`. Because requests happen in Rust, the
   webview never participates in CORS and the server keeps its strict
   browser-only origin posture.
-- **State**: the bearer token lives in the OS credential store
-  (Windows Credential Manager, macOS Keychain, Linux Secret Service) via
-  the Rust `keyring` crate — never in localStorage or files. If no
-  keychain daemon is reachable the token degrades to process memory only.
+- **State**: when "keep me signed in" is checked the bearer token lives
+  in the OS credential store (Windows Credential Manager, macOS Keychain,
+  Linux Secret Service) via the Rust `keyring` crate — never in
+  localStorage or files. Unchecked logins keep the token in process
+  memory for the running session only; the same memory-only fallback
+  applies when no keychain daemon is reachable.
 - **Native glue**: `tauri-plugin-opener` sends every external link to the
   system browser; `tauri-plugin-deep-link` receives `dev-ledger://`
   handoffs; `tauri-plugin-single-instance` keeps one window. Capabilities
@@ -59,11 +61,28 @@ OAuth code or session cookie:
    stored hashed) travels — never a session id or token.
 4. The deep link wakes the app; `flow` must equal the UUID it minted in
    step 1 (deep links from other sources are dropped).
-5. `POST /api/auth/desktop?action=exchange` consumes the code atomically
-   and returns an opaque `dlt_…` bearer token (stored hashed server-side,
-   plaintext shown once). The token is bound to a dedicated server-side
-   `auth_sessions` row — logout, account deletion and kill-all sessions
-   revoke it through the same machinery as browser sessions.
+5. `POST /api/auth/desktop?op=exchange` (rewritten to
+   `/api/user?action=desktop` to keep the serverless function count) with
+   `{flow, code, verifier}` consumes the code atomically, verifies the
+   PKCE-style challenge, and returns an opaque `dlt_…` bearer token
+   (stored hashed server-side, plaintext shown once). The token is bound
+   to a dedicated server-side `auth_sessions` row — logout, account
+   deletion and kill-all sessions revoke it through the same machinery
+   as browser sessions.
+
+### KEEP ME SIGNED IN on desktop
+
+The login checkbox is honored locally — server-side expiry and
+revocation are identical either way:
+
+- **Unchecked**: the exchanged token is kept in process memory only and
+  any previous keychain credential is deleted. The session works for the
+  running app; after the app closes, sign-in is required again. (This is
+  a desktop persistence choice — not a browser-cookie lifetime.)
+- **Checked**: the token is written to the OS keychain and restored on
+  the next launch, subject to the usual server-side expiry/revocation.
+
+Credentials never touch localStorage/sessionStorage in either mode.
 
 No embedded webview login: GitHub OAuth happens in the user's real
 browser with full passkey/2FA support, and the app never touches the
@@ -79,9 +98,11 @@ GitHub.
 **Supabase**: no Auth redirect URLs — Supabase Auth is not used;
 authentication is the app's own iron-session/bearer system.
 
-**Database**: apply migration `014_desktop_auth.sql`
-(`npm run db:migrate`) to create `desktop_auth_codes` + `desktop_tokens`
-before desktop sign-in works in production.
+**Database — release prerequisite**: desktop authentication cannot work
+in production until migration `014_desktop_auth.sql`
+(`desktop_auth_codes` + `desktop_tokens` tables) has been applied
+successfully to the production database via the normal migration path.
+Do this BEFORE publishing a desktop release — the app has no fallback.
 
 ### Why bearer instead of cookies
 
@@ -114,13 +135,19 @@ targets `https://devledger.site`.
 ## Build outputs
 
 `npm run desktop:build` (or CI) writes bundles under
-`src-tauri/target/**/release/bundle/`:
+`src-tauri/target/**/release/bundle/`. Tauri names them with the product
+name (`Dev Ledger_…`); CI's collect step renames every copied artifact
+through `scripts/release-assets.mjs` into the **canonical release-asset
+contract** — the only names package manifests may reference:
 
-| Platform | Bundles | Typical names |
+| Platform | Bundles | Canonical release filenames |
 | --- | --- | --- |
-| Windows | NSIS `.exe`, MSI | `Dev-Ledger_1.3.0_x64-setup.exe`, `Dev-Ledger_1.3.0_x64_en-US.msi` |
-| macOS | `.app`, `.dmg` | `Dev-Ledger_1.3.0_aarch64.dmg`, `Dev-Ledger_1.3.0_x64.dmg` |
-| Linux | `.deb`, AppImage | `dev-ledger_1.3.0_amd64.deb`, `dev-ledger_1.3.0_amd64.AppImage` |
+| Windows | NSIS `.exe`, MSI | `Dev-Ledger_<version>_x64-setup.exe`, `Dev-Ledger_<version>_x64_en-US.msi` |
+| macOS | `.app`, `.dmg` | `Dev-Ledger_<version>_aarch64.dmg`, `Dev-Ledger_<version>_x64.dmg` |
+| Linux | `.deb`, AppImage | `dev-ledger_<version>_amd64.deb`, `Dev-Ledger_<version>_amd64.AppImage` |
+
+The contract is enforced by tests — a drift between CI output and
+manifest URLs fails `desktop-distribution.test.mjs`.
 
 macOS x64 builds cross-compile from the arm64 runner via
 `--target x86_64-apple-darwin` (the `macos-13` Intel runner is retired).
@@ -129,14 +156,23 @@ macOS x64 builds cross-compile from the arm64 runner via
 
 `.github/workflows/desktop.yml`:
 
+- Every job checks out with `persist-credentials: false` and installs
+  with `npm ci --ignore-scripts`.
+- A `verify` job (build + typecheck + test + audit) runs **first**;
+  the desktop matrix `needs` it, and the draft-release job needs both.
 - **PRs / main / manual**: build matrix (windows x64, macOS arm64, macOS
   x64, linux x64) → uploads `desktop-<label>` artifacts. No secrets used.
-- **Tag `v*`**: same matrix, then a `release` job downloads every
-  artifact, generates `SHA256SUMS.txt`, and creates a **draft** GitHub
-  Release — a human reviews and publishes; nothing auto-publishes.
+- **Tag `v*`**: same gated matrix, then a `release` job downloads every
+  artifact, generates `SHA256SUMS.txt` over the canonical filenames, and
+  creates a **draft** GitHub Release — a human reviews and publishes;
+  nothing auto-publishes. Release tags also run the security workflow's
+  full-history gitleaks scan.
 
-Version flow: bump `package.json`, run `npm run desktop:version`, tag
-`v<same version>`.
+Version flow — **the first desktop release must bump `package.json` to a
+version that has never been released** (e.g. `1.4.0`: `v1.3.0` is already
+the first public GitHub Release and has no desktop assets). Then run
+`npm run desktop:version` (substitutes the `{{VERSION}}`/`{{TAG}}`/
+`{{DATE}}` manifest placeholders), tag `v<same version>`.
 
 ## Signing & notarization
 
@@ -190,12 +226,17 @@ in the author's tap rather than homebrew-core).
 
 ### Flatpak / Flathub (`distribution/flatpak/`)
 
-Manifest repackages our first-party release `.deb` via `extra-data`
-(GNOME runtime supplies WebKitGTK 4.1). Fill `sha256` + `size` from
-`SHA256SUMS.txt`, validate:
+Manifest repackages our first-party release `.deb` as a normal pinned
+`type: file` source — not `extra-data`, which exists for proprietary
+non-redistributable binaries fetched on the user's machine. Dev Ledger
+is AGPL-3.0 software built by this repo's CI, so flatpak-builder fetches
+the deb (URL + sha256 pinned) and `build-commands` unpack it inside the
+sandbox. `flathub.json` restricts to `x86_64` — the only deb produced
+today. Fill `sha256` from `SHA256SUMS.txt`, then validate:
 
 ```bash
 flatpak-builder --repo=repo build distribution/flatpak/site.devledger.desktop.yml
+flatpak run org.flathub.flatpak-builder-lint manifest distribution/flatpak/site.devledger.desktop.yml
 appstreamcli validate distribution/flatpak/site.devledger.desktop.metainfo.xml
 ```
 
@@ -219,7 +260,8 @@ and only worth it if review demands it.
   honored; the flow UUID must match an in-flight login, and codes are
   single-use + hashed server-side.
 - **Tokens**: opaque, hashed server-side, bound to a revocable
-  `auth_sessions` row, stored in the OS keychain, never in JS storage.
+  `auth_sessions` row, stored in the OS keychain when "keep me signed in"
+  is checked (process memory only otherwise), never in JS storage.
 - **Analytics**: the desktop build initializes neither PostHog, GA4, nor
   Vercel Analytics — those systems are web-deployment plumbing and the
   `tauri://` origin satisfies none of their production gates.

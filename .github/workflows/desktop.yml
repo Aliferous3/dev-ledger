@@ -20,8 +20,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Quality gates — the desktop matrix and any tag-driven draft release
+  # may only run after the full web-quality suite passes. A v* tag can
+  # never produce even a draft release from a commit that fails these.
+  verify:
+    name: quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        # Lockfile-enforced; install lifecycle hooks never run (esbuild /
+        # fsevents resolve through optional platform binaries instead).
+        run: npm ci --ignore-scripts
+
+      - name: Build
+        run: npm run build
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Audit
+        run: npm audit --audit-level=moderate
+
   build:
     name: ${{ matrix.label }}
+    needs: verify
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -50,6 +84,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -73,7 +109,7 @@ jobs:
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Build desktop bundles
         env:
@@ -91,7 +127,9 @@ jobs:
               -name '*.exe' -o -name '*.msi' -o \
               -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \) \
             -path '*/bundle/*' -exec cp {} dist-artifacts/ \;
-          ls -la dist-artifacts/
+          # Normalize to the canonical release-asset filename contract —
+          # package-manager manifests point at these exact names.
+          node scripts/release-assets.mjs dist-artifacts
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -102,12 +140,14 @@ jobs:
   release:
     name: draft-release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [verify, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
