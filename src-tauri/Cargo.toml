@@ -27,7 +27,10 @@ tauri-plugin-opener = "2"
 # hosted CSRF guard expects.
 tauri-plugin-http = { version = "2", features = ["rustls-tls", "unsafe-headers"] }
 # dev-ledger:// handoff from the system-browser OAuth flow.
-tauri-plugin-deep-link = "2"
+# Pinned to 2.6.1: 2.6.2's load_desktop_ini does not compile against
+# rust-ini 0.21.3 on Linux (ParseOption gained required fields).
+# Fixed upstream in plugins-workspace#3711 — unpin once 2.6.3+ lands.
+tauri-plugin-deep-link = "=2.6.1"
 # Route a second process launch (deep-link activation) back to one window.
 tauri-plugin-single-instance = "2"
 # OS-backed credential storage: Windows Credential Manager, macOS Keychain,

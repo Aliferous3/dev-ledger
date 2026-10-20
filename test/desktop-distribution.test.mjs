@@ -31,11 +31,20 @@ test('tauri.conf.json parses and pins the stable application identity', () => {
 })
 
 test('the main window is a normal resizable native window with bounds', () => {
-  const w = tauriConf.app.windows[0]
-  assert.equal(w.title, 'Dev Ledger')
-  assert.equal(w.resizable, true)
-  assert.ok(w.minWidth >= 800 && w.minHeight >= 500, 'sensible minimums')
-  assert.ok(w.width >= w.minWidth && w.height >= w.minHeight)
+  // The window is created in src-tauri/src/lib.rs (not tauri.conf.json) so
+  // the WebviewWindowBuilder can attach the on_navigation origin guard.
+  const lib = read('src-tauri/src/lib.rs')
+  assert.equal(tauriConf.app.windows.length, 0, 'no config-declared windows')
+  assert.match(lib, /WebviewWindowBuilder::new\(app, "main"/)
+  assert.match(lib, /\.title\("Dev Ledger"\)/)
+  assert.match(lib, /\.resizable\(true\)/)
+  const [minW, minH] = /min_inner_size\((\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)\)/
+    .exec(lib).slice(1).map(Number)
+  const [w, h] = /inner_size\((\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)\)/
+    .exec(lib).slice(1).map(Number)
+  assert.ok(minW >= 800 && minH >= 500, 'sensible minimums')
+  assert.ok(w >= minW && h >= minH)
+  assert.match(lib, /\.on_navigation\(is_app_origin\)/)
 })
 
 test('deep-link registration uses exactly the dev-ledger scheme', () => {
