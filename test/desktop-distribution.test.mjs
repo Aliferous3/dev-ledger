@@ -110,6 +110,19 @@ test('opener permission can never open executables or local paths', () => {
 
 /* ── Rust crate ─────────────────────────────────────────────────────── */
 
+test('lockfiles + visible boot label track package.json', () => {
+  const lock = JSON.parse(read('package-lock.json'))
+  assert.equal(lock.version, pkg.version)
+  assert.equal(lock.packages[''].version, pkg.version)
+
+  const cargoLock = read('src-tauri/Cargo.lock')
+  const cargoVersion = /\[\[package\]\]\nname = "dev-ledger"\nversion = "([^"]+)"/.exec(cargoLock)?.[1]
+  assert.equal(cargoVersion, pkg.version)
+
+  const escaped = pkg.version.replace(/\./g, '\\.')
+  assert.match(read('src/main.tsx'), new RegExp(`label="code metrics · v${escaped}"`))
+})
+
 test('Cargo.toml version tracks package.json and deps stay minimal', () => {
   const cargo = read('src-tauri/Cargo.toml')
   assert.match(cargo, new RegExp(`^version = "${pkg.version.replace(/\./g, '\\.')}"$`, 'm'))

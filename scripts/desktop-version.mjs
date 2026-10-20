@@ -2,8 +2,10 @@
 // Single-source-of-truth version sync for the desktop distribution.
 // package.json is authoritative — this script propagates its version to:
 //
+//   package-lock.json                              → npm lockfile root
 //   src-tauri/tauri.conf.json                      → bundle metadata
-//   src-tauri/Cargo.toml                           → crate version
+//   src-tauri/Cargo.toml + Cargo.lock              → crate version
+//   src/main.tsx                                   → visible boot version
 //   distribution/winget/*.{yaml}                   → PackageVersion + URLs
 //   distribution/homebrew/dev-ledger.rb            → cask version
 //   distribution/flatpak/*.yml + *.metainfo.xml    → deb URL + <release>
@@ -22,6 +24,14 @@ const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).ver
 const TAG = `v${VERSION}`;
 
 const edits = [];
+
+const writeJson = (rel, mutate) => {
+  const p = join(ROOT, rel);
+  const value = JSON.parse(readFileSync(p, 'utf8'));
+  mutate(value);
+  writeFileSync(p, JSON.stringify(value, null, 2) + '\n');
+  edits.push(rel);
+};
 const upd = (rel, re, repl) => {
   const p = join(ROOT, rel);
   const s = readFileSync(p, 'utf8');
@@ -30,6 +40,13 @@ const upd = (rel, re, repl) => {
   if (next !== s) writeFileSync(p, next);
   edits.push(rel);
 };
+
+// --- npm lockfile -----------------------------------------------------------
+writeJson('package-lock.json', (lock) => {
+  lock.version = VERSION;
+  if (!lock.packages?.['']) throw new Error('package-lock.json missing root package');
+  lock.packages[''].version = VERSION;
+});
 
 // --- Tauri config (JSON — parse + stringify, preserving key order) ---------
 {
@@ -42,8 +59,20 @@ const upd = (rel, re, repl) => {
   edits.push('src-tauri/tauri.conf.json');
 }
 
-// --- Cargo.toml -------------------------------------------------------------
+// --- Cargo metadata ---------------------------------------------------------
 upd('src-tauri/Cargo.toml', /^version = ".*"$/m, `version = "${VERSION}"`);
+upd(
+  'src-tauri/Cargo.lock',
+  /(\[\[package\]\]\nname = "dev-ledger"\nversion = ")[^"]+(")/,
+  `$1${VERSION}$2`,
+);
+
+// --- Visible app version ----------------------------------------------------
+upd(
+  'src/main.tsx',
+  /label="code metrics · v[0-9]+\.[0-9]+\.[0-9]+"/,
+  `label="code metrics · v${VERSION}"`,
+);
 
 // --- WinGet -----------------------------------------------------------------
 // Templates carry {{VERSION}} / {{TAG}} / {{DATE}} placeholders; stamped

@@ -1,6 +1,6 @@
 [package]
 name = "dev-ledger"
-version = "1.3.0"
+version = "1.4.0"
 description = "Dev Ledger — open-source GitHub analytics for developers"
 authors = ["Noaman Ali"]
 license = "AGPL-3.0-only"
