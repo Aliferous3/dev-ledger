@@ -110,16 +110,21 @@ pub fn run() {
             // The main window is created in code (not tauri.conf.json) so the
             // on_navigation guard can be attached: only bundled-app origins may
             // navigate inside the webview.
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("/".into()))
+            let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("/".into()))
                 .title("Dev Ledger")
                 .inner_size(1320.0, 860.0)
                 .min_inner_size(960.0, 600.0)
                 .resizable(true)
                 .fullscreen(false)
                 .center()
-                .drag_and_drop(false)
-                .on_navigation(is_app_origin)
-                .build()?;
+                .on_navigation(is_app_origin);
+            // Reject OS file drops so a dragged file cannot navigate the
+            // webview to a file:// URL. The builder method is Windows-only in
+            // Tauri 2; other platforms also can't navigate because the guard
+            // rejects the file: scheme.
+            #[cfg(windows)]
+            let builder = builder.drag_and_drop(false);
+            builder.build()?;
 
             // Scheme registration: macOS gets dev-ledger:// from the bundled
             // Info.plist; Windows and Linux register at runtime (AppImage cannot
