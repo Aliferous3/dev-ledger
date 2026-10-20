@@ -48,7 +48,7 @@
     "license": "AGPL-3.0-only",
     "windows": {
       "nsis": {
-        "installMode": "perUser",
+        "installMode": "currentUser",
         "displayLanguageSelector": false,
         "languages": ["English"]
       },
@@ -57,7 +57,6 @@
       }
     },
     "macOS": {
-      "category": "public.app-category.developer-tools",
       "minimumSystemVersion": "11.0",
       "entitlements": null
     }
