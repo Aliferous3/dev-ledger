@@ -37,7 +37,7 @@ export function usePrefersReducedMotion() {
 /* ---------- GitHub button → real OAuth ----------
    Phosphor terminal-command treatment: lime fill, black mono uppercase,
    sharp corners, left play indicator, thin dark baseline. */
-export function GithubButton({ large = false, onLogin, remember = false }: { large?: boolean; onLogin?: () => void; remember?: boolean }) {
+export function GithubButton({ large = false, onLogin, remember = false }: { large?: boolean; onLogin?: (remember?: boolean) => void; remember?: boolean }) {
   const startLogin = () => {
     // Analytics only — the OAuth navigation itself is unchanged. The
     // pending flag lets the post-callback boot emit login_succeeded once.
@@ -48,7 +48,7 @@ export function GithubButton({ large = false, onLogin, remember = false }: { lar
   };
   return (
     <button
-      onClick={onLogin ?? startLogin}
+      onClick={onLogin ? () => onLogin(remember) : startLogin}
       className={`group relative flex items-center gap-2.5 bg-[#d6ff3e] text-black font-mono border-b-[3px] border-[#6f8f10] transition-colors duration-200 hover:bg-[#e4ff70] hover:border-black active:translate-y-px ${large ? 'px-6 py-3 text-[11px]' : 'px-5 py-2.5 text-[10px]'}`}
     >
       <span className="text-[9px] leading-none">▶</span>

@@ -2,6 +2,7 @@ import { waitUntil } from '@vercel/functions'
 import { getSession, getAppOctokit } from '../lib/auth.mjs'
 import { supabase } from '../lib/db.mjs'
 import { isSessionLive } from '../lib/sessions.mjs'
+import { desktopHandoff } from '../lib/desktop-auth.mjs'
 import { kickSync, runSync } from '../lib/sync.mjs'
 import { requestQuery } from '../lib/request-query.mjs'
 
@@ -10,7 +11,11 @@ import { requestQuery } from '../lib/request-query.mjs'
 export default async function handler(req, res) {
   const session = await getSession(req, res)
   if (!session?.userId || (supabase && !(await isSessionLive(session.sid)))) {
-    res.writeHead(302, { Location: '/api/auth/login' })
+    // Restarting login mid-install must not strand a desktop handoff —
+    // carry the sealed flow id forward so the resumed OAuth still returns
+    // to the app. Unauthenticated installs (no flow) are unchanged.
+    const flow = session?.desktopFlow ? `?desktop_flow=${encodeURIComponent(session.desktopFlow)}` : ''
+    res.writeHead(302, { Location: `/api/auth/login${flow}` })
     res.end()
     return
   }
@@ -45,6 +50,9 @@ export default async function handler(req, res) {
     }
   }
 
+  // A desktop login pending handoff finishes here (first-time installs
+  // arrive via this Setup URL rather than the OAuth callback tail).
+  if (await desktopHandoff(res, session, '/?installed=1')) return
   res.writeHead(302, { Location: '/?installed=1' })
   res.end()
 }

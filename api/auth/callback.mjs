@@ -4,6 +4,7 @@ import { github, appUrl, sessionLeaseMs } from '../../lib/config.mjs'
 import { supabase } from '../../lib/db.mjs'
 import { kickSync, runSync, setUserSync, SYNC_DETAIL_INIT } from '../../lib/sync.mjs'
 import { createAuthSession, gcAuthSessions, isSessionLive } from '../../lib/sessions.mjs'
+import { desktopHandoff } from '../../lib/desktop-auth.mjs'
 import { requestQuery } from '../../lib/request-query.mjs'
 import { securityEvent } from '../../lib/security-events.mjs'
 
@@ -16,7 +17,10 @@ export default async function handler(req, res) {
   // installation directly; without one, restart login so OAuth completes.
   if (installationId && setupAction) {
     if (!session.userId || (supabase && !(await isSessionLive(session.sid)))) {
-      res.writeHead(302, { Location: '/api/auth/login' })
+      // Carry a pending desktop flow through the restarted login so the
+      // handoff still returns to the app after re-auth.
+      const flow = session?.desktopFlow ? `?desktop_flow=${encodeURIComponent(session.desktopFlow)}` : ''
+      res.writeHead(302, { Location: `/api/auth/login${flow}` })
       res.end()
       return
     }
@@ -42,6 +46,7 @@ export default async function handler(req, res) {
         waitUntil(runSync(session.userId, { budgetMs: 45_000, force: true }).catch(() => {}))
       }
     }
+    if (await desktopHandoff(res, session, '/')) return
     res.writeHead(302, { Location: '/' })
     res.end()
     return
@@ -182,12 +187,15 @@ export default async function handler(req, res) {
 
   // No installation yet → send the user through the GitHub App install flow
   // (all or selected repositories), which returns via the app Setup URL.
+  // session.desktopFlow intentionally survives this hop — /api/setup
+  // completes the deep-link handoff once the install lands.
   if (!installations.length && github.appSlug) {
     res.writeHead(302, { Location: `https://github.com/apps/${github.appSlug}/installations/new` })
     res.end()
     return
   }
 
+  if (await desktopHandoff(res, session, '/')) return
   res.writeHead(302, { Location: '/' })
   res.end()
 }

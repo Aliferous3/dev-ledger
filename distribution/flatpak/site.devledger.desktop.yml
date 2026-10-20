@@ -1,0 +1,60 @@
+# Flatpak manifest for Dev Ledger (site.devledger.desktop).
+#
+# Strategy: repackage the .deb published on GitHub Releases as a NORMAL
+# remote file source — NOT extra-data. extra-data is for proprietary,
+# non-redistributable binaries downloaded at install time on the user
+# machine; Dev Ledger is first-party AGPL-3.0 software built by our own
+# CI, so the deb is fetched at flatpak-builder time like any pinned
+# source and installed during build-commands.
+#
+# If Flathub reviewers prefer a full source build, the alternative is
+# flatpak-node-generator + cargo vendoring against src-tauri/
+# (documented in docs/desktop.md). flathub.json restricts to x86_64 —
+# the only deb architecture produced today.
+#
+# THIS IS A TEMPLATE: {{TAG}}, {{VERSION}} and the sha256 below are
+# filled by `npm run desktop:version` + the release's SHA256SUMS.txt when
+# a real desktop release is prepared (see distribution/README.md).
+id: site.devledger.desktop
+runtime: org.gnome.Platform
+runtime-version: "48"
+sdk: org.gnome.Sdk
+command: dev-ledger
+
+finish-args:
+  # WebKitGTK needs X/Wayland + IPC; the app talks to the hosted API only.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --share=network
+  # OS keychain for the desktop bearer token (Secret Service).
+  - --talk-name=org.freedesktop.secrets
+  # GPU acceleration for the webview.
+  - --device=dri
+  # WebKitGTK dmabuf workaround used across Tauri flatpaks.
+  - --env=WEBKIT_DISABLE_DMABUF_RENDERER=1
+  # No host filesystem, no session bus beyond secrets, no devices — the
+  # app needs nothing else.
+
+modules:
+  - name: dev-ledger
+    buildsystem: simple
+    sources:
+      - type: file
+        url: https://github.com/Aliferous3/dev-ledger/releases/download/{{TAG}}/dev-ledger_{{VERSION}}_amd64.deb
+        sha256: "{{SHA256_AMD64_DEB}}"
+        dest-filename: dev-ledger_amd64.deb
+        only-arches: [x86_64]
+      - type: file
+        path: site.devledger.desktop.desktop
+      - type: file
+        path: site.devledger.desktop.metainfo.xml
+      - type: file
+        path: site.devledger.desktop.png
+    build-commands:
+      - ar x dev-ledger_amd64.deb
+      - tar -xf data.tar.*
+      - install -Dm755 usr/bin/dev-ledger /app/bin/dev-ledger
+      - install -Dm644 site.devledger.desktop.desktop /app/share/applications/site.devledger.desktop.desktop
+      - install -Dm644 site.devledger.desktop.metainfo.xml /app/share/metainfo/site.devledger.desktop.metainfo.xml
+      - install -Dm644 site.devledger.desktop.png /app/share/icons/hicolor/512x512/apps/site.devledger.desktop.png

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useIdentity, useLedger } from '../store/live';
+import { desktopLogout, isDesktop } from '../desktop';
 import {
   initialsFromLogin,
   isSyncing,
@@ -129,7 +130,15 @@ export function AccountMenu() {
 
   // Logout is a POST+JSON endpoint now (GET would be cross-site abusable);
   // on success we navigate to '/' exactly like the old 302 did.
+  // The desktop shell revokes its bearer token (and bound server session)
+  // through the desktop endpoint, clears the OS keychain, and reloads
+  // back to the login gate.
   const signOut = async () => {
+    if (isDesktop()) {
+      await desktopLogout();
+      window.location.reload();
+      return;
+    }
     try {
       const res = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
       if (res.ok) window.location.href = '/';

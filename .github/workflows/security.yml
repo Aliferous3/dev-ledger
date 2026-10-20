@@ -20,6 +20,9 @@ on:
   pull_request:
   push:
     branches: [main]
+    # Release tags also get the full-history scan — a desktop draft
+    # release must never be cut from history containing a leaked secret.
+    tags: ['v*']
 
 permissions:
   contents: read

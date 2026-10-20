@@ -36,6 +36,10 @@
       "destination": "/api/user?action=feedback"
     },
     {
+      "source": "/api/auth/desktop",
+      "destination": "/api/user?action=desktop"
+    },
+    {
       "source": "/overview",
       "destination": "/index.html"
     },

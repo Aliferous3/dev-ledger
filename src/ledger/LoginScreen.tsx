@@ -10,7 +10,7 @@ import { m12Delay, registerM12 } from './m12';
    full-viewport page. CTA wires to the real /api/auth/login OAuth flow. */
 const TYPE_LINES = ['> ledger --init', '// commits become chronology', '// chronology becomes a body of work', '> connect github --live'];
 
-export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
+export function LoginScreen({ onLogin, notice = null }: { onLogin?: (remember?: boolean) => void; notice?: string | null }) {
   const [hovered, setHovered] = useState<GridCell | null>(null);
   const [typed, setTyped] = useState(0);
   // Opt-in persistent session (30-day cookie); unchecked = browser-session
@@ -121,6 +121,13 @@ export function LoginScreen({ onLogin }: { onLogin?: () => void }) {
                 <div ref={registerM12} style={m12Delay(9)} className="m12 relative">
                   <GithubButton onLogin={onLogin} remember={remember} />
                 </div>
+                {/* Desktop handoff status — only ever set inside the Tauri
+                    shell when a deep-link exchange fails. */}
+                {notice && (
+                  <p className="relative mono-tag text-[9px] tracking-[0.14em] text-amber-500/90 max-w-[320px] text-left md:text-right">
+                    {notice}
+                  </p>
+                )}
                 <p
                   ref={registerM12}
                   style={m12Delay(10)}

@@ -168,6 +168,9 @@ test('exact taxonomy matches the documented set', () => {
     'account_deleted',
     'auth_callback_failed',
     'cron_auth_failed',
+    'desktop_exchange_completed',
+    'desktop_exchange_failed',
+    'desktop_logout_completed',
     'logout_completed',
     'same_origin_blocked',
     'security_internal_error',
@@ -294,8 +297,13 @@ test('correlation degrades to null without SECURITY_EVENT_HASH_KEY', async (t) =
 
 test('spec declares persist=true only behind auth or valid GitHub HMAC', () => {
   const persisted = Object.entries(EVENT_SPEC).filter(([, s]) => s.persist).map(([n]) => n).sort()
+  // Desktop events stay behind credentials: exchange_completed requires a
+  // valid single-use handoff code (the credential itself), logout_completed
+  // a valid bearer token — same posture as logout_completed.
   assert.deepEqual(persisted, [
     'account_deleted',
+    'desktop_exchange_completed',
+    'desktop_logout_completed',
     'logout_completed',
     'session_invalid',
     'session_revoked',

@@ -13,6 +13,9 @@ These notes define the public development contract for humans and coding agents 
 - Dependency audit: `npm audit --audit-level=moderate`
 - Database migration: `npm run db:migrate`
 - Local recovery drill: `npm run db:drill`
+- Desktop dev (Tauri): `npm run desktop:dev`
+- Desktop bundle build: `npm run desktop:build`
+- Desktop version sync: `npm run desktop:version`
 
 ## Product invariants
 
