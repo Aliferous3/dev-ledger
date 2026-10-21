@@ -4,7 +4,7 @@
 # then fill InstallerSha256 in the installer manifest from the GitHub
 # Release checksums file (SHA256SUMS.txt).
 PackageIdentifier: NoamanAli.DevLedger
-PackageVersion: "{{VERSION}}"
+PackageVersion: 1.4.0
 DefaultLocale: en-US
 ManifestType: version
 ManifestVersion: 1.9.0
