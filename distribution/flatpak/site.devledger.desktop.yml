@@ -41,7 +41,7 @@ modules:
     buildsystem: simple
     sources:
       - type: file
-        url: https://github.com/Aliferous3/dev-ledger/releases/download/v1.4.0/dev-ledger_1.4.0_amd64.deb
+        url: https://github.com/Aliferous3/dev-ledger/releases/download/v1.4.1/dev-ledger_1.4.1_amd64.deb
         sha256: "{{SHA256_AMD64_DEB}}"
         dest-filename: dev-ledger_amd64.deb
         only-arches: [x86_64]

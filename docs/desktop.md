@@ -171,8 +171,9 @@ macOS x64 builds cross-compile from the arm64 runner via
 Version flow — **the first desktop release must bump `package.json` to a
 version that has never been released** (e.g. `1.4.0`: `v1.3.0` is already
 the first public GitHub Release and has no desktop assets). Then run
-`npm run desktop:version` (substitutes the `{{VERSION}}`/`{{TAG}}`/
-`{{DATE}}` manifest placeholders), tag `v<same version>`.
+`npm run desktop:version` (no arguments — it reads the version from
+`package.json` and substitutes the `{{VERSION}}`/`{{TAG}}`/`{{DATE}}`
+manifest placeholders), tag `v<same version>`.
 
 ## Signing & notarization
 
