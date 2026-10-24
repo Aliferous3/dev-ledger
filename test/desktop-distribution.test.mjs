@@ -116,7 +116,8 @@ test('lockfiles + visible boot label track package.json', () => {
   assert.equal(lock.packages[''].version, pkg.version)
 
   const cargoLock = read('src-tauri/Cargo.lock')
-  const cargoVersion = /\[\[package\]\]\nname = "dev-ledger"\nversion = "([^"]+)"/.exec(cargoLock)?.[1]
+  const cargoVersion =
+    /\[\[package\]\]\r?\nname = "dev-ledger"\r?\nversion = "([^"]+)"/.exec(cargoLock)?.[1]
   assert.equal(cargoVersion, pkg.version)
 
   const escaped = pkg.version.replace(/\./g, '\\.')
@@ -358,7 +359,7 @@ test('flatpak uses a normal pinned file source, never extra-data', () => {
   const manifest = read('distribution/flatpak/site.devledger.desktop.yml')
   assert.doesNotMatch(manifest, /type: extra-data/,
     'extra-data is for non-redistributable binaries — wrong for first-party AGPL')
-  assert.match(manifest, /type: file\n[\s\S]*?dest-filename: dev-ledger_amd64\.deb/)
+  assert.match(manifest, /type: file\r?\n[\s\S]*?dest-filename: dev-ledger_amd64\.deb/)
   assert.match(manifest, /only-arches: \[x86_64\]/, 'deb source restricted to produced arch')
   assert.match(read('distribution/flatpak/flathub.json'), /"only-arches": \["x86_64"\]/,
     'flathub.json keeps aarch64 builders from attempting the amd64 deb')

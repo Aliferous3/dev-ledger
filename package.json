@@ -53,5 +53,11 @@
     "typescript": "7.0.2",
     "vite": "^8.3.4"
   },
-  "license": "AGPL-3.0-only"
+  "license": "AGPL-3.0-only",
+  "overrides": {
+    "dompurify": "3.4.17",
+    "@vercel/cli-config": {
+      "zod": "4.6.7"
+    }
+  }
 }
