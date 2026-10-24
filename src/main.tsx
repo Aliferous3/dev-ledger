@@ -173,7 +173,7 @@ function Gate() {
       {appMounted && <App me={me} />}
       <BootLogOverlay
         active={booting}
-        label="code metrics · v1.4.0"
+        label="code metrics · v1.4.1"
         onCovered={() => setAppMounted(true)}
         onDone={() => setBooting(false)}
       />

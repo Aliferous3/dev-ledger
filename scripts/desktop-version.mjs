@@ -14,10 +14,26 @@
 // placeholder until a real GitHub Release exists (CI SHA256SUMS.txt).
 //
 // Usage: npm run desktop:version
+//        (no arguments — the version comes from package.json)
+//
+// package.json is the ONLY version input. Positional arguments are
+// rejected outright: `npm run desktop:version 1.4.1` looks like it
+// stamps 1.4.1 but would silently do nothing of the sort — so the
+// script exits non-zero instead of pretending.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+
+const args = process.argv.slice(2);
+if (args.length > 0) {
+  console.error(
+    `desktop:version takes no arguments (received: ${args.join(' ')}).\n` +
+      'The version is read from package.json — bump it there first, then run:\n' +
+      '  npm run desktop:version',
+  );
+  process.exit(1);
+}
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
@@ -63,7 +79,8 @@ writeJson('package-lock.json', (lock) => {
 upd('src-tauri/Cargo.toml', /^version = ".*"$/m, `version = "${VERSION}"`);
 upd(
   'src-tauri/Cargo.lock',
-  /(\[\[package\]\]\nname = "dev-ledger"\nversion = ")[^"]+(")/,
+  // \r?\n — Cargo.lock keeps CRLF on Windows checkouts.
+  /(\[\[package\]\]\r?\nname = "dev-ledger"\r?\nversion = ")[^"]+(")/,
   `$1${VERSION}$2`,
 );
 

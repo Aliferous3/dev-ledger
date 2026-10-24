@@ -33,7 +33,8 @@ the release-asset filenames are normalized.
    it. Also required BEFORE tagging: bump `package.json` to a **new**
    version (e.g. `1.4.0` — `v1.3.0` is already released and must never
    be reused for desktop assets).
-1. Run `npm run desktop:version` — it substitutes the `{{VERSION}}`,
+1. Run `npm run desktop:version` (takes no arguments — the version
+   comes from `package.json`) — it substitutes the `{{VERSION}}`,
    `{{TAG}}` and `{{DATE}}` placeholders in these manifests and syncs
    `src-tauri/` versions.
 2. Tag `v<version>` — the desktop CI's `verify` job runs the full

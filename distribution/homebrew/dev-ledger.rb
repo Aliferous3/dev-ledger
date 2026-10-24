@@ -13,7 +13,7 @@
 # The URL filename matches the canonical release-asset contract produced
 # by scripts/release-assets.mjs — do not rename it here.
 cask "dev-ledger" do
-  version "1.4.0"
+  version "1.4.1"
   sha256 arm:   "{{SHA256_ARM64}}",
          intel: "{{SHA256_X64}}"
 
