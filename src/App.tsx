@@ -168,6 +168,13 @@ export default function App({ me = null }: { me?: Identity | null }) {
             SECURITY &amp; PRIVACY
           </a>
           <span className="text-neutral-700">|</span>
+          <a
+            href="https://github.com/Aliferous3/dev-ledger/blob/main/docs/code-signing-policy.md"
+            className="text-neutral-500 hover:text-neutral-200 focus-visible:text-neutral-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40 transition-colors"
+          >
+            CODE SIGNING POLICY
+          </a>
+          <span className="text-neutral-700">|</span>
           <span className="text-neutral-600">DEV LEDGER / CODE METRICS · v1.3.0</span>
           <span className="text-neutral-700">|</span>
           <span className="flex items-center gap-2 text-[#d6ff3e]">
