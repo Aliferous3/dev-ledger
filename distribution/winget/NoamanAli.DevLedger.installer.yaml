@@ -24,6 +24,6 @@ ReleaseDate: 2026-10-24
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/Aliferous3/dev-ledger/releases/download/v1.4.1/Dev-Ledger_1.4.1_x64-setup.exe
-    InstallerSha256: "{{SHA256}}"
+    InstallerSha256: "84f4224c9086449f08d54aae07687293c6952f6cebdee82fb1d7eebdd2b8536d"
 ManifestType: installer
 ManifestVersion: 1.9.0
