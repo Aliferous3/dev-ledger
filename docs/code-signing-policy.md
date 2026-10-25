@@ -42,6 +42,14 @@ interaction. The hosted Dev Ledger service relies on Vercel and Supabase
 for application hosting and data processing, as detailed in the public
 privacy documentation. GitHub avatars may also be displayed.
 
+Relevant third-party privacy notices:
+- [GitHub privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement) — authentication, authorized repository access and GitHub-hosted images.
+- [Vercel privacy notice](https://vercel.com/legal/privacy-notice) — hosted Dev Ledger API and infrastructure.
+- [Supabase privacy policy](https://supabase.com/privacy) — hosted database infrastructure.
+- [Microsoft privacy statement](https://www.microsoft.com/en-us/privacy/privacystatement) — Windows WebView2 components and any runtime bootstrap.
+These links describe the providers' own practices; Dev Ledger's public
+Privacy Policy governs the product's own handling of user data.
+
 The **desktop build itself** does not enable the web application's
 PostHog, Google Analytics, Vercel Web Analytics or Speed Insights clients.
 The Windows package uses Microsoft's WebView2 runtime; installation may
