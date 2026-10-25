@@ -48,11 +48,7 @@ and non-canonical artifact names.
 Windows release signing uses SignPath Foundation Open Source Code Signing when
 the project is approved for that service.
 
-The SignPath artifact configuration must cover the canonical NSIS and MSI
-release packages and must deep-sign the Dev Ledger application executable
-contained by those packages. Each release signing request is submitted from
-the GitHub Actions build artifact so origin verification can bind the signed
-result to this repository and workflow.
+Windows signing uses two independently verified SignPath requests: first the standalone `dev-ledger.exe`, then the canonical NSIS and MSI release packages. NSIS cannot be assumed to support nested deep-signing. Tauri bundles the signed executable using `--no-binary-patching`, so installers contain the previously signed binary. Each signing request submits its exact GitHub Actions artifact for origin verification against this repository and workflow.
 
 The CI release path rejects the signed result unless:
 
