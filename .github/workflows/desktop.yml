@@ -116,9 +116,13 @@ jobs:
       # Release tags are different: Windows and macOS MUST pass the
       # platform signing path below or the tag build fails closed.
       - name: Build unsigned CI bundles
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') || matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') || matrix.os == 'ubuntu-latest' }}
         run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
+      # On Windows a Tauri build is split into compile, signing and bundle.
+      # NSIS is not a supported SignPath deep-signing container. Sign the app
+      # executable first, then bundle without changing those signed bytes,
+      # then sign the outer NSIS and MSI installers in a second request.
       - name: Require SignPath configuration for Windows release tags
         if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
         shell: pwsh
@@ -127,21 +131,93 @@ jobs:
           SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG }}
+          SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG }}
         run: |
           foreach ($name in @(
             'SIGNPATH_API_TOKEN',
             'SIGNPATH_ORGANIZATION_ID',
             'SIGNPATH_PROJECT_SLUG',
             'SIGNPATH_SIGNING_POLICY_SLUG',
-            'SIGNPATH_ARTIFACT_CONFIGURATION_SLUG'
+            'SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG',
+            'SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG'
           )) {
             if ([string]::IsNullOrWhiteSpace((Get-Item "Env:$name").Value)) {
               throw "$name is required for a Windows release tag"
             }
           }
 
-      - name: Collect unsigned Windows release candidates
+      - name: Build unsigned Windows executable
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        run: npx tauri build --target ${{ matrix.target }} --no-bundle
+
+      - name: Collect unsigned Windows executable for SignPath
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $source = "src-tauri/target/${{ matrix.target }}/release/dev-ledger.exe"
+          if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            throw "missing unsigned Windows executable: $source"
+          }
+          New-Item -ItemType Directory -Force -Path signpath-app-input | Out-Null
+          Copy-Item -LiteralPath $source -Destination 'signpath-app-input/dev-ledger.exe'
+
+      - name: Upload unsigned Windows executable for SignPath
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        id: signpath-unsigned-app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signpath-windows-app-unsigned-${{ github.run_id }}
+          path: signpath-app-input/dev-ledger.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign Windows executable via SignPath Foundation
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.signpath-unsigned-app.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signpath-signed-app
+
+      - name: Stage and verify signed Windows executable
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $signed = @(Get-ChildItem -LiteralPath 'signpath-signed-app' -Recurse -File)
+          if ($signed.Count -ne 1 -or $signed[0].Name -cne 'dev-ledger.exe') {
+            throw 'SignPath must return exactly one signed dev-ledger.exe'
+          }
+          if ((Get-AuthenticodeSignature -FilePath $signed[0].FullName).Status -ne 'Valid') {
+            throw 'SignPath returned an unsigned or invalid dev-ledger.exe'
+          }
+          $target = "src-tauri/target/${{ matrix.target }}/release/dev-ledger.exe"
+          Copy-Item -LiteralPath $signed[0].FullName -Destination $target -Force
+
+      - name: Bundle Windows installers without patching the signed binary
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        run: npx tauri bundle --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --no-binary-patching
+
+      - name: Ensure bundling preserved the signed Windows executable
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $signed = Get-Item -LiteralPath 'signpath-signed-app/dev-ledger.exe'
+          $target = Get-Item -LiteralPath "src-tauri/target/${{ matrix.target }}/release/dev-ledger.exe"
+          if ((Get-FileHash $signed.FullName -Algorithm SHA256).Hash -ne (Get-FileHash $target.FullName -Algorithm SHA256).Hash) {
+            throw 'Tauri bundling modified the already-signed executable'
+          }
+          if ((Get-AuthenticodeSignature -FilePath $target.FullName).Status -ne 'Valid') {
+            throw 'Windows executable lost its signature during bundling'
+          }
+
+      - name: Collect unsigned Windows installers for SignPath
         if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
         shell: bash
         run: |
@@ -150,18 +226,19 @@ jobs:
           find src-tauri/target -type f \( -name '*.exe' -o -name '*.msi' \) \
             -path '*/bundle/*' -exec cp {} signpath-input/ \;
           node scripts/release-assets.mjs signpath-input
+          test "$(find signpath-input -maxdepth 1 -type f | wc -l | tr -d ' ')" = "2"
 
-      - name: Upload unsigned Windows release candidates for SignPath
+      - name: Upload unsigned Windows installers for SignPath
         if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
-        id: signpath-unsigned
+        id: signpath-unsigned-installers
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: signpath-windows-unsigned-${{ github.run_id }}
+          name: signpath-windows-installers-unsigned-${{ github.run_id }}
           path: signpath-input/
           if-no-files-found: error
           retention-days: 1
 
-      - name: Sign Windows release via SignPath Foundation
+      - name: Sign Windows installers via SignPath Foundation
         if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
         uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
         with:
@@ -169,8 +246,8 @@ jobs:
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
-          github-artifact-id: ${{ steps.signpath-unsigned.outputs.artifact-id }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.signpath-unsigned-installers.outputs.artifact-id }}
           wait-for-completion: true
           wait-for-completion-timeout-in-seconds: 3600
           output-artifact-directory: signpath-signed
