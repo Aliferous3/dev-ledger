@@ -361,16 +361,21 @@ test('release tags fail closed on Windows/macOS signing and notarization', () =>
   assert.match(wf, /name: Build unsigned CI bundles/)
   assert.match(wf, /!startsWith\(github\.ref, 'refs\/tags\/v'\)/)
 
-  // Windows: tag build requires a private-key-bearing PFX, derives the
-  // thumbprint at runtime, signs through Tauri/signtool, then verifies all
-  // three user-facing binaries before artifacts can be uploaded.
+  // Windows: release tags must go through SignPath Foundation using the exact
+  // GitHub build artifact, then verify both outer installer signatures and
+  // the embedded app binaries after install/extraction.
   for (const required of [
-    'WINDOWS_CERTIFICATE',
-    'WINDOWS_CERTIFICATE_PASSWORD',
-    'Import-PfxCertificate',
-    'certificateThumbprint',
-    'digestAlgorithm = \'sha256\'',
+    'SIGNPATH_API_TOKEN',
+    'SIGNPATH_ORGANIZATION_ID',
+    'SIGNPATH_PROJECT_SLUG',
+    'SIGNPATH_SIGNING_POLICY_SLUG',
+    'SIGNPATH_ARTIFACT_CONFIGURATION_SLUG',
+    'signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092',
+    'github-artifact-id',
+    'wait-for-completion-timeout-in-seconds: 3600',
     'Get-AuthenticodeSignature',
+    'NSIS contains an unsigned or invalid dev-ledger.exe',
+    'MSI contains an unsigned or invalid dev-ledger.exe',
   ]) {
     assert.ok(wf.includes(required), `Windows release signing includes ${required}`)
   }
