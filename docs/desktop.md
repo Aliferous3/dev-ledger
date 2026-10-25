@@ -161,39 +161,142 @@ macOS x64 builds cross-compile from the arm64 runner via
 - A `verify` job (build + typecheck + test + audit) runs **first**;
   the desktop matrix `needs` it, and the draft-release job needs both.
 - **PRs / main / manual**: build matrix (windows x64, macOS arm64, macOS
-  x64, linux x64) → uploads `desktop-<label>` artifacts. No secrets used.
-- **Tag `v*`**: same gated matrix, then a `release` job downloads every
-  artifact, generates `SHA256SUMS.txt` over the canonical filenames, and
-  creates a **draft** GitHub Release — a human reviews and publishes;
+  x64, linux x64) → uploads `desktop-<label>` artifacts. These CI artifacts
+  are deliberately unsigned and no signing secrets are exposed.
+- **Tag `v*`**: the matrix switches to the release-signing path.
+  Windows must complete two SignPath Foundation release-signing requests
+  (application executable, followed by installers) and verify both installers
+  plus their nested app binaries. macOS must import a Developer ID Application
+  certificate, notarize through an App Store Connect API key, verify the
+  app signature, and validate the stapled DMG ticket. Missing credentials or
+  any failed verification fails the tag build closed. Linux remains unsigned
+  and is integrity-covered by the release checksums.
+- Only after the signed matrix succeeds does the `release` job download every
+  artifact, generate `SHA256SUMS.txt` over the canonical filenames, and
+  create a **draft** GitHub Release. A human still verifies and publishes;
   nothing auto-publishes. Release tags also run the security workflow's
   full-history gitleaks scan.
 
-Version flow — **the first desktop release must bump `package.json` to a
-version that has never been released** (e.g. `1.4.0`: `v1.3.0` is already
-the first public GitHub Release and has no desktop assets). Then run
-`npm run desktop:version` (no arguments — it reads the version from
-`package.json` and substitutes the `{{VERSION}}`/`{{TAG}}`/`{{DATE}}`
-manifest placeholders), tag `v<same version>`.
+Version flow — the existing `v1.4.0` and `v1.4.1` tags must not be moved
+or reused. The first **signed** desktop release candidate is `v1.4.2`, or
+a later fresh version. After editing `package.json`, run
+`npm run desktop:version` (no arguments — it reads `package.json` and
+synchronizes the app, Cargo and distribution manifests). Create a tag only
+after external signing services and all release gates are operational.
+
+**No-cost staging:** The macOS Developer ID / notarization service is not
+provisioned. The current release workflow intentionally fails closed on any
+`v*` tag lacking those credentials; it does not silently publish unnotarized
+DMGs. A future Windows/Linux-only release requires a separate, reviewed,
+explicitly gated workflow change that omits macOS assets and modifies the
+draft-release asset contract. Do not tag a release to test this incomplete path.
 
 ## Signing & notarization
 
-**Current status: unsigned.** Artifacts run fine for testing; Windows
-SmartScreen and Gatekeeper will warn. Activation when ready:
+The workflow now has separate CI and release behaviors:
 
-- **Windows (Authenticode)**: export a code-signing cert and use
-  `signCommand`/`signCommandArgs` under `bundle.windows`, or an external
-  signer (signtool / Azure Trusted Signing). Secret names to provision:
-  none currently — decide between cert-in-CI vs Trusted Signing service.
-- **macOS**: `APPLE_CERTIFICATE` (Developer ID Application),
-  `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
-  plus notarization creds `APPLE_ID`/`APPLE_PASSWORD` (app-specific) or
-  `APPLE_API_KEY`/`APPLE_API_ISSUER`/`APPLE_API_KEY_PATH`.
-- **Linux**: no signing requirement; AppImage/deb integrity is covered by
-  `SHA256SUMS.txt`.
+- **PR/main/manual builds stay unsigned** and never receive signing secrets.
+- **Every `v*` tag fails closed** unless Windows signing and macOS
+  signing/notarization complete and the resulting artifacts pass verification.
+- **Linux** has no platform signing requirement; AppImage/deb integrity remains
+  covered by `SHA256SUMS.txt`.
+
+### Windows — SignPath Foundation
+
+Publicly trusted Windows code-signing keys issued under the current CA/Browser
+Forum rules must remain protected by approved hardware/HSM-backed key storage,
+so Dev Ledger does **not** place an exportable private signing key or PFX in
+GitHub Secrets.
+
+The preferred Windows path is **SignPath Foundation Open Source Code Signing**.
+It is designed for public OSS projects, keeps the signing key in SignPath's HSM,
+verifies build origin against GitHub, and requires an approval for release
+signing.
+
+Before the next release tag:
+
+1. Apply for Dev Ledger at SignPath Foundation and link the public
+   `Aliferous3/dev-ledger` repository.
+2. Install/authorize the SignPath GitHub integration required for trusted-build
+   and origin verification.
+3. Configure the SignPath project and a release-signing policy restricted to
+   the official repository/build path.
+4. Configure **two** artifact configurations against the respective GitHub
+   Actions ZIP roots: one signs the standalone `dev-ledger.exe`, and the
+   other signs the outer canonical NSIS and MSI installers. Do not assume
+   SignPath can deep-sign an NSIS payload.
+5. Provision this GitHub Actions secret:
+   - `SIGNPATH_API_TOKEN`
+6. Provision these repository variables:
+   - `SIGNPATH_ORGANIZATION_ID`
+   - `SIGNPATH_PROJECT_SLUG`
+   - `SIGNPATH_SIGNING_POLICY_SLUG`
+   - `SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG`
+   - `SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG`
+
+On a `v*` tag the Windows job builds the unsigned standalone executable,
+submits its exact GitHub Actions artifact to SignPath, verifies the resulting
+Authenticode signature, and stages it for Tauri bundling. Tauri bundles with
+`--no-binary-patching` so the previously signed executable is preserved.
+The job then uploads the canonical unsigned NSIS/MSI installers for a **second**
+SignPath signing request and verifies the signed outputs. Each request waits
+up to one hour for signing approval and completion. Both signing operations
+must be approved and their artifact configurations independently provisioned.
+
+The returned installers are accepted only if:
+
+- both outer NSIS/MSI Authenticode signatures are `Valid`;
+- the NSIS installer can install silently and its installed `dev-ledger.exe`
+  has a valid Authenticode signature; and
+- the MSI can be administratively extracted and its embedded
+  `dev-ledger.exe` has a valid Authenticode signature.
+
+That prevents an outer-only installer signature from masking an unsigned app
+binary. No Windows private signing key ever enters the repository or GitHub
+runner.
+
+The Windows signer/publisher shown by the OS will be the identity associated
+with the approved SignPath Foundation certificate rather than a private
+certificate owned by the Dev Ledger maintainer.
+
+### macOS — Developer ID + notarization
+
+Use a paid Apple Developer Program account and a **Developer ID Application**
+certificate exported as a password-protected `.p12`. Provision:
+
+- `APPLE_CERTIFICATE` — base64 of the exported `.p12`.
+- `APPLE_CERTIFICATE_PASSWORD` — password used for that export.
+- `APPLE_API_ISSUER` — App Store Connect API issuer ID.
+- `APPLE_API_KEY` — App Store Connect API key ID.
+- `APPLE_API_KEY_P8_BASE64` — base64 of the downloaded `AuthKey_*.p8`
+  private key.
+
+CI creates an ephemeral keychain, imports the Developer ID certificate,
+derives `APPLE_SIGNING_IDENTITY`, writes the API key only under
+`$RUNNER_TEMP`, and lets Tauri perform signing + notarization. The tag build
+then requires:
+
+- `codesign --verify --deep --strict` on the app bundle;
+- Gatekeeper `spctl --assess` on the app; and
+- `xcrun stapler validate` on the DMG.
+
+The temporary keychain and API-key file are removed in an `always()` cleanup
+step.
+
+### Release hygiene
+
+The existing `v1.4.1` tag and draft release were produced before this signing
+pipeline existed and must not be retagged or mutated into a signed release.
+After the signing secrets are provisioned, prepare a **new version** (currently
+the next candidate is `v1.4.2`), let the tag build produce signed/notarized
+artifacts, regenerate `SHA256SUMS.txt`, and update WinGet/Homebrew hashes to
+the final signed files before publication.
+
 - **Tauri updater** (future): `TAURI_SIGNING_PRIVATE_KEY` +
   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — generate with
-  `npx tauri signer generate`. The updater is intentionally NOT
-  configured yet (see below).
+  `npx tauri signer generate`. These keys are for updater artifacts and are
+  separate from Windows Authenticode and Apple Developer ID signing. The
+  updater remains intentionally disabled (see below).
 
 ## Auto-updater
 

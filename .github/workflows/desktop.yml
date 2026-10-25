@@ -13,6 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -111,15 +112,278 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Build desktop bundles
-        env:
-          # Signing is intentionally not configured — artifacts are unsigned
-          # until the secrets documented in docs/desktop.md are provided.
-          TAURI_SIGNING_PRIVATE_KEY: ''
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+      # Ordinary PR/main/manual builds remain secret-free CI artifacts.
+      # Release tags are different: Windows and macOS MUST pass the
+      # platform signing path below or the tag build fails closed.
+      - name: Build unsigned CI bundles
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') || matrix.os == 'ubuntu-latest' }}
         run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
+      # On Windows a Tauri build is split into compile, signing and bundle.
+      # NSIS is not a supported SignPath deep-signing container. Sign the app
+      # executable first, then bundle without changing those signed bytes,
+      # then sign the outer NSIS and MSI installers in a second request.
+      - name: Require SignPath configuration for Windows release tags
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG }}
+          SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG }}
+        run: |
+          foreach ($name in @(
+            'SIGNPATH_API_TOKEN',
+            'SIGNPATH_ORGANIZATION_ID',
+            'SIGNPATH_PROJECT_SLUG',
+            'SIGNPATH_SIGNING_POLICY_SLUG',
+            'SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG',
+            'SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG'
+          )) {
+            if ([string]::IsNullOrWhiteSpace((Get-Item "Env:$name").Value)) {
+              throw "$name is required for a Windows release tag"
+            }
+          }
+
+      - name: Build unsigned Windows executable
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        run: npx tauri build --target ${{ matrix.target }} --no-bundle
+
+      - name: Collect unsigned Windows executable for SignPath
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $source = "src-tauri/target/${{ matrix.target }}/release/dev-ledger.exe"
+          if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            throw "missing unsigned Windows executable: $source"
+          }
+          New-Item -ItemType Directory -Force -Path signpath-app-input | Out-Null
+          Copy-Item -LiteralPath $source -Destination 'signpath-app-input/dev-ledger.exe'
+
+      - name: Upload unsigned Windows executable for SignPath
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        id: signpath-unsigned-app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signpath-windows-app-unsigned-${{ github.run_id }}
+          path: signpath-app-input/dev-ledger.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign Windows executable via SignPath Foundation
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.signpath-unsigned-app.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signpath-signed-app
+
+      - name: Stage and verify signed Windows executable
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $signed = @(Get-ChildItem -LiteralPath 'signpath-signed-app' -Recurse -File)
+          if ($signed.Count -ne 1 -or $signed[0].Name -cne 'dev-ledger.exe') {
+            throw 'SignPath must return exactly one signed dev-ledger.exe'
+          }
+          if ((Get-AuthenticodeSignature -FilePath $signed[0].FullName).Status -ne 'Valid') {
+            throw 'SignPath returned an unsigned or invalid dev-ledger.exe'
+          }
+          $target = "src-tauri/target/${{ matrix.target }}/release/dev-ledger.exe"
+          Copy-Item -LiteralPath $signed[0].FullName -Destination $target -Force
+
+      - name: Bundle Windows installers without patching the signed binary
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        run: npx tauri bundle --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --no-binary-patching
+
+      - name: Ensure bundling preserved the signed Windows executable
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $signed = Get-Item -LiteralPath 'signpath-signed-app/dev-ledger.exe'
+          $target = Get-Item -LiteralPath "src-tauri/target/${{ matrix.target }}/release/dev-ledger.exe"
+          if ((Get-FileHash $signed.FullName -Algorithm SHA256).Hash -ne (Get-FileHash $target.FullName -Algorithm SHA256).Hash) {
+            throw 'Tauri bundling modified the already-signed executable'
+          }
+          if ((Get-AuthenticodeSignature -FilePath $target.FullName).Status -ne 'Valid') {
+            throw 'Windows executable lost its signature during bundling'
+          }
+
+      - name: Collect unsigned Windows installers for SignPath
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p signpath-input
+          find src-tauri/target -type f \( -name '*.exe' -o -name '*.msi' \) \
+            -path '*/bundle/*' -exec cp {} signpath-input/ \;
+          node scripts/release-assets.mjs signpath-input
+          test "$(find signpath-input -maxdepth 1 -type f | wc -l | tr -d ' ')" = "2"
+
+      - name: Upload unsigned Windows installers for SignPath
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        id: signpath-unsigned-installers
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signpath-windows-installers-unsigned-${{ github.run_id }}
+          path: signpath-input/
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign Windows installers via SignPath Foundation
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.signpath-unsigned-installers.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signpath-signed
+
+      - name: Stage signed Windows release artifacts
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist-artifacts
+          mkdir -p dist-artifacts
+          find signpath-signed -type f \( -name '*.exe' -o -name '*.msi' \) -exec cp {} dist-artifacts/ \;
+          count="$(find dist-artifacts -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          test "$count" = "2"
+
+      - name: Verify Windows Authenticode signatures and nested app binaries
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $nsis = Get-Item "dist-artifacts/Dev-Ledger_$($version)_x64-setup.exe"
+          $msi = Get-Item "dist-artifacts/Dev-Ledger_$($version)_x64_en-US.msi"
+
+          foreach ($file in @($nsis, $msi)) {
+            $signature = Get-AuthenticodeSignature -FilePath $file.FullName
+            if ($signature.Status -ne 'Valid') {
+              throw "invalid Authenticode signature on $($file.FullName): $($signature.Status)"
+            }
+          }
+
+          $nsisDir = Join-Path $env:RUNNER_TEMP 'dev-ledger-nsis-check'
+          New-Item -ItemType Directory -Force -Path $nsisDir | Out-Null
+          $nsisRun = Start-Process -FilePath $nsis.FullName -ArgumentList @('/S', "/D=$nsisDir") -Wait -PassThru
+          if ($nsisRun.ExitCode -ne 0) { throw "NSIS verification install failed: $($nsisRun.ExitCode)" }
+          $nsisApp = Get-ChildItem -Path $nsisDir -Recurse -Filter 'dev-ledger.exe' -File | Select-Object -First 1
+          if (-not $nsisApp) { throw 'dev-ledger.exe not found after NSIS verification install' }
+          if ((Get-AuthenticodeSignature $nsisApp.FullName).Status -ne 'Valid') {
+            throw 'NSIS contains an unsigned or invalid dev-ledger.exe'
+          }
+
+          $msiDir = Join-Path $env:RUNNER_TEMP 'dev-ledger-msi-check'
+          New-Item -ItemType Directory -Force -Path $msiDir | Out-Null
+          $msiRun = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/a', $msi.FullName, '/qn', "TARGETDIR=$msiDir") -Wait -PassThru
+          if ($msiRun.ExitCode -ne 0) { throw "MSI administrative extraction failed: $($msiRun.ExitCode)" }
+          $msiApp = Get-ChildItem -Path $msiDir -Recurse -Filter 'dev-ledger.exe' -File | Select-Object -First 1
+          if (-not $msiApp) { throw 'dev-ledger.exe not found after MSI extraction' }
+          if ((Get-AuthenticodeSignature $msiApp.FullName).Status -ne 'Valid') {
+            throw 'MSI contains an unsigned or invalid dev-ledger.exe'
+          }
+
+      - name: Require macOS signing and notarization credentials for release tags
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'macos-latest' }}
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_P8_BASE64; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::${name} is required for a release tag"
+              exit 1
+            fi
+          done
+
+      - name: Import macOS Developer ID certificate and notarization key
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'macos-latest' }}
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/dev-ledger-certificate.p12"
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          KEYCHAIN_PATH="$RUNNER_TEMP/dev-ledger-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          printf '%s' "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -t 3600 -u "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk -F'"' '/Developer ID Application:/ {print $2; exit}')"
+          if [ -z "$IDENTITY" ]; then
+            echo '::error::Developer ID Application identity was not found after certificate import'
+            exit 1
+          fi
+
+          echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "APPLE_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          rm -f "$CERT_PATH"
+
+      - name: Build signed and notarized macOS desktop bundles
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'macos-latest' }}
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Verify macOS signature and notarization ticket
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'macos-latest' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' -print -quit)"
+          DMG_PATH="$(find "src-tauri/target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "$APP_PATH"
+          test -n "$DMG_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          spctl --assess --type execute --verbose=4 "$APP_PATH"
+          xcrun stapler validate "$DMG_PATH"
+
+      - name: Clean macOS signing material
+        if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && matrix.os == 'macos-latest' }}
+        shell: bash
+        run: |
+          # These paths are deterministic so cleanup also works if import fails
+          # before APPLE_KEYCHAIN_PATH / APPLE_API_KEY_PATH reach GITHUB_ENV.
+          security default-keychain -s login.keychain-db || true
+          security delete-keychain "$RUNNER_TEMP/dev-ledger-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP/dev-ledger-certificate.p12"
+
       - name: Collect artifacts
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') || matrix.os != 'windows-latest' }}
         shell: bash
         run: |
           mkdir -p dist-artifacts
@@ -168,8 +432,9 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --draft \
             --title "Dev Ledger ${GITHUB_REF_NAME}" \
-            --notes "Desktop builds for Windows, macOS and Linux. See SHA256SUMS.txt for checksums. Artifacts are unsigned — do not publish before signing/notarization is configured." \
+            --notes "Desktop builds for Windows, macOS and Linux. Windows artifacts are Authenticode-signed through SignPath; macOS artifacts are Developer ID signed and notarized; Linux integrity is covered by SHA256SUMS.txt. This release is still a draft pending human verification. Code signing policy: https://github.com/Aliferous3/dev-ledger/blob/main/docs/code-signing-policy.md" \
             artifacts/*
 
-# NOTE: release is a DRAFT — a human verifies artifacts + checksums before
-# publishing. Never publish unsigned artifacts as a stable release.
+# NOTE: release is a DRAFT — a human verifies signatures, notarization,
+# artifacts and checksums before publishing. Tag builds fail closed if the
+# required Windows/macOS signing credentials are unavailable.

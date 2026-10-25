@@ -1,6 +1,6 @@
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="https://devledger.site/readme/session/masthead-dark.svg"><img alt="DEV LEDGER. Your GitHub history, made legible. Open source · Privacy-conscious · Read-only. v1.3.0 · AGPL-3.0-only" src="https://devledger.site/readme/session/masthead-light.svg" width="100%"></picture></p>
 
-<p align="center"><a href="https://devledger.site"><code>Live App</code></a> · <a href="docs/architecture.md"><code>Documentation</code></a> · <a href="https://devledger.site/security"><code>Security</code></a> · <a href="LICENSE"><code>License</code></a></p>
+<p align="center"><a href="https://devledger.site"><code>Live App</code></a> · <a href="docs/architecture.md"><code>Documentation</code></a> · <a href="https://devledger.site/security"><code>Security</code></a> · <a href="docs/code-signing-policy.md"><code>Code signing policy</code></a> · <a href="LICENSE"><code>License</code></a></p>
 
 <p align="center"><img src="https://d2ol7oe51mr4n9.cloudfront.net/user_3GpOWm9epe88c9na7udIEi8dsIo/d3b6f6b5-3c09-4dea-815a-05a655ed10b1.webp" alt="Dev Ledger product demo" width="100%"></p>
 
@@ -146,6 +146,8 @@ The recovery drill refuses non-local database targets. Production recovery remai
 > **Do not open a public issue for a vulnerability.** Follow [SECURITY.md](SECURITY.md) for private reporting.
 
 The repository CI is intentionally fail-closed around common release risks: dependency audit, secret scanning, browser/server environment separation, built-artifact inspection, strict typechecking, and a synthetic recovery drill.
+
+The [Code signing policy](docs/code-signing-policy.md) describes the intended Windows SignPath Foundation signing process, maintainer responsibilities and privacy disclosures. **Signing is not yet active:** the existing v1.4.1 desktop release is an unpublished, unsigned draft. macOS notarization additionally requires paid Apple Developer enrollment, which is deferred. Future release publication remains human-controlled.
 
 <h2><picture><source media="(prefers-color-scheme: dark)" srcset="https://devledger.site/readme/session/h07-dark.svg"><img alt="Repository guides" src="https://devledger.site/readme/session/h07-light.svg"></picture></h2>
 

@@ -353,6 +353,87 @@ test('desktop workflow gates the matrix and draft release on quality checks', ()
   }
 })
 
+
+test('release tags fail closed on Windows/macOS signing and notarization', () => {
+  const wf = read('.github/workflows/desktop.yml')
+
+  // Ordinary CI stays secret-free/unsigned; only tags enter signing paths.
+  assert.match(wf, /name: Build unsigned CI bundles/)
+  assert.match(wf, /!startsWith\(github\.ref, 'refs\/tags\/v'\)/)
+
+  // Windows: release tags must go through SignPath Foundation using the exact
+  // GitHub build artifact, then verify both outer installer signatures and
+  // the embedded app binaries after install/extraction.
+  for (const required of [
+    'SIGNPATH_API_TOKEN',
+    'SIGNPATH_ORGANIZATION_ID',
+    'SIGNPATH_PROJECT_SLUG',
+    'SIGNPATH_SIGNING_POLICY_SLUG',
+    'SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG',
+    'SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG',
+    'signpath-unsigned-app.outputs.artifact-id',
+    'signpath-unsigned-installers.outputs.artifact-id',
+    'npx tauri build --target ${{ matrix.target }} --no-bundle',
+    '--no-binary-patching',
+    'Ensure bundling preserved the signed Windows executable',
+    'signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092',
+    'github-artifact-id',
+    'wait-for-completion-timeout-in-seconds: 3600',
+    'Get-AuthenticodeSignature',
+    'NSIS contains an unsigned or invalid dev-ledger.exe',
+    'MSI contains an unsigned or invalid dev-ledger.exe',
+  ]) {
+    assert.ok(wf.includes(required), `Windows release signing includes ${required}`)
+  }
+  assert.match(wf, /signature\.Status -ne 'Valid'/)
+  assert.doesNotMatch(wf, /SIGNPATH_ARTIFACT_CONFIGURATION_SLUG(?![A-Z_])/, 'legacy one-stage configuration must not remain')
+
+  // macOS: Developer ID + App Store Connect API notarization are mandatory.
+  for (const required of [
+    'APPLE_CERTIFICATE',
+    'APPLE_CERTIFICATE_PASSWORD',
+    'APPLE_API_ISSUER',
+    'APPLE_API_KEY',
+    'APPLE_API_KEY_P8_BASE64',
+    'Developer ID Application:',
+    'APPLE_SIGNING_IDENTITY',
+    'APPLE_API_KEY_PATH',
+    'codesign --verify --deep --strict',
+    'spctl --assess --type execute',
+    'xcrun stapler validate',
+  ]) {
+    assert.ok(wf.includes(required), `macOS release signing includes ${required}`)
+  }
+
+  // A tag draft release can only run after the signed matrix succeeds.
+  assert.match(wf, /needs: \[verify, build\]/)
+  assert.doesNotMatch(
+    wf,
+    /Artifacts are unsigned — do not publish before signing\/notarization is configured/,
+    'release notes must not describe a signed release pipeline as unsigned',
+  )
+})
+
+test('SignPath policy is discoverable and truthful before signing approval', () => {
+  const policy = read('docs/code-signing-policy.md')
+  assert.ok(policy.includes('Free code signing provided by SignPath.io, certificate by SignPath Foundation'))
+  assert.ok(policy.includes('not approved or active'), 'no false signing status claim')
+  assert.ok(policy.includes('https://devledger.site/privacy'))
+  assert.ok(policy.includes('https://github.com/Aliferous3'))
+  assert.ok(policy.includes('multi-factor authentication'))
+  assert.ok(policy.includes('manually approves each SignPath signing request'))
+  assert.match(read('README.md'), /code-signing-policy\.md/)
+  for (const file of ['src/ledger/LoginScreen.tsx', 'src/App.tsx']) {
+    assert.match(read(file), /https:\/\/devledger\.site\/code-signing/, `${file} must link to the first-party signing policy URL`)
+    assert.doesNotMatch(read(file), /Aliferous3\//, `${file} must not embed repository identifiers`)
+  }
+  const cfg = JSON.parse(read('vercel.json'))
+  assert.ok(cfg.redirects.some((r) => r.source === '/code-signing' && r.destination ===
+    'https://github.com/Aliferous3/dev-ledger/blob/main/docs/code-signing-policy.md'))
+
+  assert.match(read('.github/workflows/desktop.yml'), /Code signing policy: https:\/\/github\.com\/Aliferous3\/dev-ledger\/blob\/main\/docs\/code-signing-policy\.md/)
+})
+
 /* ── flatpak source strategy ────────────────────────────────────────── */
 
 test('flatpak uses a normal pinned file source, never extra-data', () => {
