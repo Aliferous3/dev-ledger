@@ -147,6 +147,8 @@ The recovery drill refuses non-local database targets. Production recovery remai
 
 The repository CI is intentionally fail-closed around common release risks: dependency audit, secret scanning, browser/server environment separation, built-artifact inspection, strict typechecking, and a synthetic recovery drill.
 
+Official desktop releases follow the [Code signing policy](docs/code-signing-policy.md): Windows release signing is origin-bound through SignPath Foundation when approved, macOS releases require Developer ID signing + Apple notarization, and publication remains a human-reviewed draft step.
+
 <h2><picture><source media="(prefers-color-scheme: dark)" srcset="https://devledger.site/readme/session/h07-dark.svg"><img alt="Repository guides" src="https://devledger.site/readme/session/h07-light.svg"></picture></h2>
 
 | CONTRIBUTE | SECURITY | OPERATIONS | PROJECT |
