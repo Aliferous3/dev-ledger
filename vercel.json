@@ -235,5 +235,12 @@
         }
       ]
     }
+  ],
+  "redirects": [
+    {
+      "source": "/code-signing",
+      "destination": "https://github.com/Aliferous3/dev-ledger/blob/main/docs/code-signing-policy.md",
+      "permanent": false
+    }
   ]
 }
