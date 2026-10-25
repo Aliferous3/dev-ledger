@@ -164,8 +164,9 @@ macOS x64 builds cross-compile from the arm64 runner via
   x64, linux x64) → uploads `desktop-<label>` artifacts. These CI artifacts
   are deliberately unsigned and no signing secrets are exposed.
 - **Tag `v*`**: the matrix switches to the release-signing path.
-  Windows must complete the SignPath Foundation release-signing request and
-  verify both installers plus their nested app binaries. macOS must import a Developer ID Application
+  Windows must complete two SignPath Foundation release-signing requests
+  (application executable, followed by installers) and verify both installers
+  plus their nested app binaries. macOS must import a Developer ID Application
   certificate, notarize through an App Store Connect API key, verify the
   app signature, and validate the stapled DMG ticket. Missing credentials or
   any failed verification fails the tag build closed. Linux remains unsigned
@@ -213,21 +214,27 @@ Before the next release tag:
    and origin verification.
 3. Configure the SignPath project and a release-signing policy restricted to
    the official repository/build path.
-4. Configure an artifact configuration whose root matches the GitHub Actions
-   ZIP and **deep-signs both Windows installers and the embedded
-   `dev-ledger.exe` application binary**.
+4. Configure **two** artifact configurations against the respective GitHub
+   Actions ZIP roots: one signs the standalone `dev-ledger.exe`, and the
+   other signs the outer canonical NSIS and MSI installers. Do not assume
+   SignPath can deep-sign an NSIS payload.
 5. Provision this GitHub Actions secret:
    - `SIGNPATH_API_TOKEN`
 6. Provision these repository variables:
    - `SIGNPATH_ORGANIZATION_ID`
    - `SIGNPATH_PROJECT_SLUG`
    - `SIGNPATH_SIGNING_POLICY_SLUG`
-   - `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG`
+   - `SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG`
+   - `SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG`
 
-On a `v*` tag the Windows job builds the unsigned NSIS/MSI candidates,
-normalizes their release filenames, uploads that exact artifact to GitHub, and
-submits its GitHub artifact ID to SignPath. The workflow waits up to one hour
-for the required release-signing approval and signed result.
+On a `v*` tag the Windows job builds the unsigned standalone executable,
+submits its exact GitHub Actions artifact to SignPath, verifies the resulting
+Authenticode signature, and stages it for Tauri bundling. Tauri bundles with
+`--no-binary-patching` so the previously signed executable is preserved.
+The job then uploads the canonical unsigned NSIS/MSI installers for a **second**
+SignPath signing request and verifies the signed outputs. Each request waits
+up to one hour for signing approval and completion. Both signing operations
+must be approved and their artifact configurations independently provisioned.
 
 The returned installers are accepted only if:
 
