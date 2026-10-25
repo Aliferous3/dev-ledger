@@ -177,12 +177,19 @@ macOS x64 builds cross-compile from the arm64 runner via
   nothing auto-publishes. Release tags also run the security workflow's
   full-history gitleaks scan.
 
-Version flow — **the first desktop release must bump `package.json` to a
-version that has never been released** (e.g. `1.4.0`: `v1.3.0` is already
-the first public GitHub Release and has no desktop assets). Then run
-`npm run desktop:version` (no arguments — it reads the version from
-`package.json` and substitutes the `{{VERSION}}`/`{{TAG}}`/`{{DATE}}`
-manifest placeholders), tag `v<same version>`.
+Version flow — the existing `v1.4.0` and `v1.4.1` tags must not be moved
+or reused. The first **signed** desktop release candidate is `v1.4.2`, or
+a later fresh version. After editing `package.json`, run
+`npm run desktop:version` (no arguments — it reads `package.json` and
+synchronizes the app, Cargo and distribution manifests). Create a tag only
+after external signing services and all release gates are operational.
+
+**No-cost staging:** The macOS Developer ID / notarization service is not
+provisioned. The current release workflow intentionally fails closed on any
+`v*` tag lacking those credentials; it does not silently publish unnotarized
+DMGs. A future Windows/Linux-only release requires a separate, reviewed,
+explicitly gated workflow change that omits macOS assets and modifies the
+draft-release asset contract. Do not tag a release to test this incomplete path.
 
 ## Signing & notarization
 
