@@ -156,7 +156,13 @@ export function LoginScreen({ onLogin, notice = null }: { onLogin?: (remember?: 
 
             {/* quiet trust link — deliberately below the CTA fold, never
                 competing with the GitHub button */}
-            <div ref={registerM12} style={m12Delay(11)} className="m12 relative pt-2 flex items-center justify-center gap-6">
+            <div ref={registerM12} style={m12Delay(11)} className="m12 relative pt-2 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+              <a
+                href="https://github.com/Aliferous3/dev-ledger/blob/main/docs/code-signing-policy.md"
+                className="mono-tag text-[8px] tracking-[0.22em] text-neutral-600 hover:text-neutral-300 focus-visible:text-neutral-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40 transition-colors"
+              >
+                CODE SIGNING POLICY
+              </a>
               <a
                 href="/security"
                 className="mono-tag text-[8px] tracking-[0.22em] text-neutral-600 hover:text-neutral-300 focus-visible:text-neutral-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d6ff3e]/40 transition-colors"
