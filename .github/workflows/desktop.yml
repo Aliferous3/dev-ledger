@@ -111,13 +111,167 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Build desktop bundles
-        env:
-          # Signing is intentionally not configured — artifacts are unsigned
-          # until the secrets documented in docs/desktop.md are provided.
-          TAURI_SIGNING_PRIVATE_KEY: ''
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+      # Ordinary PR/main/manual builds remain secret-free CI artifacts.
+      # Release tags are different: Windows and macOS MUST pass the
+      # platform signing path below or the tag build fails closed.
+      - name: Build unsigned CI bundles
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') || matrix.os == 'ubuntu-latest' }}
         run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Require Windows signing credentials for release tags
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
+            throw 'WINDOWS_CERTIFICATE is required for a release tag'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            throw 'WINDOWS_CERTIFICATE_PASSWORD is required for a release tag'
+          }
+
+      - name: Import Windows signing certificate
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          $certDir = Join-Path $env:RUNNER_TEMP 'dev-ledger-signing'
+          New-Item -ItemType Directory -Force -Path $certDir | Out-Null
+          $encoded = Join-Path $certDir 'certificate-base64.txt'
+          $pfx = Join-Path $certDir 'certificate.pfx'
+          Set-Content -Path $encoded -Value $env:WINDOWS_CERTIFICATE
+          certutil -decode $encoded $pfx | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'failed to decode WINDOWS_CERTIFICATE' }
+
+          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          if (-not $cert -or -not $cert.HasPrivateKey) { throw 'imported Windows certificate has no private key' }
+
+          $timestamp = $env:WINDOWS_TIMESTAMP_URL
+          if ([string]::IsNullOrWhiteSpace($timestamp)) {
+            $timestamp = 'http://timestamp.digicert.com'
+          }
+
+          $overlay = @{
+            bundle = @{
+              windows = @{
+                certificateThumbprint = $cert.Thumbprint
+                digestAlgorithm = 'sha256'
+                timestampUrl = $timestamp
+              }
+            }
+          }
+          $overlay | ConvertTo-Json -Depth 6 | Set-Content -Path 'src-tauri/tauri.signing.windows.json'
+          Remove-Item $encoded, $pfx -Force
+
+      - name: Build signed Windows desktop bundles
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config src-tauri/tauri.signing.windows.json
+
+      - name: Verify Windows Authenticode signatures
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $root = "src-tauri/target/${{ matrix.target }}/release"
+          $files = @()
+          $files += Get-ChildItem -Path $root -Filter 'dev-ledger.exe' -File
+          $files += Get-ChildItem -Path (Join-Path $root 'bundle/nsis') -Filter '*.exe' -File
+          $files += Get-ChildItem -Path (Join-Path $root 'bundle/msi') -Filter '*.msi' -File
+          if ($files.Count -lt 3) { throw "expected signed app + NSIS + MSI, found $($files.Count)" }
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature -FilePath $file.FullName
+            if ($signature.Status -ne 'Valid') {
+              throw "invalid Authenticode signature on $($file.FullName): $($signature.Status)"
+            }
+          }
+
+      - name: Require macOS signing and notarization credentials for release tags
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'macos-latest' }}
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_P8_BASE64; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::${name} is required for a release tag"
+              exit 1
+            fi
+          done
+
+      - name: Import macOS Developer ID certificate and notarization key
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'macos-latest' }}
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/dev-ledger-certificate.p12"
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          KEYCHAIN_PATH="$RUNNER_TEMP/dev-ledger-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          printf '%s' "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -t 3600 -u "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk -F'"' '/Developer ID Application:/ {print $2; exit}')"
+          if [ -z "$IDENTITY" ]; then
+            echo '::error::Developer ID Application identity was not found after certificate import'
+            exit 1
+          fi
+
+          echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "APPLE_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          rm -f "$CERT_PATH"
+
+      - name: Build signed and notarized macOS desktop bundles
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'macos-latest' }}
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Verify macOS signature and notarization ticket
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'macos-latest' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' -print -quit)"
+          DMG_PATH="$(find "src-tauri/target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "$APP_PATH"
+          test -n "$DMG_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          spctl --assess --type execute --verbose=4 "$APP_PATH"
+          xcrun stapler validate "$DMG_PATH"
+
+      - name: Clean macOS signing material
+        if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && matrix.os == 'macos-latest' }}
+        shell: bash
+        run: |
+          if [ -n "${APPLE_KEYCHAIN_PATH:-}" ]; then
+            security delete-keychain "$APPLE_KEYCHAIN_PATH" || true
+          fi
+          rm -f "${APPLE_API_KEY_PATH:-}" "$RUNNER_TEMP/dev-ledger-certificate.p12"
 
       - name: Collect artifacts
         shell: bash
@@ -168,8 +322,9 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --draft \
             --title "Dev Ledger ${GITHUB_REF_NAME}" \
-            --notes "Desktop builds for Windows, macOS and Linux. See SHA256SUMS.txt for checksums. Artifacts are unsigned — do not publish before signing/notarization is configured." \
+            --notes "Desktop builds for Windows, macOS and Linux. Windows artifacts are Authenticode-signed; macOS artifacts are Developer ID signed and notarized; Linux integrity is covered by SHA256SUMS.txt. This release is still a draft pending human verification." \
             artifacts/*
 
-# NOTE: release is a DRAFT — a human verifies artifacts + checksums before
-# publishing. Never publish unsigned artifacts as a stable release.
+# NOTE: release is a DRAFT — a human verifies signatures, notarization,
+# artifacts and checksums before publishing. Tag builds fail closed if the
+# required Windows/macOS signing credentials are unavailable.
