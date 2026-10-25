@@ -376,10 +376,11 @@ jobs:
         if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && matrix.os == 'macos-latest' }}
         shell: bash
         run: |
-          if [ -n "${APPLE_KEYCHAIN_PATH:-}" ]; then
-            security delete-keychain "$APPLE_KEYCHAIN_PATH" || true
-          fi
-          rm -f "${APPLE_API_KEY_PATH:-}" "$RUNNER_TEMP/dev-ledger-certificate.p12"
+          # These paths are deterministic so cleanup also works if import fails
+          # before APPLE_KEYCHAIN_PATH / APPLE_API_KEY_PATH reach GITHUB_ENV.
+          security default-keychain -s login.keychain-db || true
+          security delete-keychain "$RUNNER_TEMP/dev-ledger-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP/dev-ledger-certificate.p12"
 
       - name: Collect artifacts
         if: ${{ !startsWith(github.ref, 'refs/tags/v') || matrix.os != 'windows-latest' }}
