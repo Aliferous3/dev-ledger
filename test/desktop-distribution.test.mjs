@@ -369,7 +369,13 @@ test('release tags fail closed on Windows/macOS signing and notarization', () =>
     'SIGNPATH_ORGANIZATION_ID',
     'SIGNPATH_PROJECT_SLUG',
     'SIGNPATH_SIGNING_POLICY_SLUG',
-    'SIGNPATH_ARTIFACT_CONFIGURATION_SLUG',
+    'SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG',
+    'SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG',
+    'signpath-unsigned-app.outputs.artifact-id',
+    'signpath-unsigned-installers.outputs.artifact-id',
+    'npx tauri build --target ${{ matrix.target }} --no-bundle',
+    '--no-binary-patching',
+    'Ensure bundling preserved the signed Windows executable',
     'signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092',
     'github-artifact-id',
     'wait-for-completion-timeout-in-seconds: 3600',
@@ -380,6 +386,7 @@ test('release tags fail closed on Windows/macOS signing and notarization', () =>
     assert.ok(wf.includes(required), `Windows release signing includes ${required}`)
   }
   assert.match(wf, /signature\.Status -ne 'Valid'/)
+  assert.doesNotMatch(wf, /SIGNPATH_ARTIFACT_CONFIGURATION_SLUG(?![A-Z_])/, 'legacy one-stage configuration must not remain')
 
   // macOS: Developer ID + App Store Connect API notarization are mandatory.
   for (const required of [
