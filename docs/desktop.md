@@ -161,10 +161,18 @@ macOS x64 builds cross-compile from the arm64 runner via
 - A `verify` job (build + typecheck + test + audit) runs **first**;
   the desktop matrix `needs` it, and the draft-release job needs both.
 - **PRs / main / manual**: build matrix (windows x64, macOS arm64, macOS
-  x64, linux x64) → uploads `desktop-<label>` artifacts. No secrets used.
-- **Tag `v*`**: same gated matrix, then a `release` job downloads every
-  artifact, generates `SHA256SUMS.txt` over the canonical filenames, and
-  creates a **draft** GitHub Release — a human reviews and publishes;
+  x64, linux x64) → uploads `desktop-<label>` artifacts. These CI artifacts
+  are deliberately unsigned and no signing secrets are exposed.
+- **Tag `v*`**: the matrix switches to the release-signing path.
+  Windows must import the configured Authenticode certificate and verify the
+  app/NSIS/MSI signatures. macOS must import a Developer ID Application
+  certificate, notarize through an App Store Connect API key, verify the
+  app signature, and validate the stapled DMG ticket. Missing credentials or
+  any failed verification fails the tag build closed. Linux remains unsigned
+  and is integrity-covered by the release checksums.
+- Only after the signed matrix succeeds does the `release` job download every
+  artifact, generate `SHA256SUMS.txt` over the canonical filenames, and
+  create a **draft** GitHub Release. A human still verifies and publishes;
   nothing auto-publishes. Release tags also run the security workflow's
   full-history gitleaks scan.
 
@@ -177,23 +185,73 @@ manifest placeholders), tag `v<same version>`.
 
 ## Signing & notarization
 
-**Current status: unsigned.** Artifacts run fine for testing; Windows
-SmartScreen and Gatekeeper will warn. Activation when ready:
+The workflow now has separate CI and release behaviors:
 
-- **Windows (Authenticode)**: export a code-signing cert and use
-  `signCommand`/`signCommandArgs` under `bundle.windows`, or an external
-  signer (signtool / Azure Trusted Signing). Secret names to provision:
-  none currently — decide between cert-in-CI vs Trusted Signing service.
-- **macOS**: `APPLE_CERTIFICATE` (Developer ID Application),
-  `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
-  plus notarization creds `APPLE_ID`/`APPLE_PASSWORD` (app-specific) or
-  `APPLE_API_KEY`/`APPLE_API_ISSUER`/`APPLE_API_KEY_PATH`.
-- **Linux**: no signing requirement; AppImage/deb integrity is covered by
-  `SHA256SUMS.txt`.
+- **PR/main/manual builds stay unsigned** and never receive signing secrets.
+- **Every `v*` tag fails closed** unless Windows signing and macOS
+  signing/notarization complete and the resulting artifacts pass verification.
+- **Linux** has no platform signing requirement; AppImage/deb integrity remains
+  covered by `SHA256SUMS.txt`.
+
+### Windows — Authenticode
+
+Provision these GitHub Actions repository secrets before creating the next
+desktop release tag:
+
+- `WINDOWS_CERTIFICATE` — base64-encoded exported code-signing `.pfx`
+  containing the private key.
+- `WINDOWS_CERTIFICATE_PASSWORD` — export password for that PFX.
+
+Optional repository variable:
+
+- `WINDOWS_TIMESTAMP_URL` — timestamp service URL. If unset, CI uses
+  `http://timestamp.digicert.com`.
+
+On a release tag CI decodes and imports the PFX into the ephemeral runner's
+CurrentUser certificate store, derives the certificate thumbprint at runtime,
+and supplies a temporary Tauri config overlay with SHA-256 signing. After
+bundling it requires `Get-AuthenticodeSignature` to report `Valid` for the
+main executable, NSIS installer and MSI. No certificate or password is written
+to the repository.
+
+### macOS — Developer ID + notarization
+
+Use a paid Apple Developer Program account and a **Developer ID Application**
+certificate exported as a password-protected `.p12`. Provision:
+
+- `APPLE_CERTIFICATE` — base64 of the exported `.p12`.
+- `APPLE_CERTIFICATE_PASSWORD` — password used for that export.
+- `APPLE_API_ISSUER` — App Store Connect API issuer ID.
+- `APPLE_API_KEY` — App Store Connect API key ID.
+- `APPLE_API_KEY_P8_BASE64` — base64 of the downloaded `AuthKey_*.p8`
+  private key.
+
+CI creates an ephemeral keychain, imports the Developer ID certificate,
+derives `APPLE_SIGNING_IDENTITY`, writes the API key only under
+`$RUNNER_TEMP`, and lets Tauri perform signing + notarization. The tag build
+then requires:
+
+- `codesign --verify --deep --strict` on the app bundle;
+- Gatekeeper `spctl --assess` on the app; and
+- `xcrun stapler validate` on the DMG.
+
+The temporary keychain and API-key file are removed in an `always()` cleanup
+step.
+
+### Release hygiene
+
+The existing `v1.4.1` tag and draft release were produced before this signing
+pipeline existed and must not be retagged or mutated into a signed release.
+After the signing secrets are provisioned, prepare a **new version** (currently
+the next candidate is `v1.4.2`), let the tag build produce signed/notarized
+artifacts, regenerate `SHA256SUMS.txt`, and update WinGet/Homebrew hashes to
+the final signed files before publication.
+
 - **Tauri updater** (future): `TAURI_SIGNING_PRIVATE_KEY` +
   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — generate with
-  `npx tauri signer generate`. The updater is intentionally NOT
-  configured yet (see below).
+  `npx tauri signer generate`. These keys are for updater artifacts and are
+  separate from Windows Authenticode and Apple Developer ID signing. The
+  updater remains intentionally disabled (see below).
 
 ## Auto-updater
 
