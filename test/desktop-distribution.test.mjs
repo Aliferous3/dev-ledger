@@ -422,9 +422,15 @@ test('SignPath policy is discoverable and truthful before signing approval', () 
   assert.ok(policy.includes('https://github.com/Aliferous3'))
   assert.ok(policy.includes('multi-factor authentication'))
   assert.ok(policy.includes('manually approves each SignPath signing request'))
-  for (const file of ['README.md', 'src/ledger/LoginScreen.tsx', 'src/App.tsx']) {
-    assert.match(read(file), /code-signing-policy\.md/, `${file} must link to the policy`)
+  assert.match(read('README.md'), /code-signing-policy\.md/)
+  for (const file of ['src/ledger/LoginScreen.tsx', 'src/App.tsx']) {
+    assert.match(read(file), /https:\/\/devledger\.site\/code-signing/, `${file} must link to the first-party signing policy URL`)
+    assert.doesNotMatch(read(file), /Aliferous3\//, `${file} must not embed repository identifiers`)
   }
+  const cfg = JSON.parse(read('vercel.json'))
+  assert.ok(cfg.redirects.some((r) => r.source === '/code-signing' && r.destination ===
+    'https://github.com/Aliferous3/dev-ledger/blob/main/docs/code-signing-policy.md'))
+
   assert.match(read('.github/workflows/desktop.yml'), /Code signing policy: https:\/\/github\.com\/Aliferous3\/dev-ledger\/blob\/main\/docs\/code-signing-policy\.md/)
 })
 
