@@ -42,7 +42,7 @@ modules:
     sources:
       - type: file
         url: https://github.com/Aliferous3/dev-ledger/releases/download/v1.4.1/dev-ledger_1.4.1_amd64.deb
-        sha256: "{{SHA256_AMD64_DEB}}"
+        sha256: "c0b814153a926407ed989d282665f793863b0d10da0bfc7e36466aa255b3a16c"
         dest-filename: dev-ledger_amd64.deb
         only-arches: [x86_64]
       - type: file
