@@ -13,6 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -115,79 +116,109 @@ jobs:
       # Release tags are different: Windows and macOS MUST pass the
       # platform signing path below or the tag build fails closed.
       - name: Build unsigned CI bundles
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') || matrix.os == 'ubuntu-latest' }}
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') || matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
         run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
-      - name: Require Windows signing credentials for release tags
+      - name: Require SignPath configuration for Windows release tags
         if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
         shell: pwsh
         env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
-            throw 'WINDOWS_CERTIFICATE is required for a release tag'
-          }
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
-            throw 'WINDOWS_CERTIFICATE_PASSWORD is required for a release tag'
-          }
-
-      - name: Import Windows signing certificate
-        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
-        run: |
-          $certDir = Join-Path $env:RUNNER_TEMP 'dev-ledger-signing'
-          New-Item -ItemType Directory -Force -Path $certDir | Out-Null
-          $encoded = Join-Path $certDir 'certificate-base64.txt'
-          $pfx = Join-Path $certDir 'certificate.pfx'
-          Set-Content -Path $encoded -Value $env:WINDOWS_CERTIFICATE
-          certutil -decode $encoded $pfx | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw 'failed to decode WINDOWS_CERTIFICATE' }
-
-          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
-          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
-          if (-not $cert -or -not $cert.HasPrivateKey) { throw 'imported Windows certificate has no private key' }
-
-          $timestamp = $env:WINDOWS_TIMESTAMP_URL
-          if ([string]::IsNullOrWhiteSpace($timestamp)) {
-            $timestamp = 'http://timestamp.digicert.com'
-          }
-
-          $overlay = @{
-            bundle = @{
-              windows = @{
-                certificateThumbprint = $cert.Thumbprint
-                digestAlgorithm = 'sha256'
-                timestampUrl = $timestamp
-              }
+          foreach ($name in @(
+            'SIGNPATH_API_TOKEN',
+            'SIGNPATH_ORGANIZATION_ID',
+            'SIGNPATH_PROJECT_SLUG',
+            'SIGNPATH_SIGNING_POLICY_SLUG',
+            'SIGNPATH_ARTIFACT_CONFIGURATION_SLUG'
+          )) {
+            if ([string]::IsNullOrWhiteSpace((Get-Item "Env:$name").Value)) {
+              throw "$name is required for a Windows release tag"
             }
           }
-          $overlay | ConvertTo-Json -Depth 6 | Set-Content -Path 'src-tauri/tauri.signing.windows.json'
-          Remove-Item $encoded, $pfx -Force
 
-      - name: Build signed Windows desktop bundles
+      - name: Collect unsigned Windows release candidates
         if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
-        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config src-tauri/tauri.signing.windows.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p signpath-input
+          find src-tauri/target -type f \( -name '*.exe' -o -name '*.msi' \) \
+            -path '*/bundle/*' -exec cp {} signpath-input/ \;
+          node scripts/release-assets.mjs signpath-input
 
-      - name: Verify Windows Authenticode signatures
+      - name: Upload unsigned Windows release candidates for SignPath
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        id: signpath-unsigned
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signpath-windows-unsigned-${{ github.run_id }}
+          path: signpath-input/
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign Windows release via SignPath Foundation
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.signpath-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signpath-signed
+
+      - name: Stage signed Windows release artifacts
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist-artifacts
+          mkdir -p dist-artifacts
+          find signpath-signed -type f \( -name '*.exe' -o -name '*.msi' \) -exec cp {} dist-artifacts/ \;
+          count="$(find dist-artifacts -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          test "$count" = "2"
+
+      - name: Verify Windows Authenticode signatures and nested app binaries
         if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest' }}
         shell: pwsh
         run: |
-          $root = "src-tauri/target/${{ matrix.target }}/release"
-          $files = @()
-          $files += Get-ChildItem -Path $root -Filter 'dev-ledger.exe' -File
-          $files += Get-ChildItem -Path (Join-Path $root 'bundle/nsis') -Filter '*.exe' -File
-          $files += Get-ChildItem -Path (Join-Path $root 'bundle/msi') -Filter '*.msi' -File
-          if ($files.Count -lt 3) { throw "expected signed app + NSIS + MSI, found $($files.Count)" }
-          foreach ($file in $files) {
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $nsis = Get-Item "dist-artifacts/Dev-Ledger_$($version)_x64-setup.exe"
+          $msi = Get-Item "dist-artifacts/Dev-Ledger_$($version)_x64_en-US.msi"
+
+          foreach ($file in @($nsis, $msi)) {
             $signature = Get-AuthenticodeSignature -FilePath $file.FullName
             if ($signature.Status -ne 'Valid') {
               throw "invalid Authenticode signature on $($file.FullName): $($signature.Status)"
             }
+          }
+
+          $nsisDir = Join-Path $env:RUNNER_TEMP 'dev-ledger-nsis-check'
+          New-Item -ItemType Directory -Force -Path $nsisDir | Out-Null
+          $nsisRun = Start-Process -FilePath $nsis.FullName -ArgumentList @('/S', "/D=$nsisDir") -Wait -PassThru
+          if ($nsisRun.ExitCode -ne 0) { throw "NSIS verification install failed: $($nsisRun.ExitCode)" }
+          $nsisApp = Get-ChildItem -Path $nsisDir -Recurse -Filter 'dev-ledger.exe' -File | Select-Object -First 1
+          if (-not $nsisApp) { throw 'dev-ledger.exe not found after NSIS verification install' }
+          if ((Get-AuthenticodeSignature $nsisApp.FullName).Status -ne 'Valid') {
+            throw 'NSIS contains an unsigned or invalid dev-ledger.exe'
+          }
+
+          $msiDir = Join-Path $env:RUNNER_TEMP 'dev-ledger-msi-check'
+          New-Item -ItemType Directory -Force -Path $msiDir | Out-Null
+          $msiRun = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/a', $msi.FullName, '/qn', "TARGETDIR=$msiDir") -Wait -PassThru
+          if ($msiRun.ExitCode -ne 0) { throw "MSI administrative extraction failed: $($msiRun.ExitCode)" }
+          $msiApp = Get-ChildItem -Path $msiDir -Recurse -Filter 'dev-ledger.exe' -File | Select-Object -First 1
+          if (-not $msiApp) { throw 'dev-ledger.exe not found after MSI extraction' }
+          if ((Get-AuthenticodeSignature $msiApp.FullName).Status -ne 'Valid') {
+            throw 'MSI contains an unsigned or invalid dev-ledger.exe'
           }
 
       - name: Require macOS signing and notarization credentials for release tags
@@ -274,6 +305,7 @@ jobs:
           rm -f "${APPLE_API_KEY_PATH:-}" "$RUNNER_TEMP/dev-ledger-certificate.p12"
 
       - name: Collect artifacts
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') || matrix.os != 'windows-latest' }}
         shell: bash
         run: |
           mkdir -p dist-artifacts
@@ -322,7 +354,7 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --draft \
             --title "Dev Ledger ${GITHUB_REF_NAME}" \
-            --notes "Desktop builds for Windows, macOS and Linux. Windows artifacts are Authenticode-signed; macOS artifacts are Developer ID signed and notarized; Linux integrity is covered by SHA256SUMS.txt. This release is still a draft pending human verification." \
+            --notes "Desktop builds for Windows, macOS and Linux. Windows artifacts are Authenticode-signed through SignPath; macOS artifacts are Developer ID signed and notarized; Linux integrity is covered by SHA256SUMS.txt. This release is still a draft pending human verification." \
             artifacts/*
 
 # NOTE: release is a DRAFT — a human verifies signatures, notarization,
