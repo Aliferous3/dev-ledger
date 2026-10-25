@@ -414,6 +414,20 @@ test('release tags fail closed on Windows/macOS signing and notarization', () =>
   )
 })
 
+test('SignPath policy is discoverable and truthful before signing approval', () => {
+  const policy = read('docs/code-signing-policy.md')
+  assert.ok(policy.includes('Free code signing provided by SignPath.io, certificate by SignPath Foundation'))
+  assert.ok(policy.includes('not approved or active'), 'no false signing status claim')
+  assert.ok(policy.includes('https://devledger.site/privacy'))
+  assert.ok(policy.includes('https://github.com/Aliferous3'))
+  assert.ok(policy.includes('multi-factor authentication'))
+  assert.ok(policy.includes('manually approves each SignPath signing request'))
+  for (const file of ['README.md', 'src/ledger/LoginScreen.tsx', 'src/App.tsx']) {
+    assert.match(read(file), /code-signing-policy\.md/, `${file} must link to the policy`)
+  }
+  assert.match(read('.github/workflows/desktop.yml'), /Code signing policy: https:\/\/github\.com\/Aliferous3\/dev-ledger\/blob\/main\/docs\/code-signing-policy\.md/)
+})
+
 /* ── flatpak source strategy ────────────────────────────────────────── */
 
 test('flatpak uses a normal pinned file source, never extra-data', () => {
