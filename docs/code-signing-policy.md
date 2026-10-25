@@ -3,6 +3,61 @@
 This policy applies to official Dev Ledger desktop binaries distributed from
 the public `Aliferous3/dev-ledger` repository.
 
+> **Signing status (October 2026):** SignPath Foundation signing is **planned,
+> not approved or active**. The existing v1.4.1 desktop GitHub Release remains
+> an **unpublished draft** containing unsigned Windows and macOS artifacts.
+> Do not interpret this policy or its attribution as proof that any release
+> has already been signed, notarized, or approved.
+
+**Free code signing provided by SignPath.io, certificate by SignPath Foundation**
+— this is the required attribution for the *proposed* Windows signing arrangement,
+subject to eligibility review and SignPath Foundation approval.
+
+## Team roles and approval
+
+The public source repository is owned by
+[Aliferous3](https://github.com/Aliferous3). Currently designated roles:
+
+| Role | Responsible member | Responsibility |
+| --- | --- | --- |
+| Authors / committers | [Aliferous3](https://github.com/Aliferous3) | Maintains and authorizes code changes |
+| Reviewer | [Aliferous3](https://github.com/Aliferous3) | Reviews external contributions and proposed release changes |
+| Release-signing approver (proposed) | [Aliferous3](https://github.com/Aliferous3) | Reviews each tagged release and manually approves each SignPath signing request after account approval and role provisioning |
+
+These roles document responsibilities, not an existing SignPath membership.
+All human team members with GitHub or SignPath signing responsibilities must
+enable multi-factor authentication in the relevant accounts before signing.
+The reviewer must review incoming outside contributions; CI checks and
+automated agent output are not a substitute for a maintainer's review.
+Every release-signing request requires an explicit human approval.
+
+## Privacy, network access and installation
+
+See the public [Privacy Policy](https://devledger.site/privacy) and
+[Security & Privacy Trust Record](https://devledger.site/security).
+The desktop app connects to `https://devledger.site` to authenticate users
+and retrieve the GitHub-derived metadata they authorize. Authentication opens
+GitHub in the user's system browser; GitHub's own privacy terms apply to that
+interaction. The hosted Dev Ledger service relies on Vercel and Supabase
+for application hosting and data processing, as detailed in the public
+privacy documentation. GitHub avatars may also be displayed.
+
+The **desktop build itself** does not enable the web application's
+PostHog, Google Analytics, Vercel Web Analytics or Speed Insights clients.
+The Windows package uses Microsoft's WebView2 runtime; installation may
+install or bootstrap a Microsoft runtime where absent. The installer must
+make any such system change apparent to users. Installation registers the
+`dev-ledger://` custom URI scheme. Both Windows installer formats must
+support normal uninstall flows; absence of an operational uninstaller is
+a release blocker.
+
+We do not claim that Dev Ledger is offline-only or never sends data over the
+network. Users initiate GitHub authorization; account and repository-data
+handling is governed by the public privacy policy. Any future unexpected
+telemetry or network transfer must be documented, disclosed at installation,
+and, where required by SignPath, made optional before signing.
+
+
 ## Scope
 
 Official signed binaries must be built from Dev Ledger source and release
@@ -41,12 +96,16 @@ tagged source:
   `package.json`
 
 The release workflow and tests reject stale or inconsistent release versions
-and non-canonical artifact names.
+and non-canonical artifact names. SignPath artifact configurations must also
+restrict file metadata: all signed project binaries identify product name
+**Dev Ledger** and agree on the same version for each tagged release.
+Third-party upstream binaries must retain their own publisher identity and
+must not be signed with the Dev Ledger signing configuration.
 
 ## Windows
 
-Windows release signing uses SignPath Foundation Open Source Code Signing when
-the project is approved for that service.
+Windows release signing is **not active**. If the application is accepted,
+Windows release signing will use SignPath Foundation Open Source Code Signing.
 
 Windows signing uses two independently verified SignPath requests: first the standalone `dev-ledger.exe`, then the canonical NSIS and MSI release packages. NSIS cannot be assumed to support nested deep-signing. Tauri bundles the signed executable using `--no-binary-patching`, so installers contain the previously signed binary. Each signing request submits its exact GitHub Actions artifact for origin verification against this repository and workflow.
 
