@@ -432,7 +432,7 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --draft \
             --title "Dev Ledger ${GITHUB_REF_NAME}" \
-            --notes "Desktop builds for Windows, macOS and Linux. Windows artifacts are Authenticode-signed through SignPath; macOS artifacts are Developer ID signed and notarized; Linux integrity is covered by SHA256SUMS.txt. This release is still a draft pending human verification." \
+            --notes "Desktop builds for Windows, macOS and Linux. Windows artifacts are Authenticode-signed through SignPath; macOS artifacts are Developer ID signed and notarized; Linux integrity is covered by SHA256SUMS.txt. This release is still a draft pending human verification. Code signing policy: https://github.com/Aliferous3/dev-ledger/blob/main/docs/code-signing-policy.md" \
             artifacts/*
 
 # NOTE: release is a DRAFT — a human verifies signatures, notarization,
