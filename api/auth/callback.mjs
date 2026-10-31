@@ -70,9 +70,10 @@ export default async function handler(req, res) {
   if (singleCode && singleState && (attempt || state === session.oauthState)) {
     try {
       const parsed = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'))
-      const age = Date.now() - parsed.at
-      stateOk = Number.isFinite(parsed.at) && age >= 0 && age < 15 * 60 * 1000
-      if (stateOk) oauthAgeSeconds = Math.floor(age / 1000)
+      stateOk = Number.isFinite(parsed.at)
+        && Date.now() - parsed.at >= 0
+        && Date.now() - parsed.at < 15 * 60 * 1000
+      if (stateOk) oauthAgeSeconds = Math.floor((Date.now() - parsed.at) / 1000)
     } catch {
       stateOk = false
     }
