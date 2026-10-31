@@ -49,6 +49,12 @@ Chrome displays a red "Dangerous" warning for devledger.site.
    changes to critical first-party OAuth, routing, remote scripts, and
    security header invariants.
 
+**Live-fetch limitation:** Attempts to retrieve the production HTML via
+public web inspection failed; a separate read-only network request
+could not resolve the public domain from the audit environment.
+Neither result proves the site was offline or clean; Google URL
+Inspection is the remaining first-party source for rendered HTML.
+
 **Not established:** which URL or signal triggered Google's verdict,
 whether all delivered runtime HTML/JS has been dynamically examined,
 whether unknown Google Search Console property owners exist, and whether
@@ -68,9 +74,10 @@ validation or retry the same spent authorization code.
 
 ## Manual verification gates before requesting a review
 
-- [ ] In Search Console, inspect **Settings > Users and permissions**
-      and remove any unauthorized verified owner, after verifying
-      permission to do so.
+- [x] In Search Console, inspect **Settings > Users and permissions**.
+      Project owner confirmed on 2026-10-31 that there are no
+      unexpected owners in Search Console; independent audit of
+      Google verification tokens outside Search Console remains separate.
 - [ ] Inspect the Security Issues report and affected-page details.
       Search Console currently has no samples; record any that appear.
 - [ ] Visually inspect the live **desktop and mobile** homepage,
