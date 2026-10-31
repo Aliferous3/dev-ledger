@@ -121,6 +121,98 @@ test('GitHub code exchange uses documented form encoding with matching callback 
   assert.equal(resCb.getHeader('location'), '/')
 })
 
+test('web login started during desktop authorization never inherits desktop handoff', async (t) => {
+  const flow = '9f5a9d2c-2d46-42ff-8f91-e4c93814e055'
+  const challenge = 'a'.repeat(64)
+  const desktop = mockRes()
+  await loginHandler(mockReq({ query: { desktop_flow: flow, desktop_challenge: challenge } }), desktop)
+  const desktopState = authorizeUrl(desktop).searchParams.get('state')
+  const startSession = await sessionFromCookie(cookieHeader(desktop))
+  assert.equal(startSession.desktopFlow, flow)
+  assert.equal(startSession.desktopChallenge, challenge)
+
+  const web = mockRes()
+  await loginHandler(mockReq({ headers: { cookie: cookieHeader(desktop) } }), web)
+  const webState = authorizeUrl(web).searchParams.get('state')
+  assert.notEqual(webState, desktopState)
+  const pending = await sessionFromCookie(cookieHeader(web))
+  assert.equal(pending.desktopFlow, undefined, 'a web login must clear stale desktop routing')
+  assert.equal(pending.desktopChallenge, undefined)
+  assert.equal(pending.oauthAttempts.length, 2, 'both CSRF states must remain valid')
+  stubGithub(t)
+
+  const webCallback = mockRes()
+  await callbackHandler(mockReq({
+    headers: { cookie: cookieHeader(web) },
+    query: { code: 'fresh-web-code', state: webState },
+  }), webCallback)
+  assert.equal(webCallback.statusCode, 302)
+  assert.equal(webCallback.getHeader('location'), '/', 'web callback must not deep-link')
+  const webSession = await sessionFromCookie(cookieHeader(webCallback))
+  assert.equal(webSession.desktopFlow, undefined)
+  assert.equal(webSession.oauthAttempts.length, 1)
+
+  // A desktop callback may complete later using the updated sealed cookie.
+  const desktopCallback = mockRes()
+  await callbackHandler(mockReq({
+    headers: { cookie: cookieHeader(webCallback) },
+    query: { code: 'fresh-desktop-code', state: desktopState },
+  }), desktopCallback)
+  assert.equal(desktopCallback.statusCode, 302)
+  const desktopSession = await sessionFromCookie(cookieHeader(desktopCallback))
+  assert.equal(desktopSession.desktopFlow, flow)
+  assert.equal(desktopSession.desktopChallenge, challenge)
+  assert.equal(desktopSession.oauthAttempts.length, 0)
+})
+
+test('desktop callback restores its own keep-signed-in choice after a web login starts', async (t) => {
+  const flow = '9f5a9d2c-2d46-42ff-8f91-e4c93814e055'
+  const challenge = 'b'.repeat(64)
+  const desktop = mockRes()
+  await loginHandler(mockReq({
+    query: { desktop_flow: flow, desktop_challenge: challenge, remember: '1' },
+  }), desktop)
+  const state = authorizeUrl(desktop).searchParams.get('state')
+  const web = mockRes()
+  await loginHandler(mockReq({ headers: { cookie: cookieHeader(desktop) } }), web)
+  assert.notEqual(authorizeUrl(web).searchParams.get('state'), state)
+  stubGithub(t)
+  const callback = mockRes()
+  await callbackHandler(mockReq({
+    headers: { cookie: cookieHeader(web) },
+    query: { code: 'unique-desktop-code', state },
+  }), callback)
+  assert.equal(callback.statusCode, 302)
+  const emitted = callback.getHeader('set-cookie')
+  const signedCookie = (Array.isArray(emitted) ? emitted : [emitted]).find((v) =>
+    v.startsWith('dev_ledger_session='))
+  assert.match(signedCookie, /Max-Age=\d+/i, 'persistent desktop attempt must restore its cookie lifetime')
+  const sealed = await sessionFromCookie(cookieHeader(callback))
+  assert.equal(sealed.persistent, true)
+  assert.equal(sealed.desktopFlow, flow)
+  assert.equal(sealed.desktopChallenge, challenge)
+})
+
+test('once an OAuth callback consumes its state, a callback using the updated cookie is rejected', async (t) => {
+  const login = mockRes()
+  await loginHandler(mockReq(), login)
+  const state = authorizeUrl(login).searchParams.get('state')
+  stubGithub(t)
+  const callback = mockRes()
+  await callbackHandler(mockReq({
+    headers: { cookie: cookieHeader(login) },
+    query: { code: 'unique-first-code', state },
+  }), callback)
+  assert.equal(callback.statusCode, 302)
+  const repeated = mockRes()
+  await callbackHandler(mockReq({
+    headers: { cookie: cookieHeader(callback) },
+    query: { code: 'unique-second-code', state },
+  }), repeated)
+  assert.equal(repeated.statusCode, 400)
+  assert.equal(repeated.body?.error, 'Invalid OAuth state')
+})
+
 test('each login issues a fresh OAuth state', async () => {
   const res1 = mockRes()
   const res2 = mockRes()
