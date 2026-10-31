@@ -83,15 +83,21 @@ export default async function handler(req, res) {
   }
 
   const redirectUri = `${appUrl}/api/auth/callback`
+  // GitHub's documented web-application flow sends URL-encoded form fields.
+  // Keep redirect_uri identical to the authorization request, and never put
+  // the short-lived OAuth code or client secret in a URL or diagnostic log.
   const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
       client_id: github.clientId,
       client_secret: github.clientSecret,
       code,
       redirect_uri: redirectUri,
-    }),
+    }).toString(),
   })
   const tokenData = await tokenRes.json().catch(() => null)
   if (!tokenData?.access_token) {
