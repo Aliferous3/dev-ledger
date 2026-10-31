@@ -1,10 +1,10 @@
 import { waitUntil } from '@vercel/functions'
-import { getSession, getUserOctokit, getAppOctokit } from '../../lib/auth.mjs'
+import { getSession, getUserOctokit, getAppOctokit, configureSessionPersistence } from '../../lib/auth.mjs'
 import { github, appUrl, sessionLeaseMs } from '../../lib/config.mjs'
 import { supabase } from '../../lib/db.mjs'
 import { kickSync, runSync, setUserSync, SYNC_DETAIL_INIT } from '../../lib/sync.mjs'
 import { createAuthSession, gcAuthSessions, isSessionLive } from '../../lib/sessions.mjs'
-import { desktopHandoff } from '../../lib/desktop-auth.mjs'
+import { desktopHandoff, isDesktopFlowId, isDesktopChallenge } from '../../lib/desktop-auth.mjs'
 import { requestQuery } from '../../lib/request-query.mjs'
 import { securityEvent } from '../../lib/security-events.mjs'
 
@@ -19,7 +19,9 @@ export default async function handler(req, res) {
     if (!session.userId || (supabase && !(await isSessionLive(session.sid)))) {
       // Carry a pending desktop flow through the restarted login so the
       // handoff still returns to the app after re-auth.
-      const flow = session?.desktopFlow ? `?desktop_flow=${encodeURIComponent(session.desktopFlow)}` : ''
+      const flow = isDesktopFlowId(session?.desktopFlow) && isDesktopChallenge(session?.desktopChallenge)
+        ? `?desktop_flow=${encodeURIComponent(session.desktopFlow)}&desktop_challenge=${encodeURIComponent(session.desktopChallenge)}`
+        : ''
       res.writeHead(302, { Location: `/api/auth/login${flow}` })
       res.end()
       return
@@ -52,13 +54,19 @@ export default async function handler(req, res) {
     return
   }
 
-  // State must match the sealed session AND be fresh (15 min) — a stale
-  // state should not complete an OAuth round-trip forever.
+  // A system browser can have both a website and a desktop OAuth attempt
+  // pending. Validate this callback against ITS OWN sealed-session record,
+  // never simply the most recent attempt. Legacy state is accepted only
+  // for a valid, unexpired callback created before this rollout.
+  const attempts = Array.isArray(session.oauthAttempts) ? session.oauthAttempts : []
+  const attempt = attempts.find((entry) => entry && entry.state === state)
   let stateOk = false
-  if (code && state && state === session.oauthState) {
+  if (code && state && (attempt || state === session.oauthState)) {
     try {
       const parsed = JSON.parse(Buffer.from(String(state), 'base64url').toString('utf8'))
-      stateOk = Number.isFinite(parsed.at) && Date.now() - parsed.at < 15 * 60 * 1000
+      stateOk = Number.isFinite(parsed.at)
+        && Date.now() - parsed.at >= 0
+        && Date.now() - parsed.at < 15 * 60 * 1000
     } catch {
       stateOk = false
     }
@@ -68,14 +76,25 @@ export default async function handler(req, res) {
     res.status(400).json({ error: 'Invalid OAuth state' })
     return
   }
-  delete session.oauthState
+  if (attempt) {
+    // A desktop login never hijacks a normal browser login and vice versa.
+    // Both variants retain CSRF state checking and the desktop PKCE binding.
+    session.oauthAttempts = attempts.filter((entry) => entry?.state !== state)
+    session.remember = attempt.remember === true
+    delete session.desktopFlow
+    delete session.desktopChallenge
+    if (isDesktopFlowId(attempt.desktopFlow) && isDesktopChallenge(attempt.desktopChallenge)) {
+      session.desktopFlow = attempt.desktopFlow
+      session.desktopChallenge = attempt.desktopChallenge
+    }
+  }
+  if (session.oauthState === state) delete session.oauthState
 
-  // Persist the login-time preference as the session's durable flag. The
-  // session was already bound with the matching lifetime (peek sees the
-  // `remember` flag in the incoming cookie), so save() emits the right
-  // cookie — session-scoped or 30-day persistent.
+  // This attempt's preference can differ from the last login initiated
+  // in this browser. Reconfigure the outgoing cookie for the matching flow.
   session.persistent = session.remember === true
   delete session.remember
+  configureSessionPersistence(session, session.persistent)
   // Non-persistent sessions get the sliding inactivity lease; remembered
   // sessions keep their ~30-day lifetime with no short lease.
   if (!session.persistent && sessionLeaseMs > 0) {
@@ -101,11 +120,16 @@ export default async function handler(req, res) {
   })
   const tokenData = await tokenRes.json().catch(() => null)
   if (!tokenData?.access_token) {
+    // Only one Set-Cookie header per callback: the successful path saves
+    // after creating its session. A failed exchange still consumes state
+    // in the browser cookie, preventing a refresh from retrying the code.
+    await session.save()
     console.error(
-      'github token exchange failed: http=%d error=%s desc=%s',
+      'github token exchange failed: http=%d error=%s desc=%s flow=%s',
       tokenRes.status,
       tokenData?.error,
-      tokenData?.error_description
+      tokenData?.error_description,
+      session.desktopFlow ? 'desktop' : 'web'
     )
     securityEvent('auth_callback_failed', { req, reasonCode: 'token_exchange' })
     res.status(400).json({ error: 'GitHub token exchange failed' })
@@ -130,6 +154,7 @@ export default async function handler(req, res) {
       .select()
       .single()
     if (error) {
+      await session.save()
       securityEvent('auth_callback_failed', { req, reasonCode: 'user_upsert' })
       res.status(500).json({ error: 'Database error' })
       return

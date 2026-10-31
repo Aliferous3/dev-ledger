@@ -15,23 +15,35 @@ export default async function handler(req, res) {
   const state = Buffer.from(
     JSON.stringify({ at: Date.now(), r: crypto.randomBytes(16).toString('base64url') }),
   ).toString('base64url')
+  // One browser cookie can service both a normal website login and a
+  // desktop-initiated OAuth login. Track a small, bounded set of attempts
+  // rather than overwriting the ONLY valid state when another login begins.
+  // Each state binds its own remember choice and desktop PKCE handoff; a
+  // web login must never inherit a previous desktop_flow from the cookie.
+  // GitHub's 15-minute code flow is the upper bound for retained attempts.
+  const now = Date.now()
+  const previous = Array.isArray(session.oauthAttempts) ? session.oauthAttempts : []
+  session.oauthAttempts = previous
+    .filter((entry) => entry && typeof entry.state === 'string'
+      && Number.isFinite(entry.at) && now - entry.at >= 0
+      && now - entry.at < 15 * 60 * 1000)
+    .slice(-3)
+  const desktop = isDesktopFlowId(query.desktop_flow) && isDesktopChallenge(query.desktop_challenge)
+  const desktopFlow = desktop ? query.desktop_flow.toLowerCase() : null
+  const desktopChallenge = desktop ? query.desktop_challenge.toLowerCase() : null
+  session.oauthAttempts.push({
+    state, at: now, remember, desktopFlow, desktopChallenge,
+  })
+  // Keep the last state's legacy fields for callbacks created before the
+  // deployment and for the GitHub App first-install setup hop.
   session.oauthState = state
-  // Carried inside the sealed session so the preference survives the GitHub
-  // OAuth round-trip without weakening state validation.
   session.remember = remember
   session.persistent = remember
-  // Desktop handoff: the app generated a flow id and opened this URL in the
-  // system browser. Sealed inside the session so the callback knows to
-  // return the session through a dev-ledger:// deep link instead of '/'.
-  // Anything that is not a well-formed UUID is ignored — the web flow is
-  // unchanged when the parameter is absent or malformed.
-  // The flow is honored only as a complete pair: the UUID binds the
-  // handoff to this app instance's login intent, and the challenge (sha256
-  // of a verifier held only in app memory) makes an intercepted
-  // dev-ledger:// URL unexchangeable — PKCE discipline for custom schemes.
-  if (isDesktopFlowId(query.desktop_flow) && isDesktopChallenge(query.desktop_challenge)) {
-    session.desktopFlow = query.desktop_flow.toLowerCase()
-    session.desktopChallenge = query.desktop_challenge.toLowerCase()
+  delete session.desktopFlow
+  delete session.desktopChallenge
+  if (desktop) {
+    session.desktopFlow = desktopFlow
+    session.desktopChallenge = desktopChallenge
   }
   await session.save()
   const redirectUri = `${appUrl}/api/auth/callback`
