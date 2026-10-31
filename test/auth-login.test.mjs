@@ -76,6 +76,51 @@ test('authorize URL includes prompt=select_account alongside client_id/redirect_
   assert.ok(url.searchParams.get('state').length > 8)
 })
 
+test('GitHub code exchange uses documented form encoding with matching callback URI', async (t) => {
+  const resLogin = mockRes()
+  await loginHandler(mockReq(), resLogin)
+  const authorization = authorizeUrl(resLogin)
+  const state = authorization.searchParams.get('state')
+  const redirectUri = authorization.searchParams.get('redirect_uri')
+  const clientId = authorization.searchParams.get('client_id')
+  let exchangeCount = 0
+  const origFetch = globalThis.fetch
+  globalThis.fetch = async (url, opts) => {
+    const endpoint = String(url)
+    if (endpoint === 'https://github.com/login/oauth/access_token') {
+      exchangeCount++
+      assert.equal(opts.method, 'POST')
+      assert.equal(opts.headers.Accept, 'application/json')
+      assert.equal(opts.headers['Content-Type'], 'application/x-www-form-urlencoded')
+      const params = new URLSearchParams(opts.body)
+      assert.equal(params.get('client_id'), clientId)
+      assert.equal(params.get('code'), 'single-use-test-code')
+      assert.equal(params.get('redirect_uri'), redirectUri)
+      assert.ok(params.has('client_secret'))
+      assert.equal(params.getAll('code').length, 1)
+      assert.ok(!endpoint.includes('single-use-test-code'))
+      return new Response(JSON.stringify({ access_token: 'test-access-token' }),
+        { headers: { 'Content-Type': 'application/json' } })
+    }
+    if (endpoint.includes('api.github.com/user')) {
+      return new Response(JSON.stringify({
+        id: 777, login: 'test-user', node_id: 'node777', avatar_url: '', name: 'Test User',
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+    return new Response('{}', { status: 404 })
+  }
+  t.after(() => { globalThis.fetch = origFetch })
+
+  const resCb = mockRes()
+  await callbackHandler(
+    mockReq({ headers: { cookie: cookieHeader(resLogin) },
+      query: { code: 'single-use-test-code', state } }), resCb
+  )
+  assert.equal(exchangeCount, 1)
+  assert.equal(resCb.statusCode, 302, 'successful OAuth callback must redirect')
+  assert.equal(resCb.getHeader('location'), '/')
+})
+
 test('each login issues a fresh OAuth state', async () => {
   const res1 = mockRes()
   const res2 = mockRes()
