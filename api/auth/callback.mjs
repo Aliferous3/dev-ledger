@@ -100,9 +100,6 @@ export default async function handler(req, res) {
   if (!session.persistent && sessionLeaseMs > 0) {
     session.leaseUntil = Date.now() + sessionLeaseMs
   }
-  // Persist consumption BEFORE contacting GitHub so a browser reload
-  // cannot restart the same authorization code with a current cookie.
-  await session.save()
 
   const redirectUri = `${appUrl}/api/auth/callback`
   // GitHub's documented web-application flow sends URL-encoded form fields.
@@ -123,6 +120,10 @@ export default async function handler(req, res) {
   })
   const tokenData = await tokenRes.json().catch(() => null)
   if (!tokenData?.access_token) {
+    // Only one Set-Cookie header per callback: the successful path saves
+    // after creating its session. A failed exchange still consumes state
+    // in the browser cookie, preventing a refresh from retrying the code.
+    await session.save()
     console.error(
       'github token exchange failed: http=%d error=%s desc=%s flow=%s',
       tokenRes.status,
@@ -153,6 +154,7 @@ export default async function handler(req, res) {
       .select()
       .single()
     if (error) {
+      await session.save()
       securityEvent('auth_callback_failed', { req, reasonCode: 'user_upsert' })
       res.status(500).json({ error: 'Database error' })
       return
