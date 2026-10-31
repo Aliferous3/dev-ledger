@@ -19,7 +19,9 @@ export default async function handler(req, res) {
     if (!session.userId || (supabase && !(await isSessionLive(session.sid)))) {
       // Carry a pending desktop flow through the restarted login so the
       // handoff still returns to the app after re-auth.
-      const flow = session?.desktopFlow ? `?desktop_flow=${encodeURIComponent(session.desktopFlow)}` : ''
+      const flow = isDesktopFlowId(session?.desktopFlow) && isDesktopChallenge(session?.desktopChallenge)
+        ? `?desktop_flow=${encodeURIComponent(session.desktopFlow)}&desktop_challenge=${encodeURIComponent(session.desktopChallenge)}`
+        : ''
       res.writeHead(302, { Location: `/api/auth/login${flow}` })
       res.end()
       return
