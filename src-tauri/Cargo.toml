@@ -32,7 +32,7 @@ tauri-plugin-http = { version = "2", features = ["rustls-tls", "unsafe-headers"]
 # Fixed upstream in plugins-workspace#3711 — unpin once 2.6.3+ lands.
 tauri-plugin-deep-link = "=2.6.1"
 # Route a second process launch (deep-link activation) back to one window.
-tauri-plugin-single-instance = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # OS-backed credential storage: Windows Credential Manager, macOS Keychain,
 # Linux Secret Service (pure-Rust zbus + rust crypto — no libdbus/openssl).
 keyring = { version = "3", features = [
