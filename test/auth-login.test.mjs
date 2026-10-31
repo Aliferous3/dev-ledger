@@ -121,6 +121,68 @@ test('GitHub code exchange uses documented form encoding with matching callback 
   assert.equal(resCb.getHeader('location'), '/')
 })
 
+test('a GitHub bad_verification_code failure records only safe OAuth age and consumes state', async (t) => {
+  const desktop = mockRes()
+  const flow = '9f5a9d2c-2d46-42ff-8f91-e4c93814e055'
+  await loginHandler(mockReq({
+    query: { desktop_flow: flow, desktop_challenge: 'a'.repeat(64) },
+  }), desktop)
+  const state = authorizeUrl(desktop).searchParams.get('state')
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url) => {
+    assert.equal(String(url), 'https://github.com/login/oauth/access_token')
+    return new Response(JSON.stringify({
+      error: 'bad_verification_code',
+      error_description: 'The code passed is incorrect or expired.',
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }
+  t.after(() => { globalThis.fetch = originalFetch })
+  const originalError = console.error
+  const errors = []
+  console.error = (...parts) => errors.push(parts)
+  t.after(() => { console.error = originalError })
+
+  const callback = mockRes()
+  await callbackHandler(mockReq({
+    headers: { cookie: cookieHeader(desktop) },
+    query: { code: 'one-time-placeholder', state },
+  }), callback)
+
+  assert.equal(callback.statusCode, 400)
+  assert.equal(callback.body?.error, 'GitHub token exchange failed')
+  const detail = errors.find((parts) => String(parts[0]).includes('github token exchange failed:'))
+  assert.ok(detail, 'diagnostic must emit a bounded, credential-free error')
+  assert.equal(detail[4], 'desktop')
+  assert.equal(typeof detail[5], 'number')
+  assert.ok(detail[5] >= 0 && detail[5] < 900)
+  assert.ok(!JSON.stringify(errors).includes('one-time-placeholder'), 'OAuth code must never be logged')
+  assert.ok(!JSON.stringify(errors).includes(state), 'OAuth state must never be logged')
+  const finalCookie = cookieHeader(callback)
+  const sealed = await sessionFromCookie(finalCookie)
+  assert.equal(sealed.oauthAttempts?.length, 0, 'failed exchanges consume their pending attempt')
+})
+
+test('repeated OAuth code query parameters are rejected before any GitHub exchange', async (t) => {
+  const login = mockRes()
+  await loginHandler(mockReq(), login)
+  const state = authorizeUrl(login).searchParams.get('state')
+  const originalFetch = globalThis.fetch
+  let exchanged = 0
+  globalThis.fetch = async () => {
+    exchanged++
+    return new Response('{}')
+  }
+  t.after(() => { globalThis.fetch = originalFetch })
+  const res = mockRes()
+  await callbackHandler(mockReq({
+    headers: { cookie: cookieHeader(login) },
+    url: '/api/auth/callback?code=first&code=second&state=' + encodeURIComponent(state),
+  }), res)
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.body?.error, 'Invalid OAuth state')
+  assert.equal(exchanged, 0, 'repeated authorization codes must not reach the token endpoint')
+})
+
 test('web login started during desktop authorization never inherits desktop handoff', async (t) => {
   const flow = '9f5a9d2c-2d46-42ff-8f91-e4c93814e055'
   const challenge = 'a'.repeat(64)
