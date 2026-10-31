@@ -61,15 +61,26 @@ export default async function handler(req, res) {
   const attempts = Array.isArray(session.oauthAttempts) ? session.oauthAttempts : []
   const attempt = attempts.find((entry) => entry && entry.state === state)
   let stateOk = false
-  if (code && state && (attempt || state === session.oauthState)) {
+  let oauthAgeSeconds = null
+  // Repeated query parameters arrive as arrays. Never coerce a list of
+  // GitHub codes into a comma-joined string during the token exchange.
+  // Do not log either the code or its state.
+  const singleCode = typeof code === 'string' && code.length > 0 && code.length <= 512
+  const singleState = typeof state === 'string' && state.length > 0
+  if (singleCode && singleState && (attempt || state === session.oauthState)) {
     try {
-      const parsed = JSON.parse(Buffer.from(String(state), 'base64url').toString('utf8'))
-      stateOk = Number.isFinite(parsed.at)
-        && Date.now() - parsed.at >= 0
-        && Date.now() - parsed.at < 15 * 60 * 1000
+      const parsed = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'))
+      const age = Date.now() - parsed.at
+      stateOk = Number.isFinite(parsed.at) && age >= 0 && age < 15 * 60 * 1000
+      if (stateOk) oauthAgeSeconds = Math.floor(age / 1000)
     } catch {
       stateOk = false
     }
+  }
+  if (!singleCode || !singleState) {
+    console.warn('github oauth callback query cardinality invalid: code_count=%d state_count=%d',
+      Array.isArray(code) ? code.length : code === undefined ? 0 : 1,
+      Array.isArray(state) ? state.length : state === undefined ? 0 : 1)
   }
   if (!stateOk) {
     securityEvent('auth_callback_failed', { req, reasonCode: 'state_mismatch' })
@@ -125,11 +136,12 @@ export default async function handler(req, res) {
     // in the browser cookie, preventing a refresh from retrying the code.
     await session.save()
     console.error(
-      'github token exchange failed: http=%d error=%s desc=%s flow=%s',
+      'github token exchange failed: http=%d error=%s desc=%s flow=%s oauth_age_sec=%d',
       tokenRes.status,
       tokenData?.error,
       tokenData?.error_description,
-      session.desktopFlow ? 'desktop' : 'web'
+      session.desktopFlow ? 'desktop' : 'web',
+      oauthAgeSeconds
     )
     securityEvent('auth_callback_failed', { req, reasonCode: 'token_exchange' })
     res.status(400).json({ error: 'GitHub token exchange failed' })
