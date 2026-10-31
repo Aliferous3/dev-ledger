@@ -172,8 +172,8 @@
       "destination": "https://dev-ledger-site.vercel.app/sitemap.xml"
     },
     {
-      "source": "/sitemap.xsl",
-      "destination": "https://dev-ledger-site.vercel.app/sitemap.xsl"
+      "source": "/sitemap.html",
+      "destination": "https://dev-ledger-site.vercel.app/sitemap.html"
     },
     {
       "source": "/sitemap.css",

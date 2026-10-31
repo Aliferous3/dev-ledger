@@ -21,7 +21,7 @@ const PROXIED_PATHS = [
   '/comparisons',
   '/rss.xml',
   '/sitemap.xml',
-  '/sitemap.xsl',
+  '/sitemap.html',
   '/sitemap.css',
   '/llms.txt',
 ]
@@ -52,6 +52,8 @@ test('publishing paths proxy to the private site project under unchanged URLs', 
       p + ' must proxy to the private site project, got ' + rw.destination,
     )
   }
+  assert.ok(!v.rewrites.some((r) => r.source === '/sitemap.xsl'),
+    'legacy XSLT sitemap rewrite must be retired')
   const blogDeep = v.rewrites.find((r) => r.source === '/blog/:path*')
   assert.equal(blogDeep?.destination, SITE_ORIGIN + '/blog/:path*')
   const toolsDeep = v.rewrites.find((r) => r.source === '/tools/:path*')
@@ -64,7 +66,7 @@ test('publishing paths proxy to the private site project under unchanged URLs', 
   }
   // Proxied paths must not also exist as local files — the filesystem
   // wins over rewrites, so a stray file would silently shadow the site.
-  for (const p of ['public/rss.xml', 'public/sitemap.xml', 'public/llms.txt', 'public/sitemap.xsl', 'public/sitemap.css']) {
+  for (const p of ['public/rss.xml', 'public/sitemap.xml', 'public/llms.txt', 'public/sitemap.html', 'public/sitemap.css']) {
     assert.ok(!existsSync(path.join(ROOT, p)), p + ' must not exist locally — it would shadow the site proxy')
   }
   assert.ok(!existsSync(path.join(ROOT, 'blog')), 'blog/ output dir must not exist locally')
