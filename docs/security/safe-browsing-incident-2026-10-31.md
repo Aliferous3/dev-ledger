@@ -7,18 +7,18 @@ Chrome displays a red "Dangerous" warning for devledger.site.
 
 ## Confirmed production provenance
 
-- First-party project: Vercel \`dev-ledger\`, domain \`devledger.site\`
+- First-party project: Vercel `dev-ledger`, domain `devledger.site`
   (domain verified), production deployment
-  \`dpl_CCyLRX7Cypc32T566eKVJj1jVQyw\`.
-- Deployed GitHub revision: \`c056bb0e1dbe8dc99b36a96e1183b607d68f57fa\`;
+  `dpl_CCyLRX7Cypc32T566eKVJj1jVQyw`.
+- Deployed GitHub revision: `c056bb0e1dbe8dc99b36a96e1183b607d68f57fa`;
   matches main when the incident was inspected.
-- Publishing-layer project: \`dev-ledger-site\`, source revision
-  \`5c130ce86d35c329566c312fee305f5622dd904b\`.
+- Publishing-layer project: `dev-ledger-site`, source revision
+  `5c130ce86d35c329566c312fee305f5622dd904b`.
 - The main app rewrites blog/tools/answers/guides/glossary/comparisons
-  to \`dev-ledger-site.vercel.app\`; these must be audited as part of the
+  to `dev-ledger-site.vercel.app`; these must be audited as part of the
   effective public site, not treated as external non-responsibility.
-- The main app rewrites \`/rly/\` analytics events to
-  \`eu.i.posthog.com\`. Web analytics and Google Analytics are enabled
+- The main app rewrites `/rly/` analytics events to
+  `eu.i.posthog.com`. Web analytics and Google Analytics are enabled
   only as documented; the app's visible login uses GitHub OAuth.
 - A previous Google security review was approved on 2026-09-29. This
   later classification must be independently reviewed; prior approval
@@ -39,13 +39,13 @@ Chrome displays a red "Dangerous" warning for devledger.site.
    publishing layer serves static editorial pages rather than a second
    credential-collection flow.
 4. Examined all **37 Markdown content files and five SVG assets** in
-   the publishing repository: no outbound \`https://\` links or script
+   the publishing repository: no outbound `https://` links or script
    injection tokens were found in those source files. This is a
    source review, not a network crawler or rendered-site assessment.
 5. Inspected Vercel and GitHub metadata: the expected Vercel domain and
    GitHub production commit were confirmed; a malicious deployment was
    not identified from the available deployment history.
-6. Added \`test/public-trust-boundaries.test.mjs\` to prevent silent
+6. Added `test/public-trust-boundaries.test.mjs` to prevent silent
    changes to critical first-party OAuth, routing, remote scripts, and
    security header invariants.
 
@@ -58,8 +58,8 @@ checks cannot independently rule out compromise or a classifier error.
 ## Separate defect: OAuth token exchange
 
 At 2026-10-31T21:12:44Z and 2026-10-31T21:23:38Z the production
-\`/api/auth/callback\` function logged GitHub's
-\`bad_verification_code\` response. This prevents web and desktop login.
+`/api/auth/callback` function logged GitHub's
+`bad_verification_code` response. This prevents web and desktop login.
 It is **not evidence of phishing** and is not yet established as a
 cause of the Safe Browsing classification. Resolve separately by
 reconciling GitHub App callback settings and the deployed APP_URL/client
