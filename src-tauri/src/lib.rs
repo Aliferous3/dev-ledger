@@ -1,4 +1,4 @@
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 // OS credential-store identifier. Keys are whitelisted to a narrow pattern
 // so the webview can only ever read/write its own desktop-auth entries —
@@ -99,7 +99,18 @@ pub fn run() {
                 // deep-link plugin forwards the URL to it.
                 let _ =
                     app.handle()
-                        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+                        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+                            // Windows may deliver the protocol URL as a second-instance
+                            // argv rather than through the webview deep-link listener.
+                            // Forward only our exact auth scheme; the JS flow+PKCE
+                            // binding still validates the handoff before redemption.
+                            for arg in &argv {
+                                if let Ok(url) = tauri::Url::parse(arg) {
+                                    if url.scheme() == "dev-ledger" && url.host_str() == Some("auth") {
+                                        let _ = app.emit("desktop-auth-activation", arg.clone());
+                                    }
+                                }
+                            }
                             if let Some(w) = app.get_webview_window("main") {
                                 let _ = w.unminimize();
                                 let _ = w.set_focus();
