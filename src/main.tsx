@@ -28,6 +28,7 @@ import {
   initDesktop,
   isDesktop,
   onDesktopAuthNotice,
+  onDesktopAuthCompleted,
   startDesktopLogin,
 } from "./desktop";
 import type { Identity } from "./store/live";
@@ -68,10 +69,18 @@ function Gate() {
   // Desktop sign-in status line — a rejected/expired handoff surfaces here
   // on the login screen instead of failing silently.
   const [deskNotice, setDeskNotice] = useState<string | null>(null);
+  // A successful desktop handoff must revalidate the bearer in this SAME
+  // webview. Never reload: unchecked sign-ins live exclusively in memory.
+  const [authGeneration, setAuthGeneration] = useState(0);
 
   useEffect(() => {
     if (!DESKTOP) return;
     return onDesktopAuthNotice(setDeskNotice);
+  }, []);
+
+  useEffect(() => {
+    if (!DESKTOP) return;
+    return onDesktopAuthCompleted(() => setAuthGeneration((n) => n + 1));
   }, []);
 
   useEffect(() => {
@@ -90,7 +99,12 @@ function Gate() {
         setPersistent(body?.persistent === true);
         setMe(ok ? (body as Identity) : null);
         setAuth(ok ? "in" : "out");
-        if (ok) setBooting(true);
+        if (ok) {
+          setDeskNotice(null);
+          setBooting(true);
+        } else if (DESKTOP && authGeneration > 0) {
+          setDeskNotice('Desktop token received, but /api/user did not authenticate it.');
+        }
         // Analytics only: when this session was created by an initiated
         // login this tab session, emit the funnel-completing event once.
         // Auth state itself is untouched — consume only reads a flag.
@@ -99,12 +113,18 @@ function Gate() {
           captureGoogleEvent("login", { method: "github" });
         }
       })
-      .catch(() => live && setAuth("out"))
+      .catch(() => {
+        if (!live) return;
+        setAuth("out");
+        if (DESKTOP && authGeneration > 0) {
+          setDeskNotice('Desktop token received, but the service could not verify it.');
+        }
+      })
     );
     return () => {
       live = false;
     };
-  }, []);
+  }, [authGeneration]);
 
   // Inactivity heartbeat: while authenticated WITHOUT "keep me signed in",
   // renew the server-side lease every 60s (plus immediately on focus/visible

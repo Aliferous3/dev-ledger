@@ -13,7 +13,7 @@ import { initDesktopAuth } from './auth';
 
 export { isDesktop, API_BASE, DESKTOP_SCHEME } from './runtime';
 export { openExternalUrl } from './links';
-export { startDesktopLogin, desktopLogout, onDesktopAuthNotice } from './auth';
+export { startDesktopLogin, desktopLogout, onDesktopAuthNotice, onDesktopAuthCompleted } from './auth';
 
 export async function initDesktop(): Promise<void> {
   if (!isDesktop()) return;

@@ -80,7 +80,24 @@ fn is_dev_origin(_url: &tauri::Url) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    // Windows/Linux deliver dev-ledger:// URLs by launching a second process.
+    // Tauri requires single-instance to be the FIRST registered plugin, with
+    // its "deep-link" feature enabled, to forward URLs to the running app.
+    // Registering it later in setup() cannot reliably intercept that launch.
+    let builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        // The plugin's deep-link feature forwards the URL automatically
+        // before calling this callback. Do not parse or log credential-bearing
+        // URLs from argv; the JS handler performs flow+PKCE validation.
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+        }
+    }));
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_deep_link::init())
@@ -91,22 +108,6 @@ pub fn run() {
             sha256_hex
         ])
         .setup(|app| {
-            #[cfg(desktop)]
-            {
-                // Single instance must be registered before other plugin work: a
-                // second launch (e.g. a dev-ledger:// deep-link activation while the
-                // app is already running) focuses the existing window and the
-                // deep-link plugin forwards the URL to it.
-                let _ =
-                    app.handle()
-                        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.unminimize();
-                                let _ = w.set_focus();
-                            }
-                        }));
-            }
-
             // The main window is created in code (not tauri.conf.json) so the
             // on_navigation guard can be attached: only bundled-app origins may
             // navigate inside the webview.
