@@ -37,3 +37,25 @@ test('desktop login consumes deep links only after binding them to the pending f
   assert.ok(ts.includes("fetch('/api/auth/desktop?op=exchange'"))
   assert.ok(ts.includes('body: JSON.stringify({ flow, code, verifier })'))
 })
+
+test('JS receives diagnostic protocol activations without an OAuth exchange', () => {
+  const ts = src('src/desktop/auth.ts')
+  assert.match(ts, /parsed\.hostname === 'diagnostic'/)
+  assert.ok(ts.includes('Windows protocol link reached the Dev Ledger JavaScript listener.'))
+  assert.match(ts, /if \(isDiagnosticLink\(u\)\)/)
+  assert.match(ts, /if \(isAuthDeepLink\(u\)\) void handleAuthUrl\(u\)/)
+})
+
+test('auth URLs report mismatched and malformed returns without exposing code or state', () => {
+  const ts = src('src/desktop/auth.ts')
+  assert.match(ts, /parsed\.hostname === 'auth'/)
+  assert.match(ts, /parsed\.searchParams\.getAll\('flow'\)/)
+  assert.match(ts, /parsed\.searchParams\.getAll\('code'\)/)
+  assert.match(ts, /if \(!pendingFlow \|\| flow !== pendingFlow \|\| !pendingVerifier\)/)
+  assert.ok(ts.includes('A sign-in link reached Dev Ledger, but does not match an active login.'))
+  assert.match(ts, /if \(exchangeInProgress\) return/)
+  assert.match(ts, /exchangeInProgress = true/)
+  assert.match(ts, /exchangeInProgress = false/)
+  assert.match(ts, /cb\(lastNotice\)/, 'late React subscribers must receive the last safe notice')
+  assert.doesNotMatch(ts, /console\.(log|warn|error)\(/, 'desktop auth must not emit credential-bearing console logs')
+})
