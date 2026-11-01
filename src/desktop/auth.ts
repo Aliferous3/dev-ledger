@@ -32,6 +32,19 @@ let pendingFlow: string | null = null;
 let pendingVerifier: string | null = null;
 let pendingRemember = false;
 let noticeHandler: ((msg: string | null) => void) | null = null;
+// Invoked after the bearer is available to the transport shim, without
+// reloading the webview (which would erase unchecked memory-only sessions).
+let completedHandler: (() => void) | null = null;
+// In-memory duplicate suppression: a delivered single-use link may be
+// activated again by the browser after its successful exchange.
+let lastHandledFlow: string | null = null;
+
+export function onDesktopAuthCompleted(cb: () => void): () => void {
+  completedHandler = cb;
+  return () => {
+    if (completedHandler === cb) completedHandler = null;
+  };
+}
 // Deep links may arrive before the React login gate mounts. Keep only a
 // non-sensitive status message in memory; never retain URLs, codes or state.
 let lastNotice: string | null = null;
@@ -56,6 +69,7 @@ function notice(msg: string | null) {
 
 export function startDesktopLogin(remember: boolean): void {
   notice(null);
+  lastHandledFlow = null;
   pendingFlow = crypto.randomUUID();
   pendingRemember = remember;
   // 64 hex chars of CSPRNG entropy — the PKCE verifier. The server only
@@ -124,6 +138,9 @@ async function handleAuthUrl(url: string): Promise<void> {
   }
   const flow = flows[0];
   const code = codes[0];
+  // Re-delivered links are inert: the first exchange already consumed the
+  // one-use credential, so replay must not overwrite a successful status.
+  if (flow === lastHandledFlow) return;
   // A stale/foreign deep link (old browser attempt, another app's spoof)
   // must never drive an exchange — the flow id is the binding between
   // THIS app instance's login intent and the server's handoff.
@@ -133,6 +150,7 @@ async function handleAuthUrl(url: string): Promise<void> {
   }
   const verifier = pendingVerifier;
   const remember = pendingRemember;
+  lastHandledFlow = flow;
   pendingFlow = null;
   pendingVerifier = null;
   pendingRemember = false;
@@ -158,9 +176,11 @@ async function handleAuthUrl(url: string): Promise<void> {
     // KEEP ME SIGNED IN: checked → OS keychain (restored on next launch);
     // unchecked → memory only for this app session (keychain cleared).
     await storeToken(body.token, { persistent: remember });
-    // Authenticated — a reload re-runs the standard boot gate, which now
-    // resolves through the bearer token exactly like a cookie session.
-    window.location.reload();
+    // Notify React to recheck /api/user INSIDE this webview. A reload
+    // destroys memoryToken for unchecked logins; no token may be written
+    // to sessionStorage/localStorage/cookies as a workaround.
+    notice('Sign-in completed. Loading your dashboard...');
+    completedHandler?.();
   } catch {
     notice('The Dev Ledger service is unreachable — sign-in could not finish.');
   } finally {
