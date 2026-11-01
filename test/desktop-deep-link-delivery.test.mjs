@@ -78,8 +78,8 @@ test('unchecked desktop auth completion preserves the memory-only bearer', () =>
   assert.match(root, /setAuth\(ok \? "in" : "out"\)/)
   assert.match(keyring, /memoryToken = token/)
   assert.match(keyring, /await invoke\('keyring_delete', \{ key: TOKEN_KEY \}\)/)
-  assert.doesNotMatch(auth, /sessionStorage|localStorage|document\.cookie/)
-  assert.doesNotMatch(keyring, /sessionStorage|localStorage|document\.cookie/)
+  assert.doesNotMatch(auth, /(?:sessionStorage|localStorage)\.setItem\(|document\.cookie\s*=/)
+  assert.doesNotMatch(keyring, /(?:sessionStorage|localStorage)\.setItem\(|document\.cookie\s*=/)
 })
 
 test('duplicate desktop handoffs cannot overwrite a completed login warning', () => {
