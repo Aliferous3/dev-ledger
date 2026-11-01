@@ -163,14 +163,7 @@ test('a GitHub bad_verification_code failure records only safe OAuth age and con
   assert.equal(sealed.oauthAttempts?.length, 0, 'failed exchanges consume their pending attempt')
 })
 
-test('duplicate desktop callback attempts yield matching keyed fingerprints but never log OAuth code', async (t) => {
-  const prevKey = process.env.SECURITY_EVENT_HASH_KEY
-  process.env.SECURITY_EVENT_HASH_KEY = 'local-test-only-correlator-32-plus-characters'
-  t.after(() => {
-    if (prevKey === undefined) delete process.env.SECURITY_EVENT_HASH_KEY
-    else process.env.SECURITY_EVENT_HASH_KEY = prevKey
-  })
-
+test('duplicate desktop callbacks share a one-way fingerprint without logging OAuth secrets', async (t) => {
   const flow = '9f5a9d2c-2d46-42ff-8f91-e4c93814e055'
   const login = mockRes()
   await loginHandler(mockReq({
