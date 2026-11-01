@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { waitUntil } from '@vercel/functions'
 import { getSession, getUserOctokit, getAppOctokit, configureSessionPersistence } from '../../lib/auth.mjs'
 import { github, appUrl, sessionLeaseMs } from '../../lib/config.mjs'
@@ -6,7 +7,7 @@ import { kickSync, runSync, setUserSync, SYNC_DETAIL_INIT } from '../../lib/sync
 import { createAuthSession, gcAuthSessions, isSessionLive } from '../../lib/sessions.mjs'
 import { desktopHandoff, isDesktopFlowId, isDesktopChallenge } from '../../lib/desktop-auth.mjs'
 import { requestQuery } from '../../lib/request-query.mjs'
-import { securityEvent, correlate } from '../../lib/security-events.mjs'
+import { securityEvent } from '../../lib/security-events.mjs'
 
 export default async function handler(req, res) {
   const { code, state, installation_id: installationId, setup_action: setupAction } = requestQuery(req)
@@ -114,11 +115,14 @@ export default async function handler(req, res) {
   }
 
   const redirectUri = `${appUrl}/api/auth/callback`
-  // Authenticated correlation only: the state is random/short-lived and the
-  // HMAC key is server-held. Never log state, code, token, cookie or query URL.
-  // Matching fingerprints across an accepted and rejected callback show
-  // whether the *same* authorization attempt was processed more than once.
-  const stateFingerprint = correlate(state)?.slice(0, 16) || 'unavailable'
+  // GitHub state includes 128 bits of CSPRNG entropy plus a timestamp.
+  // A bounded SHA-256 fingerprint is therefore safe to correlate within
+  // short-lived server logs without retaining state, code, cookie or tokens.
+  // Unlike securityEvent.correlate(), it works without an optional hash key.
+  // Do not use this on low-entropy user identifiers or access credentials.
+  const stateFingerprint = typeof state === 'string' && state.length <= 1024
+    ? crypto.createHash('sha256').update(state).digest('hex').slice(0, 16)
+    : 'unavailable'
   // GitHub's documented web-application flow sends URL-encoded form fields.
   // Keep redirect_uri identical to the authorization request, and never put
   // the short-lived OAuth code or client secret in a URL or diagnostic log.
