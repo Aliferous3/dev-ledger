@@ -59,3 +59,33 @@ test('auth URLs report mismatched and malformed returns without exposing code or
   assert.match(ts, /cb\(lastNotice\)/, 'late React subscribers must receive the last safe notice')
   assert.doesNotMatch(ts, /console\.(log|warn|error)\(/, 'desktop auth must not emit credential-bearing console logs')
 })
+
+test('unchecked desktop auth completion preserves the memory-only bearer', () => {
+  const auth = src('src/desktop/auth.ts')
+  const keyring = src('src/desktop/keys.ts')
+  const root = src('src/main.tsx')
+  const index = src('src/desktop/index.ts')
+
+  // A full webview reload loses module-scoped memoryToken and signs the user
+  // right back out after a successful exchange with Remember unchecked.
+  assert.doesNotMatch(auth, /window\.location\.reload\(\)/)
+  assert.match(auth, /await storeToken\(body\.token, \{ persistent: remember \}\)/)
+  assert.match(auth, /completedHandler\?\.\(\)/)
+  assert.match(auth, /export function onDesktopAuthCompleted\(/)
+  assert.match(index, /onDesktopAuthCompleted/)
+  assert.match(root, /return onDesktopAuthCompleted\(\(\) => setAuthGeneration\(\(n\) => n \+ 1\)\)/)
+  assert.match(root, /\}, \[authGeneration\]\)/, 'bearer validation reruns in the same webview')
+  assert.match(root, /setAuth\(ok \? "in" : "out"\)/)
+  assert.match(keyring, /memoryToken = token/)
+  assert.match(keyring, /await invoke\('keyring_delete', \{ key: TOKEN_KEY \}\)/)
+  assert.doesNotMatch(auth, /sessionStorage|localStorage|document\.cookie/)
+  assert.doesNotMatch(keyring, /sessionStorage|localStorage|document\.cookie/)
+})
+
+test('duplicate desktop handoffs cannot overwrite a completed login warning', () => {
+  const auth = src('src/desktop/auth.ts')
+  assert.match(auth, /let lastHandledFlow: string \| null = null/)
+  assert.match(auth, /lastHandledFlow = null;\s*pendingFlow = crypto\.randomUUID\(\)/)
+  assert.match(auth, /if \(flow === lastHandledFlow\) return/)
+  assert.match(auth, /lastHandledFlow = flow;\s*pendingFlow = null/)
+})
