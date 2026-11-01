@@ -32,15 +32,21 @@ let pendingFlow: string | null = null;
 let pendingVerifier: string | null = null;
 let pendingRemember = false;
 let noticeHandler: ((msg: string | null) => void) | null = null;
+// Deep links may arrive before the React login gate mounts. Keep only a
+// non-sensitive status message in memory; never retain URLs, codes or state.
+let lastNotice: string | null = null;
+let exchangeInProgress = false;
 
 export function onDesktopAuthNotice(cb: (msg: string | null) => void): () => void {
   noticeHandler = cb;
+  cb(lastNotice);
   return () => {
     if (noticeHandler === cb) noticeHandler = null;
   };
 }
 
 function notice(msg: string | null) {
+  lastNotice = msg;
   try {
     noticeHandler?.(msg);
   } catch {
@@ -76,24 +82,53 @@ export function startDesktopLogin(remember: boolean): void {
     });
 }
 
-// True when the URL is our registered deep link — anything else is ignored.
+// Parse the complete registered scheme and host. Prefix matching would
+// mistakenly accept dev-ledger://auth-foreign, etc. Never log URLs or codes.
 export function isAuthDeepLink(url: string): boolean {
-  return url.startsWith(`${DESKTOP_SCHEME}://auth`);
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === `${DESKTOP_SCHEME}:`
+      && parsed.hostname === 'auth'
+      && (parsed.pathname === '' || parsed.pathname === '/')
+      && !parsed.username && !parsed.password && !parsed.hash;
+  } catch {
+    return false;
+  }
+}
+
+// A harmless probe lets us distinguish native window activation from an
+// event that actually reached the JavaScript listener. It never exchanges
+// credentials or changes authentication state.
+function isDiagnosticLink(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === `${DESKTOP_SCHEME}:`
+      && parsed.hostname === 'diagnostic'
+      && !parsed.search && !parsed.hash
+      && (parsed.pathname === '' || parsed.pathname === '/');
+  } catch {
+    return false;
+  }
 }
 
 async function handleAuthUrl(url: string): Promise<void> {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
+  if (exchangeInProgress) return; // Ignore repeated delivery of the same URL.
+  if (!isAuthDeepLink(url)) return;
+  const parsed = new URL(url);
+  const flows = parsed.searchParams.getAll('flow');
+  const codes = parsed.searchParams.getAll('code');
+  // Duplicate parameters or an unsolicited link must never reach the API.
+  if (flows.length !== 1 || codes.length !== 1 || !codes[0]) {
+    notice('An invalid sign-in link was received. Start a new sign-in from Dev Ledger.');
     return;
   }
-  const flow = parsed.searchParams.get('flow') ?? '';
-  const code = parsed.searchParams.get('code') ?? '';
+  const flow = flows[0];
+  const code = codes[0];
   // A stale/foreign deep link (old browser attempt, another app's spoof)
   // must never drive an exchange — the flow id is the binding between
   // THIS app instance's login intent and the server's handoff.
-  if (!pendingFlow || flow !== pendingFlow || !code || !pendingVerifier) {
+  if (!pendingFlow || flow !== pendingFlow || !pendingVerifier) {
+    notice('A sign-in link reached Dev Ledger, but does not match an active login. Start again.');
     return;
   }
   const verifier = pendingVerifier;
@@ -101,6 +136,8 @@ async function handleAuthUrl(url: string): Promise<void> {
   pendingFlow = null;
   pendingVerifier = null;
   pendingRemember = false;
+  exchangeInProgress = true;
+  notice('Sign-in link received. Completing secure handoff...');
   try {
     // Relative path — routed through the transport shim (plugin-http), so
     // the exchange needs no CORS accommodation on the server.
@@ -126,6 +163,8 @@ async function handleAuthUrl(url: string): Promise<void> {
     window.location.reload();
   } catch {
     notice('The Dev Ledger service is unreachable — sign-in could not finish.');
+  } finally {
+    exchangeInProgress = false;
   }
 }
 
@@ -136,15 +175,20 @@ async function handleAuthUrl(url: string): Promise<void> {
 // registered.
 export async function initDesktopAuth(): Promise<void> {
   await loadToken();
-  await onOpenUrl((urls) => {
-    for (const u of urls) {
-      if (isAuthDeepLink(u)) void handleAuthUrl(u);
+  const accept = (u: string) => {
+    if (isDiagnosticLink(u)) {
+      notice('Windows protocol link reached the Dev Ledger JavaScript listener.');
+      return;
     }
-  }).catch(() => {});
-  const current = await getCurrent().catch(() => null);
-  for (const u of current ?? []) {
     if (isAuthDeepLink(u)) void handleAuthUrl(u);
-  }
+  };
+  await onOpenUrl((urls) => {
+    for (const u of urls) accept(u);
+  }).catch(() => {
+    notice('The desktop sign-in listener could not start. Restart Dev Ledger.');
+  });
+  const current = await getCurrent().catch(() => null);
+  for (const u of current ?? []) accept(u);
 }
 
 // Sign out: revoke the server-side token + session, clear the keychain,
