@@ -19,6 +19,7 @@
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { API_BASE, DESKTOP_SCHEME } from './runtime';
 import { clearToken, loadToken, storeToken } from './keys';
 
@@ -31,6 +32,7 @@ import { clearToken, loadToken, storeToken } from './keys';
 let pendingFlow: string | null = null;
 let pendingVerifier: string | null = null;
 let pendingRemember = false;
+let exchangeInFlight = false;
 let noticeHandler: ((msg: string | null) => void) | null = null;
 
 export function onDesktopAuthNotice(cb: (msg: string | null) => void): () => void {
@@ -96,6 +98,10 @@ async function handleAuthUrl(url: string): Promise<void> {
   if (!pendingFlow || flow !== pendingFlow || !code || !pendingVerifier) {
     return;
   }
+  // The same URL may arrive through both the deep-link plugin and the
+  // Windows second-instance event. Redeem it at most once.
+  if (exchangeInFlight) return;
+  exchangeInFlight = true;
   const verifier = pendingVerifier;
   const remember = pendingRemember;
   pendingFlow = null;
@@ -126,6 +132,8 @@ async function handleAuthUrl(url: string): Promise<void> {
     window.location.reload();
   } catch {
     notice('The Dev Ledger service is unreachable — sign-in could not finish.');
+  } finally {
+    exchangeInFlight = false;
   }
 }
 
@@ -136,6 +144,11 @@ async function handleAuthUrl(url: string): Promise<void> {
 // registered.
 export async function initDesktopAuth(): Promise<void> {
   await loadToken();
+  await listen<string>('desktop-auth-activation', (event) => {
+    if (typeof event.payload === 'string' && isAuthDeepLink(event.payload)) {
+      void handleAuthUrl(event.payload);
+    }
+  }).catch(() => {});
   await onOpenUrl((urls) => {
     for (const u of urls) {
       if (isAuthDeepLink(u)) void handleAuthUrl(u);
