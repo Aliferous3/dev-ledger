@@ -1,10 +1,11 @@
+import crypto from 'node:crypto'
 import { waitUntil } from '@vercel/functions'
 import { getSession, getUserOctokit, getAppOctokit, configureSessionPersistence } from '../../lib/auth.mjs'
 import { github, appUrl, sessionLeaseMs } from '../../lib/config.mjs'
 import { supabase } from '../../lib/db.mjs'
 import { kickSync, runSync, setUserSync, SYNC_DETAIL_INIT } from '../../lib/sync.mjs'
 import { createAuthSession, gcAuthSessions, isSessionLive } from '../../lib/sessions.mjs'
-import { desktopHandoff, isDesktopFlowId, isDesktopChallenge } from '../../lib/desktop-auth.mjs'
+import { desktopHandoff, recoverCompletedDesktopHandoff, isDesktopFlowId, isDesktopChallenge } from '../../lib/desktop-auth.mjs'
 import { requestQuery } from '../../lib/request-query.mjs'
 import { securityEvent } from '../../lib/security-events.mjs'
 
@@ -61,15 +62,27 @@ export default async function handler(req, res) {
   const attempts = Array.isArray(session.oauthAttempts) ? session.oauthAttempts : []
   const attempt = attempts.find((entry) => entry && entry.state === state)
   let stateOk = false
-  if (code && state && (attempt || state === session.oauthState)) {
+  let oauthAgeSeconds = null
+  // Repeated query parameters arrive as arrays. Never coerce a list of
+  // GitHub codes into a comma-joined string during the token exchange.
+  // Do not log either the code or its state.
+  const singleCode = typeof code === 'string' && code.length > 0 && code.length <= 512
+  const singleState = typeof state === 'string' && state.length > 0
+  if (singleCode && singleState && (attempt || state === session.oauthState)) {
     try {
-      const parsed = JSON.parse(Buffer.from(String(state), 'base64url').toString('utf8'))
+      const parsed = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'))
       stateOk = Number.isFinite(parsed.at)
         && Date.now() - parsed.at >= 0
         && Date.now() - parsed.at < 15 * 60 * 1000
+      if (stateOk) oauthAgeSeconds = Math.floor((Date.now() - parsed.at) / 1000)
     } catch {
       stateOk = false
     }
+  }
+  if (!singleCode || !singleState) {
+    console.warn('github oauth callback query cardinality invalid: code_count=%d state_count=%d',
+      Array.isArray(code) ? code.length : code === undefined ? 0 : 1,
+      Array.isArray(state) ? state.length : state === undefined ? 0 : 1)
   }
   if (!stateOk) {
     securityEvent('auth_callback_failed', { req, reasonCode: 'state_mismatch' })
@@ -102,6 +115,14 @@ export default async function handler(req, res) {
   }
 
   const redirectUri = `${appUrl}/api/auth/callback`
+  // GitHub state includes 128 bits of CSPRNG entropy plus a timestamp.
+  // A bounded SHA-256 fingerprint is therefore safe to correlate within
+  // short-lived server logs without retaining state, code, cookie or tokens.
+  // Unlike securityEvent.correlate(), it works without an optional hash key.
+  // Do not use this on low-entropy user identifiers or access credentials.
+  const stateFingerprint = typeof state === 'string' && state.length <= 1024
+    ? crypto.createHash('sha256').update(state).digest('hex').slice(0, 16)
+    : 'unavailable'
   // GitHub's documented web-application flow sends URL-encoded form fields.
   // Keep redirect_uri identical to the authorization request, and never put
   // the short-lived OAuth code or client secret in a URL or diagnostic log.
@@ -120,22 +141,41 @@ export default async function handler(req, res) {
   })
   const tokenData = await tokenRes.json().catch(() => null)
   if (!tokenData?.access_token) {
+    // A duplicated desktop callback can arrive with the same pre-exchange
+    // cookie while the first request succeeds. GitHub codes are single-use.
+    // Recover only if the first request independently issued the exact
+    // HMAC-derived, flow+challenge-bound desktop handoff. Do not reuse the
+    // rejected GitHub token, skip OAuth state checks or forge a new session.
+    if (tokenData?.error === 'bad_verification_code'
+      && await recoverCompletedDesktopHandoff(res, session, code)) {
+      console.info('github duplicate desktop callback recovered: state_fp=%s',
+        stateFingerprint)
+      return
+    }
     // Only one Set-Cookie header per callback: the successful path saves
     // after creating its session. A failed exchange still consumes state
     // in the browser cookie, preventing a refresh from retrying the code.
     await session.save()
     console.error(
-      'github token exchange failed: http=%d error=%s desc=%s flow=%s',
+      'github token exchange failed: http=%d error=%s desc=%s flow=%s oauth_age_sec=%d state_fp=%s',
       tokenRes.status,
       tokenData?.error,
       tokenData?.error_description,
-      session.desktopFlow ? 'desktop' : 'web'
+      session.desktopFlow ? 'desktop' : 'web',
+      oauthAgeSeconds,
+      stateFingerprint
     )
     securityEvent('auth_callback_failed', { req, reasonCode: 'token_exchange' })
     res.status(400).json({ error: 'GitHub token exchange failed' })
     return
   }
 
+  if (session.desktopFlow) {
+    console.info(
+      'github oauth token exchange accepted: flow=desktop oauth_age_sec=%d state_fp=%s',
+      oauthAgeSeconds, stateFingerprint
+    )
+  }
   const userOctokit = getUserOctokit(tokenData.access_token)
   const { data: user } = await userOctokit.rest.users.getAuthenticated()
 
@@ -226,7 +266,7 @@ export default async function handler(req, res) {
     return
   }
 
-  if (await desktopHandoff(res, session, '/')) return
+  if (await desktopHandoff(res, session, '/', code)) return
   res.writeHead(302, { Location: '/' })
   res.end()
 }
