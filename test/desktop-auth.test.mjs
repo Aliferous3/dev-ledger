@@ -15,6 +15,8 @@ const {
   consumeDesktopCode,
   desktopDeepLink,
   desktopHandoff,
+  oauthDesktopHandoffCode,
+  recoverCompletedDesktopHandoff,
   isDesktopFlowId,
   issueDesktopToken,
   revokeDesktopToken,
@@ -145,6 +147,92 @@ test('desktopHandoff insert failure degrades to the normal web redirect', async 
   assert.equal(await desktopHandoff(res, session, '/'), true)
   assert.equal(res.statusCode, 302)
   assert.equal(res.headers.Location, '/')
+})
+
+test('OAuth-derived desktop handoff is stable, PKCE-bound and never a raw GitHub code', async () => {
+  const oauthCode = 'sample-code-123'
+  const one = oauthDesktopHandoffCode(oauthCode, FLOW, CHALLENGE)
+  const two = oauthDesktopHandoffCode(oauthCode, FLOW, CHALLENGE)
+  assert.match(one, /^dlc_[A-Za-z0-9_-]{43}$/)
+  assert.equal(one, two)
+  assert.notEqual(one, oauthCode)
+  assert.notEqual(one, oauthDesktopHandoffCode(oauthCode + '-different', FLOW, CHALLENGE))
+  assert.notEqual(one, oauthDesktopHandoffCode(oauthCode, FLOW.slice(0, -1) + '1', CHALLENGE))
+  assert.notEqual(one, oauthDesktopHandoffCode(oauthCode, FLOW, 'd'.repeat(64)))
+  assert.equal(oauthDesktopHandoffCode(oauthCode, FLOW, 'invalid'), null)
+  assert.equal(oauthDesktopHandoffCode('', FLOW, CHALLENGE), null)
+
+  db = fakeDb({ desktop_auth_codes: { data: null, error: null } })
+  __setSupabaseForTests(db)
+  const res = mockRes()
+  const session = {
+    desktopFlow: FLOW, desktopChallenge: CHALLENGE,
+    userId: USER, sid: SID, save: async () => {},
+  }
+  assert.equal(await desktopHandoff(res, session, '/', oauthCode), true)
+  assert.equal(res.statusCode, 302)
+  assert.equal(new URL(res.headers.Location).searchParams.get('code'), one)
+  const insert = db.queries.find((q) => q.table === 'desktop_auth_codes')
+    ?.ops.find((o) => o.m === 'insert')?.args[0]
+  assert.equal(insert.code_hash, await import('node:crypto').then(({ default: crypto }) =>
+    crypto.createHash('sha256').update(one).digest('hex')))
+  assert.notEqual(insert.code_hash, one, 'only a hash reaches the database')
+})
+
+test('replayed desktop callback recovers only the already-issued matching handoff', async () => {
+  const oauthCode = 'sample-code-123'
+  const expected = oauthDesktopHandoffCode(oauthCode, FLOW, CHALLENGE)
+  const { default: crypto } = await import('node:crypto')
+  const codeHash = crypto.createHash('sha256').update(expected).digest('hex')
+  let inserted = false
+  db = fakeDb({
+    desktop_auth_codes: (q) => {
+      if (q.ops.some((o) => o.m === 'insert')) {
+        inserted = true
+        return { data: null, error: null }
+      }
+      const filters = q.ops.filter((o) => o.m === 'eq')
+      const sameCode = filters.some((o) => o.args[0] === 'code_hash' && o.args[1] === codeHash)
+      const sameFlow = filters.some((o) => o.args[0] === 'flow' && o.args[1] === FLOW)
+      const samePkce = filters.some((o) => o.args[0] === 'challenge' && o.args[1] === CHALLENGE)
+      return {
+        data: inserted && sameCode && sameFlow && samePkce ? { code_hash: codeHash } : null,
+        error: null,
+      }
+    },
+  })
+  __setSupabaseForTests(db)
+  const first = mockRes()
+  await desktopHandoff(first, {
+    desktopFlow: FLOW, desktopChallenge: CHALLENGE,
+    userId: USER, sid: SID, save: async () => {},
+  }, '/', oauthCode)
+  const retry = mockRes()
+  assert.equal(await recoverCompletedDesktopHandoff(retry, {
+    desktopFlow: FLOW, desktopChallenge: CHALLENGE,
+  }, oauthCode, { attempts: 1, delayMs: 0 }), true)
+  assert.equal(retry.statusCode, 302)
+  assert.equal(retry.headers.Location, first.headers.Location)
+  assert.equal(retry.headers['Cache-Control'], 'private, no-store, max-age=0')
+  assert.equal(await recoverCompletedDesktopHandoff(mockRes(), {
+    desktopFlow: FLOW, desktopChallenge: CHALLENGE,
+  }, 'a-different-github-code', { attempts: 1, delayMs: 0 }), false)
+  assert.equal(await recoverCompletedDesktopHandoff(mockRes(), {
+    desktopFlow: FLOW, desktopChallenge: 'd'.repeat(64),
+  }, oauthCode, { attempts: 1, delayMs: 0 }), false)
+})
+
+test('GitHub recovery cannot create a handoff on its own', async () => {
+  db = fakeDb({ desktop_auth_codes: { data: null, error: null } })
+  __setSupabaseForTests(db)
+  const response = mockRes()
+  const restored = await recoverCompletedDesktopHandoff(response, {
+    desktopFlow: FLOW, desktopChallenge: CHALLENGE,
+  }, 'not-previously-exchanged', { attempts: 1, delayMs: 0 })
+  assert.equal(restored, false)
+  assert.equal(response.statusCode, 200)
+  assert.equal(db.queries.filter((q) => q.table === 'desktop_auth_codes').length, 1)
+  assert.equal(db.queries.some((q) => q.ops.some((o) => o.m === 'insert')), false)
 })
 
 /* ── code consume (single-use, expiry, binding) ─────────────────────── */
